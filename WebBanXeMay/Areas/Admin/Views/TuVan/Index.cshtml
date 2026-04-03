@@ -1,0 +1,33 @@
+﻿@model IEnumerable<WebBanXeMay.Models.TuVan>
+
+<h2>Danh sách yêu cầu tư vấn</h2>
+
+<table class="table table-bordered table-striped">
+    <thead>
+        <tr>
+            <th>Họ tên</th>
+            <th>Email</th>
+            <th>Số điện thoại</th>
+            <th>Nội dung</th>
+            <th>Ngày gửi</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model)
+        {
+            <tr>
+                <td>@item.HoTen</td>
+                <td>@item.Email</td>
+                <td>@item.SoDienThoai</td>
+                <td>@item.NoiDung</td>
+                <td>@item.NgayGui.ToString("dd/MM/yyyy HH:mm")</td>
+                <td>
+                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-info btn-sm">Chi tiết</a>
+                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-danger btn-sm"
+                       onclick="return confirm('Bạn có chắc muốn xóa tư vấn này?');">Xóa</a>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>

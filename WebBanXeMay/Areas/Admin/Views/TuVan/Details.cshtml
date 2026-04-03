@@ -1,0 +1,36 @@
+﻿@model WebBanXeMay.Models.TuVan
+
+@{
+    ViewData["Title"] = "Chi tiết yêu cầu tư vấn";
+}
+
+<div class="container mt-4">
+    <h2 class="text-center text-primary mb-4">Chi tiết yêu cầu tư vấn</h2>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            <dl class="row">
+                <dt class="col-sm-3">Họ tên:</dt>
+                <dd class="col-sm-9">@Model.HoTen</dd>
+
+                <dt class="col-sm-3">Email:</dt>
+                <dd class="col-sm-9">@Model.Email</dd>
+
+                <dt class="col-sm-3">Số điện thoại:</dt>
+                <dd class="col-sm-9">@Model.SoDienThoai</dd>
+
+                <dt class="col-sm-3">Nội dung:</dt>
+                <dd class="col-sm-9">@Model.NoiDung</dd>
+
+                <dt class="col-sm-3">Ngày gửi:</dt>
+                <dd class="col-sm-9">@Model.NgayGui.ToString("dd/MM/yyyy HH:mm")</dd>
+            </dl>
+        </div>
+    </div>
+
+    <div class="mt-4 text-center">
+        <a asp-action="Index" class="btn btn-secondary">
+            <i class="bi bi-arrow-left"></i> Quay lại danh sách
+        </a>
+    </div>
+</div>

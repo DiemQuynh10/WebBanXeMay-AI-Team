@@ -1,0 +1,310 @@
+﻿@using System.Security.Claims
+@{
+    ViewData["Title"] = "Chat với Shop";
+}
+
+<style>
+    .chat-wrapper {
+        background: #f5f5f5;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        height: 80vh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .chat-header {
+        background: white;
+        padding: 15px;
+        border-bottom: 1px solid #ddd;
+        display: flex;
+        align-items: center;
+        font-weight: bold;
+        color: #ee4d2d;
+    }
+
+    .chat-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .chat-footer {
+        background: white;
+        padding: 10px;
+        border-top: 1px solid #ddd;
+        display: flex;
+        gap: 10px;
+    }
+
+    /* Bong bóng chat */
+    .bubble {
+        max-width: 75%;
+        padding: 10px 14px;
+        border-radius: 12px;
+        font-size: 14px;
+        line-height: 1.4;
+        position: relative;
+        word-wrap: break-word;
+    }
+
+        /* Tin mình gửi */
+        .bubble.me {
+            align-self: flex-end;
+            background: #d0ffc4;
+            border-bottom-right-radius: 2px;
+        }
+
+        /* Tin shop gửi */
+        .bubble.shop {
+            align-self: flex-start;
+            background: white;
+            border-bottom-left-radius: 2px;
+            border: 1px solid #e5e5e5;
+        }
+
+    /* STYLE THẺ SẢN PHẨM SHOPEE */
+    .shopee-product-card {
+        background: #fff;
+        width: 280px;
+        border: 1px solid #e8e8e8;
+        border-left: 4px solid #ee4d2d;
+        border-radius: 4px;
+        cursor: pointer;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        overflow: hidden;
+    }
+
+    .shopee-body {
+        padding: 10px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .shopee-img {
+        width: 60px;
+        height: 60px;
+        object-fit: cover;
+        border: 1px solid #f0f0f0;
+    }
+
+    .shopee-info {
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .shopee-name {
+        font-size: 13px;
+        font-weight: 500;
+        color: #333;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .shopee-price {
+        color: #ee4d2d;
+        font-weight: bold;
+        font-size: 14px;
+        margin-top: 4px;
+    }
+
+    .shopee-footer {
+        background: #fffbf8;
+        padding: 8px;
+        font-size: 11px;
+        color: #757575;
+        text-align: center;
+        border-top: 1px solid #f5f5f5;
+    }
+
+    /* [MỚI] CSS HIỂN THỊ GIỜ */
+    .msg-time {
+        display: block;
+        font-size: 10px;
+        margin-top: 4px;
+        opacity: 0.7;
+    }
+
+    .bubble.me .msg-time {
+        text-align: right;
+        color: #155724;
+    }
+
+    .bubble.shop .msg-time {
+        text-align: left;
+        color: #666;
+    }
+</style>
+
+<div class="container mt-4">
+    <div class="chat-wrapper">
+        <div class="chat-header">
+            <i class="fas fa-store me-2"></i> Cửa hàng Xe Máy Uy Tín
+        </div>
+
+        <div id="chatBox" class="chat-body">
+            <div class="text-center text-muted small my-2">Đang tải đoạn chat...</div>
+        </div>
+
+        <div class="chat-footer">
+            <input type="text" id="msgInput" class="form-control" placeholder="Nhập tin nhắn...">
+            <button id="btnSend" class="btn btn-danger"><i class="fas fa-paper-plane"></i></button>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.js"></script>
+
+<script>
+    const MY_USER_ID = "@User.FindFirst(ClaimTypes.NameIdentifier)?.Value";
+    const SHOP_ID = "@(ViewBag.ShopId ?? "")";
+
+    console.log("DEBUG SHOP_ID = ", SHOP_ID);
+
+    // Helper format giờ
+    function formatTime(dateInput) {
+        if (!dateInput) return '';
+        const date = new Date(dateInput);
+        // Định dạng: 14:30
+        return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false }) +
+               ` (${date.getDate()}/${date.getMonth() + 1})`;
+    }
+
+    // 1. Kết nối
+    const connection = new signalR.HubConnectionBuilder()
+        .withUrl("/chatHub")
+        .withAutomaticReconnect()
+        .build();
+
+    connection.start().then(function () {
+        console.log("✅ User Chat Connected!");
+
+        // Ẩn badge ở Layout khi vào trang chat
+        const badge = parent.document.getElementById("globalChatBadge");
+        const badgeLocal = document.getElementById("globalChatBadge");
+        if(badge) { badge.innerText = "0"; badge.classList.remove("show"); badge.style.display = 'none'; }
+        if(badgeLocal) { badgeLocal.innerText = "0"; badgeLocal.classList.remove("show"); badgeLocal.style.display = 'none'; }
+
+        // Tải lịch sử chat
+        loadMyHistory();
+
+        // Gửi sản phẩm đang xem (nếu có)
+        const pendingProdId = localStorage.getItem('pending_product_id');
+        if (pendingProdId) {
+            connection.invoke("SendProduct", SHOP_ID, parseInt(pendingProdId));
+            localStorage.removeItem('pending_product_id');
+        }
+
+    }).catch(err => console.error(err));
+
+    // --- TẢI LỊCH SỬ ---
+    async function loadMyHistory() {
+        const chatBox = document.getElementById("chatBox");
+        try {
+            const res = await fetch('/Chat/GetMyHistory');
+            const messages = await res.json();
+
+            chatBox.innerHTML = '<div class="text-center text-muted small my-2">Bắt đầu cuộc trò chuyện</div>';
+
+            messages.forEach(msg => {
+                const isMe = (msg.senderId === MY_USER_ID);
+                let productData = null;
+                if(msg.isProduct && msg.productJson) {
+                    productData = JSON.parse(msg.productJson);
+                }
+                // Truyền thêm msg.timestamp
+                renderMessage(msg.content, isMe, productData, msg.timestamp);
+            });
+            scrollToBottom();
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    // --- VẼ TIN NHẮN (Có thêm Giờ) ---
+    function renderMessage(message, isMe, productData, timestamp) {
+        const alignClass = isMe ? 'me' : 'shop';
+        const timeStr = formatTime(timestamp);
+        let html = '';
+
+        if (productData) {
+            const priceFmt = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(productData.price);
+            html = `
+            <div class="bubble ${alignClass} p-0 bg-transparent border-0">
+                <div class="shopee-product-card" onclick="window.location.href='/Products/Details/${productData.id}'">
+                    <div class="shopee-body">
+                        <img src="${productData.image}" class="shopee-img">
+                        <div class="shopee-info">
+                            <div class="shopee-name">${productData.name}</div>
+                            <div class="shopee-price">${priceFmt}</div>
+                        </div>
+                    </div>
+                    <div class="shopee-footer">Nhấn vào để xem chi tiết</div>
+                </div>
+                <span class="msg-time">${timeStr}</span>
+            </div>`;
+        } else {
+            html = `
+            <div class="bubble ${alignClass}">
+                ${message}
+                <span class="msg-time">${timeStr}</span>
+            </div>`;
+        }
+
+        document.getElementById("chatBox").insertAdjacentHTML('beforeend', html);
+    }
+
+    function scrollToBottom() {
+        const chatBox = document.getElementById("chatBox");
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+      // --- NHẬN TIN NHẮN REALTIME ---
+    connection.on("ReceiveMessage", function (senderId, message, productData, timestamp) {
+        // Text mình gửi sẽ không bao giờ vào đây nữa,
+        // vì SendText bên Hub không gửi cho Caller.
+        // Nhưng thẻ sản phẩm (SendProduct) thì có:
+        //  - senderId === MY_USER_ID, productData != null  -> thẻ mình vừa gửi
+        //  - senderId != MY_USER_ID                        -> tin từ shop
+
+        const isMe = (senderId === MY_USER_ID);
+        const timeToShow = timestamp || new Date().toISOString();
+
+        renderMessage(message, isMe, productData, timeToShow);
+        scrollToBottom();
+    });
+
+    // --- GỬI TIN ---
+    async function sendMessage() {
+        const input = document.getElementById("msgInput");
+        const msg = input.value;
+
+        if (!msg.trim()) return;
+
+        try {
+            await connection.invoke("SendText", SHOP_ID, msg);
+
+            // ✅ Tự vẽ bubble của chính user ngay sau khi gửi
+            renderMessage(msg, true, null, new Date().toISOString());
+            scrollToBottom();
+
+            input.value = "";
+            input.focus();
+        } catch (err) {
+            console.error(err);
+            alert("Lỗi gửi tin.");
+        }
+    }
+
+    document.getElementById("btnSend").addEventListener("click", sendMessage);
+    document.getElementById("msgInput").addEventListener("keypress", function (e) {
+        if (e.key === "Enter") sendMessage();
+    });
+
+</script>

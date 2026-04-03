@@ -1,0 +1,546 @@
+﻿@using System.Globalization
+@model IEnumerable<WebBanXeMay.Models.SanPham>
+
+@{
+    ViewData["Title"] = "Quản lý Sản phẩm";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <style>
+        /* CSS tùy chỉnh cho đẹp hơn */
+        .img-product-thumb {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid #e3e6f0;
+        }
+
+        .table td {
+            vertical-align: middle !important;
+        }
+        /* Badge màu pastel dịu mắt */
+        .badge-soft-success {
+            background-color: #d1e7dd;
+            color: #0f5132;
+        }
+
+        .badge-soft-warning {
+            background-color: #fff3cd;
+            color: #664d03;
+        }
+
+        .badge-soft-danger {
+            background-color: #f8d7da;
+            color: #842029;
+        }
+
+        .badge-soft-secondary {
+            background-color: #e2e3e5;
+            color: #41464b;
+        }
+
+        /* Icon trong dropdown */
+        .action-icon {
+            width: 20px;
+            text-align: center;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .cursor-pointer {
+            cursor: pointer;
+        }
+    </style>
+}
+
+<div class="d-sm-flex align-items-center justify-content-between mb-4">
+    <div>
+        <h1 class="h3 mb-0 text-gray-800 fw-bold">@ViewData["Title"]</h1>
+        <p class="mb-0 text-muted small">Quản lý kho hàng và danh sách sản phẩm hiển thị</p>
+    </div>
+
+    <div class="btn-group shadow-sm">
+        <a asp-area="Admin" asp-controller="Products" asp-action="ExportExcel"
+           asp-all-route-data="@(new Dictionary<string, string> { { "q", ViewBag.CurrentSearch }, { "maLoai", ViewBag.CurrentLoai?.ToString() }, { "maTH", ViewBag.CurrentTH?.ToString() }, { "stock", ViewBag.CurrentStock?.ToString() } })"
+           class="btn btn-success btn-sm">
+            <i class="fas fa-file-excel me-1"></i> Xuất Excel
+        </a>
+        <a asp-action="Create" class="btn btn-primary btn-sm">
+            <i class="fas fa-plus me-1"></i> Thêm mới
+        </a>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-primary shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Tổng sản phẩm</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">@ViewBag.TotalProductCount</div>
+                    </div>
+                    <div class="col-auto"><i class="fas fa-box fa-2x text-gray-300"></i></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-success shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-success text-uppercase mb-1">Đang bán</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">@ViewBag.ActiveProductCount</div>
+                    </div>
+                    <div class="col-auto"><i class="fas fa-check-circle fa-2x text-gray-300"></i></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-warning shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">Sắp hết hàng</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">@ViewBag.LowStockCount</div>
+                    </div>
+                    <div class="col-auto"><i class="fas fa-exclamation-triangle fa-2x text-gray-300"></i></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-danger shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-danger text-uppercase mb-1">Hết hàng</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">@ViewBag.OutOfStockCount</div>
+                    </div>
+                    <div class="col-auto"><i class="fas fa-times-circle fa-2x text-gray-300"></i></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between"
+         data-toggle="collapse"
+         data-target="#filterPanel"
+         style="cursor: pointer;">
+        <h6 class="m-0 font-weight-bold text-primary"><i class="fas fa-filter me-1"></i> Bộ lọc & Tìm kiếm</h6>
+        <i class="fas fa-chevron-down text-gray-400"></i>
+    </div>
+    <div class="card-body collapse show" id="filterPanel">
+        <form asp-action="Index" method="get">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="small text-muted font-weight-bold">Từ khóa</label>
+                    <div class="input-group input-group-sm">
+                        <input name="q" value="@ViewBag.CurrentSearch" type="search" class="form-control bg-light border-0" placeholder="Tên sản phẩm..." />
+                        <div class="input-group-append">
+                            <button class="btn btn-primary" type="submit"><i class="fas fa-search"></i></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-2 mb-3">
+                    <label class="small text-muted font-weight-bold">Loại xe</label>
+                    <select name="maLoai" asp-items="@ViewBag.LoaiList" class="form-control form-control-sm" onchange="this.form.submit()">
+                        <option value="">-- Tất cả --</option>
+                    </select>
+                </div>
+
+                <div class="col-md-2 mb-3">
+                    <label class="small text-muted font-weight-bold">Hãng xe</label>
+                    <select name="maTH" asp-items="@ViewBag.THList" class="form-control form-control-sm" onchange="this.form.submit()">
+                        <option value="">-- Tất cả --</option>
+                    </select>
+                </div>
+
+                <div class="col-md-2 mb-3">
+                    <label class="small text-muted font-weight-bold">Kho hàng</label>
+                    <select name="stock" class="form-control form-control-sm" onchange="this.form.submit()">
+                        <option value="">-- Tất cả --</option>
+                        <option value="1" selected="@(ViewBag.CurrentStock == 1)">Còn nhiều</option>
+                        <option value="2" selected="@(ViewBag.CurrentStock == 2)">Sắp hết</option>
+                        <option value="3" selected="@(ViewBag.CurrentStock == 3)">Hết hàng</option>
+                        <option value="4" selected="@(ViewBag.CurrentStock == 4)">Ngừng KD</option>
+                    </select>
+                </div>
+
+                <div class="col-md-2 mb-3">
+                    <label class="small text-muted font-weight-bold w-100">&nbsp;</label>
+                    <a asp-action="Index" class="btn btn-secondary btn-sm btn-block"><i class="fas fa-sync-alt"></i> Reset</a>
+                </div>
+            </div>
+
+            <div class="row mt-2 border-top pt-2">
+                <div class="col-md-12">
+                    <small class="text-primary cursor-pointer" data-toggle="collapse" data-target="#advFilter">
+                        <i class="fas fa-sliders-h me-1"></i> Lọc theo khoảng giá
+                    </small>
+                </div>
+                <div class="col-md-12 collapse mt-2" id="advFilter">
+                    <div class="form-inline">
+                        <input type="number" name="minPrice" class="form-control form-control-sm mr-2" placeholder="Giá từ..." value="@ViewBag.MinPrice" />
+                        <span class="mr-2">-</span>
+                        <input type="number" name="maxPrice" class="form-control form-control-sm mr-2" placeholder="Giá đến..." value="@ViewBag.MaxPrice" />
+                        <button type="submit" class="btn btn-info btn-sm">Áp dụng</button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+        <h6 class="m-0 font-weight-bold text-primary">Danh sách Sản phẩm</h6>
+
+        <form asp-action="BulkAction" method="post" id="bulkForm" class="form-inline m-0">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="ids" id="bulkIds" />
+            <input type="hidden" name="actionType" id="bulkActionType" />
+
+            <div class="input-group input-group-sm">
+                <select class="custom-select" id="bulkActionSelect" style="max-width: 150px;">
+                    <option value="">Thao tác hàng loạt...</option>
+                    <option value="activate">Hiện (Đang bán)</option>
+                    <option value="deactivate">Ẩn (Ngừng KD)</option>
+                    <option value="delete">Xóa đã chọn</option>
+                </select>
+                <div class="input-group-append">
+                    <button type="button" class="btn btn-secondary" onclick="submitBulkAction()">
+                        Thực hiện
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-striped mb-0" id="dataTable" width="100%" cellspacing="0">
+                <thead class="bg-light text-dark">
+                    <tr>
+                        <th style="width:40px;" class="text-center">
+                            <input type="checkbox" onclick="toggleSelectAll(this)" />
+                        </th>
+                        <th style="width: 70px;">Ảnh</th>
+                        <th>Tên sản phẩm</th>
+                        <th>Thông tin</th>
+                        <th>Giá bán</th>
+                        <th>Kho</th>
+                        <th class="text-center" style="width: 60px;">#</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in Model)
+                    {
+                        <tr>
+                            <td class="text-center">
+                                <input type="checkbox" class="product-check" value="@item.MaSP" />
+                            </td>
+                            <td class="text-center">
+                                <img src="@(string.IsNullOrEmpty(item.ImageUrl) ? "/images/no-image.png" : item.ImageUrl)"
+                                     alt="Thumb" class="img-product-thumb shadow-sm" />
+                            </td>
+                            <td>
+                                <div class="font-weight-bold text-primary mb-1">@item.TenSP</div>
+                                <div class="small text-muted">Mã: #@item.MaSP</div>
+                            </td>
+                            <td>
+                                <div class="small"><span class="text-muted">Loại:</span> @item.Loai?.TenLoai</div>
+                                <div class="small"><span class="text-muted">Hãng:</span> @item.ThuongHieu?.TenTH</div>
+                            </td>
+                            <td id="price-@item.MaSP" class="font-weight-bold text-dark">
+                                @item.Gia.ToString("N0") ₫
+                            </td>
+                            <td id="stockCell-@item.MaSP">
+                                @if (!item.IsActive)
+                                {
+                                    <span class="badge badge-soft-secondary rounded-pill px-2">Ngừng KD</span>
+                                }
+                                else if (item.SoLuong <= 0)
+                                {
+                                    <span class="badge badge-soft-danger rounded-pill px-2">Hết hàng</span>
+                                }
+                                else if (item.SoLuong <= 5)
+                                {
+                                    <span class="badge badge-soft-warning rounded-pill px-2">Sắp hết (@item.SoLuong)</span>
+                                }
+                                else
+                                {
+                                    <span class="badge badge-soft-success rounded-pill px-2">Còn hàng (@item.SoLuong)</span>
+                                }
+                            </td>
+                            <td class="text-center">
+                                <div class="dropdown no-arrow">
+                                    <button class="btn btn-light btn-sm dropdown-toggle" type="button"
+        id="dropdownMenuButton-@item.MaSP"
+        data-toggle="dropdown"
+        aria-haspopup="true"
+        aria-expanded="false">
+                                        <i class="fas fa-ellipsis-v text-gray-400"></i>
+                                    </button>
+
+                                    <div class="dropdown-menu dropdown-menu-right shadow animated--fade-in"
+                                         aria-labelledby="dropdownMenuButton-@item.MaSP" style="z-index: 9999;">
+                                        <div class="dropdown-header">Thao tác:</div>
+
+                                        <a class="dropdown-item" href="javascript:void(0)" onclick="openQuickView(@item.MaSP)">
+                                            <i class="fas fa-eye text-info action-icon"></i> Xem nhanh
+                                        </a>
+
+                                        <a class="dropdown-item" href="javascript:void(0)"
+                                           onclick="openQuickEdit(@item.MaSP, @item.Gia.ToString(CultureInfo.InvariantCulture), @item.SoLuong)">
+                                            <i class="fas fa-bolt text-warning action-icon"></i> Sửa nhanh
+                                        </a>
+
+                                        <a class="dropdown-item" asp-action="Edit" asp-route-id="@item.MaSP">
+                                            <i class="fas fa-edit text-primary action-icon"></i> Chỉnh sửa
+                                        </a>
+
+                                        <div class="dropdown-divider"></div>
+
+                                        <form asp-action="Delete" asp-route-id="@item.MaSP" method="post" class="d-inline block-delete">
+                                            @Html.AntiForgeryToken()
+                                            <button type="button" class="dropdown-item text-danger" onclick="confirmDelete(this)">
+                                                <i class="fas fa-trash action-icon"></i> Xóa bỏ
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="p-3 border-top d-flex justify-content-between align-items-center bg-light">
+            @{
+                int totalPages = ViewBag.TotalPages ?? 1;
+                int currentPage = ViewBag.PageIndex ?? 1;
+                int totalItems = ViewBag.TotalItems ?? 0;
+            }
+            <div class="small text-muted">
+                Hiển thị <strong>@Model.Count()</strong> / <strong>@totalItems</strong> bản ghi
+            </div>
+
+            @if (totalPages > 1)
+            {
+                <nav>
+                    <ul class="pagination pagination-sm mb-0">
+                        <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                            <a class="page-link" href="@Url.Action("Index", new { page = currentPage - 1, q = ViewBag.CurrentSearch, maLoai = ViewBag.CurrentLoai, maTH = ViewBag.CurrentTH, stock = ViewBag.CurrentStock })">Trước</a>
+                        </li>
+                        @for (int i = 1; i <= totalPages; i++)
+                        {
+                            <li class="page-item @(i == currentPage ? "active" : "")">
+                                <a class="page-link" href="@Url.Action("Index", new { page = i, q = ViewBag.CurrentSearch, maLoai = ViewBag.CurrentLoai, maTH = ViewBag.CurrentTH, stock = ViewBag.CurrentStock })">@i</a>
+                            </li>
+                        }
+                        <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                            <a class="page-link" href="@Url.Action("Index", new { page = currentPage + 1, q = ViewBag.CurrentSearch, maLoai = ViewBag.CurrentLoai, maTH = ViewBag.CurrentTH, stock = ViewBag.CurrentStock })">Sau</a>
+                        </li>
+                    </ul>
+                </nav>
+            }
+        </div>
+    </div>
+</div>
+
+<form id="__AjaxAntiForgeryForm" method="post" class="d-none">
+    @Html.AntiForgeryToken()
+</form>
+
+<div class="modal fade" id="quickViewModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title font-weight-bold text-white">Chi tiết sản phẩm</h5>
+                <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="quickViewBody">
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <script>
+        // --- 1. HIỂN THỊ THÔNG BÁO TỪ TEMPDATA ---
+        document.addEventListener("DOMContentLoaded", function () {
+            var successMsg = '@Html.Raw(TempData["SuccessMessage"] ?? TempData["Success"])';
+            var errorMsg = '@Html.Raw(TempData["ErrorMessage"] ?? TempData["Error"])';
+
+            if (successMsg) {
+                Swal.fire({
+                    toast: true, position: 'top-end', icon: 'success', title: successMsg,
+                    showConfirmButton: false, timer: 3000, timerProgressBar: true
+                });
+            }
+            if (errorMsg) {
+                Swal.fire({
+                    toast: true, position: 'top-end', icon: 'error', title: errorMsg,
+                    showConfirmButton: false, timer: 4000
+                });
+            }
+        });
+
+        // --- 2. XỬ LÝ CHECKBOX ---
+        function toggleSelectAll(source) {
+            const checkboxes = document.querySelectorAll('.product-check');
+            checkboxes.forEach(cb => { cb.checked = source.checked; });
+        }
+
+        // --- 3. XỬ LÝ BULK ACTION (Dùng SweetAlert) ---
+        function submitBulkAction() {
+            const actionSelect = document.getElementById('bulkActionSelect');
+            const action = actionSelect.value;
+
+            if (!action) {
+                Swal.fire('Chú ý', 'Vui lòng chọn thao tác cần thực hiện', 'warning');
+                return;
+            }
+
+            const checked = Array.from(document.querySelectorAll('.product-check:checked')).map(cb => cb.value);
+
+            if (checked.length === 0) {
+                Swal.fire('Chú ý', 'Vui lòng chọn ít nhất một sản phẩm', 'warning');
+                return;
+            }
+
+            if (action === 'delete') {
+                Swal.fire({
+                    title: 'Xác nhận xóa?',
+                    text: `Bạn có chắc muốn xóa ${checked.length} sản phẩm đã chọn?`,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#d33',
+                    cancelButtonColor: '#3085d6',
+                    confirmButtonText: 'Xóa ngay!',
+                    cancelButtonText: 'Hủy'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        executeBulk(checked, action);
+                    }
+                });
+            } else {
+                executeBulk(checked, action);
+            }
+        }
+
+        function executeBulk(checked, action) {
+            document.getElementById('bulkIds').value = checked.join(',');
+            document.getElementById('bulkActionType').value = action;
+            document.getElementById('bulkForm').submit();
+        }
+
+        // --- 4. XỬ LÝ DELETE ONE (Dùng SweetAlert) ---
+        function confirmDelete(btn) {
+            Swal.fire({
+                title: 'Xóa sản phẩm?',
+                text: "Hành động này không thể hoàn tác!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                confirmButtonText: 'Xóa',
+                cancelButtonText: 'Hủy'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    btn.closest('form').submit();
+                }
+            });
+        }
+
+        // --- 5. QUICK EDIT (Dùng SweetAlert thay Prompt native) ---
+        async function openQuickEdit(id, currentGia, currentSoLuong) {
+            const { value: formValues } = await Swal.fire({
+                title: 'Sửa nhanh',
+                html:
+                    `<div class="text-left mb-2"><small>Giá bán (VNĐ)</small></div>` +
+                    `<input id="swal-input1" class="swal2-input m-0 w-100" type="number" value="${currentGia}">` +
+                    `<div class="text-left mt-3 mb-2"><small>Số lượng kho</small></div>` +
+                    `<input id="swal-input2" class="swal2-input m-0 w-100" type="number" value="${currentSoLuong}">`,
+                focusConfirm: false,
+                showCancelButton: true,
+                confirmButtonText: 'Lưu thay đổi',
+                preConfirm: () => {
+                    return [
+                        document.getElementById('swal-input1').value,
+                        document.getElementById('swal-input2').value
+                    ]
+                }
+            });
+
+            if (formValues) {
+                const gia = parseFloat(formValues[0]);
+                const soLuong = parseInt(formValues[1]);
+
+                // --- Code AJAX cũ của mày ---
+                const tokenInput = document.querySelector('#__AjaxAntiForgeryForm input[name="__RequestVerificationToken"]');
+                const token = tokenInput ? tokenInput.value : "";
+                const params = new URLSearchParams();
+                params.append("id", id);
+                params.append("gia", gia);
+                params.append("soLuong", soLuong);
+
+                fetch('@Url.Action("QuickUpdate", "Products", new { area = "Admin" })', {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded", "RequestVerificationToken": token },
+                    body: params.toString()
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.ok) {
+                        Swal.fire('Lỗi', data.message || "Cập nhật thất bại", 'error');
+                        return;
+                    }
+                    // Cập nhật DOM
+                    const priceCell = document.getElementById("price-" + id);
+                    if (priceCell) priceCell.textContent = data.giaFormatted + " ₫";
+
+                    const stockCell = document.getElementById("stockCell-" + id);
+                    if (stockCell) stockCell.innerHTML = `<span class="badge ${data.badgeClass}">${data.stockText}</span>`;
+
+                    Swal.fire({ icon: 'success', title: 'Đã cập nhật!', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
+                })
+                .catch(() => {
+                    Swal.fire('Lỗi', 'Có lỗi kết nối', 'error');
+                });
+            }
+        }
+
+        // --- 6. QUICK VIEW (Giữ nguyên logic) ---
+        function openQuickView(id) {
+            const body = document.getElementById("quickViewBody");
+            if (body) body.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border text-primary" role="status"></div><br>Đang tải dữ liệu...</div>';
+
+            $('#quickViewModal').modal('show');
+
+            fetch('@Url.Action("QuickDetails", "Products", new { area = "Admin" })' + '?id=' + id)
+            .then(res => {
+                if (!res.ok) throw new Error("Network response was not ok");
+                return res.text();
+            })
+            .then(html => {
+                if (body) body.innerHTML = html;
+            })
+            .catch(err => {
+                if (body) body.innerHTML = '<div class="text-center text-danger py-5">Không tải được thông tin sản phẩm.</div>';
+            });
+        }
+    </script>
+}

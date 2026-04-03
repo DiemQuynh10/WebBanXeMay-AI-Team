@@ -1,0 +1,154 @@
+﻿@using Azure.Core
+@model IEnumerable<WebBanXeMay.Models.SanPham>
+@{
+    ViewData["Title"] = "Sản phẩm";
+    var brands = (IEnumerable<WebBanXeMay.Models.ThuongHieu>)ViewBag.Brands;
+    var loais = (IEnumerable<WebBanXeMay.Models.Loai>)ViewBag.Loais;
+    var currentRequest = Context.Request;
+
+    // ===== DỮ LIỆU PHÂN TRANG =====
+    int totalItems = ViewBag.Total ?? 0;
+    int pageSize = ViewBag.PageSize ?? 12;
+    int currentPage = ViewBag.Page ?? 1;
+    int totalPages = (int)Math.Ceiling((double)totalItems / pageSize);
+    int itemsOnPage = Model.Count();
+
+    // Filter params
+    var brand = ViewBag.Brand;
+    var loai = ViewBag.Loai;
+    var q = ViewBag.Q;
+
+    // Logic phân trang
+    int startPage = Math.Max(1, currentPage - 2);
+    int endPage = Math.Min(totalPages, currentPage + 2);
+
+    if (currentPage <= 3) { endPage = Math.Min(totalPages, 5); }
+    if (currentPage > totalPages - 3) { startPage = Math.Max(1, totalPages - 4); }
+}
+
+<h1 class="text-2xl font-bold text-pink-600 mb-4">Sản phẩm</h1>
+
+<form method="get" class="grid md:grid-cols-4 gap-3 mb-8 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+    <select name="brand" class="border border-gray-200 rounded-xl px-3 py-2 focus:border-pink-500 focus:ring-pink-500 outline-none">
+        <option value="">— Thương hiệu —</option>
+        @foreach (var b in brands)
+        {
+            <option value="@b.Slug" selected="@(currentRequest.Query["brand"] == b.Slug)">@b.TenTH</option>
+        }
+    </select>
+    <select name="loai" class="border border-gray-200 rounded-xl px-3 py-2 focus:border-pink-500 focus:ring-pink-500 outline-none">
+        <option value="">— Loại xe —</option>
+        @foreach (var l in loais)
+        {
+            <option value="@l.Slug" selected="@(currentRequest.Query["loai"] == l.Slug)">@l.TenLoai</option>
+        }
+    </select>
+    <input name="q" value="@currentRequest.Query["q"]" placeholder="Tìm kiếm xe..." class="border border-gray-200 rounded-xl px-3 py-2 focus:border-pink-500 focus:ring-pink-500 outline-none" />
+    <button class="bg-pink-600 hover:bg-pink-700 text-white font-bold rounded-xl px-4 transition shadow-lg shadow-pink-200">Lọc</button>
+</form>
+
+@if (Model != null && Model.Any())
+{
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        @foreach (var item in Model)
+        {
+            var imgUrl = string.IsNullOrEmpty(item.ImageUrl) ? "/images/no-image.jpg" : item.ImageUrl;
+
+            <div class="group relative bg-white rounded-2xl border border-gray-100 p-4 transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-2xl hover:border-pink-100 hover:z-10">
+
+                <a href="@Url.Action("Details", "SanPham", new { slug = item.Slug })" class="absolute inset-0 z-20"></a>
+
+                <div class="aspect-[4/3] flex items-center justify-center mb-4 bg-gray-50/50 rounded-xl overflow-hidden">
+                    <img src="@Url.Content(imgUrl)" alt="@item.TenSP"
+                         class="max-w-full max-h-full object-contain mix-blend-multiply group-hover:scale-110 transition-transform duration-500" />
+                </div>
+
+                <div class="space-y-2">
+                    <div class="text-xs text-gray-500 flex items-center gap-2">
+                        <span>@(item.ThuongHieu?.TenTH ?? "Hãng")</span>
+                        <span>•</span>
+                        <span>@(item.Loai?.TenLoai ?? "Loại")</span>
+                    </div>
+
+                    <h3 class="font-bold text-gray-900 text-lg leading-tight line-clamp-1 group-hover:text-pink-600 transition-colors">
+                        @item.TenSP
+                    </h3>
+
+                    <div class="pt-2 flex items-center justify-between">
+                        <span class="text-pink-600 font-extrabold text-lg">
+                            @item.Gia.ToString("N0")₫
+                        </span>
+
+                        <span class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 group-hover:bg-pink-600 group-hover:text-white transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="text-center py-16 bg-white rounded-2xl border border-dashed border-gray-300">
+        <svg class="w-16 h-16 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        <p class="text-gray-500">Không tìm thấy sản phẩm nào.</p>
+    </div>
+}
+
+
+@if (totalPages > 1)
+{
+    <nav class="flex items-center justify-between mt-10" aria-label="Pagination">
+        <div class="text-sm text-gray-600">
+            Hiển thị <span class="font-semibold text-gray-800">@itemsOnPage</span>
+            trong tổng số <span class="font-semibold text-gray-800">@totalItems</span> sản phẩm
+        </div>
+
+        <div class="inline-flex items-center justify-center rounded-lg border border-gray-200 p-1 space-x-1 bg-white shadow-sm">
+            <a asp-action="Index"
+               asp-route-page="@(currentPage - 1)"
+               asp-route-brand="@brand" asp-route-loai="@loai" asp-route-q="@q"
+               class="inline-flex items-center justify-center px-4 py-2 h-10 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition @(currentPage == 1 ? "pointer-events-none opacity-50" : "")">
+                « Trước
+            </a>
+
+            @if (startPage > 1)
+            {
+                <a asp-action="Index" asp-route-page="1" asp-route-brand="@brand" asp-route-loai="@loai" asp-route-q="@q"
+                   class="inline-flex items-center justify-center w-10 h-10 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition">1</a>
+                @if (startPage > 2)
+                {
+                    <span class="inline-flex items-center justify-center w-10 h-10 text-gray-400">...</span>
+                }
+            }
+
+            @for (int i = startPage; i <= endPage; i++)
+            {
+                <a asp-action="Index"
+                   asp-route-page="@i"
+                   asp-route-brand="@brand" asp-route-loai="@loai" asp-route-q="@q"
+                   class="inline-flex items-center justify-center w-10 h-10 rounded-lg text-sm font-medium transition @(i == currentPage ? "bg-pink-600 text-white shadow-md shadow-pink-200" : "text-gray-600 hover:bg-gray-100")">
+                    @i
+                </a>
+            }
+
+            @if (endPage < totalPages)
+            {
+                @if (endPage < totalPages - 1)
+                {
+                    <span class="inline-flex items-center justify-center w-10 h-10 text-gray-400">...</span>
+                }
+                <a asp-action="Index" asp-route-page="@totalPages" asp-route-brand="@brand" asp-route-loai="@loai" asp-route-q="@q"
+                   class="inline-flex items-center justify-center w-10 h-10 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition">@totalPages</a>
+            }
+
+            <a asp-action="Index"
+               asp-route-page="@(currentPage + 1)"
+               asp-route-brand="@brand" asp-route-loai="@loai" asp-route-q="@q"
+               class="inline-flex items-center justify-center px-4 py-2 h-10 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition @(currentPage == totalPages ? "pointer-events-none opacity-50" : "")">
+                Sau »
+            </a>
+        </div>
+    </nav>
+}

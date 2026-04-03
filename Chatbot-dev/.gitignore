@@ -1,0 +1,36 @@
+# Secrets
+.env
+.env.*
+appsettings.Development.json
+appsettings.Local.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Chroma / vector db local
+chroma_db/
+*.sqlite3
+
+# Logs
+*.log
+
+# Visual Studio
+.vs/
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+
+# Node (nếu có)
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db

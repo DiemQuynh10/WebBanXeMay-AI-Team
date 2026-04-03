@@ -1,0 +1,504 @@
+﻿@model WebBanXeMay.Models.SanPham
+@{
+    ViewData["Title"] = Model.TenSP;
+
+    // Hết hàng nếu: số lượng <= 0 HOẶC sản phẩm đã ngừng kinh doanh
+    var isOutOfStock = !Model.IsActive || Model.SoLuong <= 0;
+
+    // Lấy dữ liệu từ ViewBag (tránh null)
+    var reviews = ViewBag.ProductReviews as List<WebBanXeMay.Models.DanhGia> ?? new List<WebBanXeMay.Models.DanhGia>();
+    var averageRating = reviews.Any() ? reviews.Average(r => r.DiemDanhGia) : 0;
+    var specs = ViewBag.Specs as IDictionary<string, string> ?? new Dictionary<string, string>();
+    var related = ViewBag.Related as IEnumerable<WebBanXeMay.Models.SanPham> ?? Enumerable.Empty<WebBanXeMay.Models.SanPham>();
+    var images = ViewBag.Images as string[] ?? new string[] { };
+
+    // Xử lý Link Filter (dùng ?. để tránh lỗi null object)
+    string? brandSlug = Model.ThuongHieu?.Slug;
+    string? loaiSlug = Model.Loai?.Slug;
+
+    var brandUrl = !string.IsNullOrWhiteSpace(brandSlug) ? Url.Action("Index", "SanPham", new { brand = brandSlug }) : Url.Action("Index", "SanPham");
+    var loaiUrl = !string.IsNullOrWhiteSpace(loaiSlug) ? Url.Action("Index", "SanPham", new { loai = loaiSlug }) : Url.Action("Index", "SanPham");
+
+    // Url Action
+    var cartAddUrl = Url.Action("Add", "Cart");
+    var cartBuyNowUrl = Url.Action("BuyNow", "Cart");
+
+    // Thông báo
+    var cartError = TempData["CartError"] as string;
+    var cartSuccess = TempData["CartSuccess"] as string;
+}
+
+<div class="bg-gray-50 border-b border-gray-200">
+    <div class="max-w-7xl mx-auto px-4 py-3">
+        <nav class="flex text-sm text-gray-500 gap-2">
+            <a href="/" class="hover:text-rose-600 transition">Trang chủ</a>
+            <span>/</span>
+            <a href="@brandUrl" class="hover:text-rose-600 transition">@(Model.ThuongHieu?.TenTH ?? "Thương hiệu")</a>
+            <span>/</span>
+            <span class="text-gray-900 font-medium truncate">@Model.TenSP</span>
+        </nav>
+    </div>
+</div>
+
+<section class="max-w-7xl mx-auto px-4 py-8">
+    @if (!string.IsNullOrEmpty(cartError) || !string.IsNullOrEmpty(cartSuccess))
+    {
+        <div class="fixed top-20 right-5 z-50 animate-fade-in-down w-full max-w-sm">
+            @if (!string.IsNullOrEmpty(cartError))
+            {
+                <div class="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-lg flex items-start gap-3">
+                    <svg class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <div><p class="font-bold">Lỗi</p><p class="text-sm">@cartError</p></div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(cartSuccess))
+            {
+                <div class="bg-emerald-50 border-l-4 border-emerald-500 text-emerald-700 p-4 rounded shadow-lg flex items-start gap-3">
+                    <svg class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    <div><p class="font-bold">Thành công</p><p class="text-sm">@cartSuccess</p></div>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-10">
+
+        <div class="lg:col-span-7">
+            <div class="sticky top-4">
+                <div class="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden relative group">
+                    <div class="aspect-[4/3] flex items-center justify-center p-6 bg-gray-50/50">
+                        <img id="mainImage"
+                             src="@(string.IsNullOrWhiteSpace(Model.ImageUrl) ? Url.Content("~/images/no-image.jpg") : Url.Content(Model.ImageUrl))"
+                             alt="@Model.TenSP"
+                             class="max-w-full max-h-full object-contain transition-transform duration-500 group-hover:scale-105" />
+                    </div>
+                </div>
+
+                @if (images.Length > 1)
+                {
+                    <div class="flex gap-4 mt-4 overflow-x-auto pb-2 scrollbar-hide">
+                        @foreach (var img in images)
+                        {
+                            <button onclick="changeImage(this)" data-src="@Url.Content(img)"
+                                    class="w-20 h-20 rounded-xl border-2 border-transparent hover:border-rose-500 overflow-hidden bg-white cursor-pointer transition focus:border-rose-600 focus:outline-none">
+                                <img src="@Url.Content(img)" class="w-full h-full object-contain p-1" />
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="lg:col-span-5 flex flex-col h-full">
+            <div class="flex items-center justify-between mb-2">
+                <a href="@brandUrl" class="text-rose-600 font-semibold text-sm uppercase tracking-wider hover:underline">
+                    @(Model.ThuongHieu?.TenTH ?? "Xe máy")
+                </a>
+                <div class="flex items-center gap-1 text-sm text-yellow-500">
+                    <span class="font-bold text-gray-900">@averageRating.ToString("0.0")</span>
+                    <svg class="w-4 h-4 fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
+                    <a href="#reviews-section" class="text-gray-400 underline decoration-dotted ml-1 hover:text-gray-600">(@reviews.Count đánh giá)</a>
+                </div>
+            </div>
+
+            <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 leading-tight mb-4">@Model.TenSP</h1>
+
+            <div class="flex flex-wrap gap-2 mb-6">
+                <span class="px-3 py-1 bg-gray-100 rounded-lg text-xs font-medium text-gray-600 border border-gray-200">
+                    @(Model.Loai?.TenLoai ?? "Xe số")
+                </span>
+                @if (Model.CC.HasValue)
+                {
+                    <span class="px-3 py-1 bg-gray-100 rounded-lg text-xs font-medium text-gray-600 border border-gray-200">
+                        @Model.CC cc
+                    </span>
+                }
+                <span class="px-3 py-1 bg-gray-100 rounded-lg text-xs font-medium text-gray-600 border border-gray-200">
+                    Model 2025
+                </span>
+            </div>
+
+            <div class="bg-gray-50 rounded-2xl p-5 mb-6 border border-gray-100">
+                <div class="flex items-end gap-3">
+                    <span class="text-4xl font-extrabold text-rose-600">@Model.Gia.ToString("N0")<span class="text-xl align-top">₫</span></span>
+                    <span class="text-gray-400 text-sm mb-2 line-through">@((Model.Gia * 1.1m).ToString("N0"))₫</span>
+                </div>
+                <div class="mt-2 text-sm text-gray-500 flex items-center gap-2">
+                    <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    Giá đã bao gồm VAT
+                </div>
+            </div>
+
+            <div class="flex items-center gap-6 mb-8">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Số lượng</label>
+                    <div class="flex items-center border border-gray-300 rounded-lg bg-white w-32 h-11">
+                        <button onclick="updateQty(-1)" @(isOutOfStock ? "disabled" : "") class="w-10 h-full text-gray-500 hover:bg-gray-100 rounded-l-lg transition">-</button>
+                        <input type="number"
+                               id="qty"
+                               value="@(isOutOfStock ? 0 : 1)"
+                               min="1"
+                               max="@Model.SoLuong"
+                        @(isOutOfStock ? "disabled" : "")
+                               class="w-full h-full text-center border-none focus:ring-0 text-gray-900 font-semibold p-0" />
+                        <button onclick="updateQty(1)" @(isOutOfStock ? "disabled" : "") class="w-10 h-full text-gray-500 hover:bg-gray-100 rounded-r-lg transition">+</button>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Tình trạng</label>
+                    @if (isOutOfStock)
+                    {
+                        <span class="text-red-600 font-bold flex items-center gap-1">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Tạm hết hàng
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="text-emerald-600 font-bold flex items-center gap-1">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Còn hàng (@Model.SoLuong)
+                        </span>
+                    }
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mb-6">
+                <button type="button"
+                        onclick="AddToCart(@Model.MaSP)"
+                @(isOutOfStock ? "disabled" : "")
+                        class="
+                            col-span-1 h-12 rounded-xl font-bold border-2 border-rose-600 text-rose-600
+                            hover:bg-rose-50 transition flex items-center justify-center gap-2
+                            @(isOutOfStock ? " opacity-50 cursor-not-allowed hover:bg-white" : "")
+                        ">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4m-8 2a2 2 0 11-4 0 2 2 0 014 0"></path></svg>
+                    Thêm giỏ hàng
+                </button>
+
+                <button type="button"
+                        onclick="BuyNow(@Model.MaSP)"
+                @(isOutOfStock ? "disabled" : "")
+                        class="
+                            col-span-1 h-12 rounded-xl font-bold bg-rose-600 text-white
+                            hover:bg-rose-700 shadow-lg shadow-rose-200 transition
+                            @(isOutOfStock ? " opacity-50 cursor-not-allowed hover:bg-rose-600" : "")
+                        ">
+                    Mua ngay
+                </button>
+
+                <button type="button" onclick="chatWithShop()" class="col-span-2 h-10 rounded-lg text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                    Chat tư vấn (8:00 - 22:00)
+                </button>
+            </div>
+
+            <div class="border-t pt-6 mt-auto">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 flex-shrink-0">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-sm text-gray-900">Bảo hành 3 năm</h4>
+                            <p class="text-xs text-gray-500">Chính hãng tại mọi đại lý</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center text-orange-600 flex-shrink-0">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-sm text-gray-900">Giao xe tận nơi</h4>
+                            <p class="text-xs text-gray-500">Miễn phí nội thành</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center text-purple-600 flex-shrink-0">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-sm text-gray-900">Trả góp 0%</h4>
+                            <p class="text-xs text-gray-500">Thủ tục đơn giản</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center text-green-600 flex-shrink-0">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-sm text-gray-900">Đổi trả 7 ngày</h4>
+                            <p class="text-xs text-gray-500">Nếu có lỗi nhà sản xuất</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="bg-white border-t border-gray-100 my-8 py-10" id="reviews-section">
+    <div class="max-w-6xl mx-auto px-4">
+        <div class="flex justify-center mb-8">
+            <div class="inline-flex bg-gray-100 p-1 rounded-xl">
+                <button onclick="switchTab('desc')" id="btn-desc" class="tab-btn px-6 py-2.5 text-sm font-bold rounded-lg text-gray-900 bg-white shadow-sm transition-all">Mô tả chi tiết</button>
+                <button onclick="switchTab('specs')" id="btn-specs" class="tab-btn px-6 py-2.5 text-sm font-bold rounded-lg text-gray-500 hover:text-gray-900 transition-all">Thông số kỹ thuật</button>
+                <button onclick="switchTab('reviews')" id="btn-reviews" class="tab-btn px-6 py-2.5 text-sm font-bold rounded-lg text-gray-500 hover:text-gray-900 transition-all">Đánh giá (@reviews.Count)</button>
+            </div>
+        </div>
+
+        <div class="min-h-[300px]">
+            <div id="tab-desc" class="tab-content max-w-4xl mx-auto animate-fade-in">
+                @if (!string.IsNullOrWhiteSpace(Model.MoTa))
+                {
+                    <div class="prose prose-lg prose-rose mx-auto text-gray-700">
+                        @Html.Raw(Model.MoTa)
+                    </div>
+                }
+                else
+                {
+                    <div class="text-center py-10">
+                        <p class="text-gray-400 italic">Nội dung đang được cập nhật...</p>
+                    </div>
+                }
+            </div>
+
+            <div id="tab-specs" class="tab-content hidden max-w-3xl mx-auto animate-fade-in">
+                <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <table class="w-full text-sm text-left">
+                        <tbody class="divide-y divide-gray-100">
+                            @foreach (var kv in specs)
+                            {
+                                <tr class="hover:bg-gray-50 transition">
+                                    <th class="py-4 px-6 font-medium text-gray-900 w-1/3 bg-gray-50/50">@kv.Key</th>
+                                    <td class="py-4 px-6 text-gray-600">@kv.Value</td>
+                                </tr>
+                            }
+                            @if (!specs.Any())
+                            {
+                                <tr><th class="py-4 px-6 font-medium text-gray-900 w-1/3">Động cơ</th><td class="py-4 px-6">eSP+ 4 van, 4 kỳ, làm mát bằng chất lỏng</td></tr>
+                                <tr><th class="py-4 px-6 font-medium text-gray-900 w-1/3">Công suất</th><td class="py-4 px-6">11,8kW / 8.500 vòng/phút</td></tr>
+                                <tr><th class="py-4 px-6 font-medium text-gray-900 w-1/3">Trọng lượng</th><td class="py-4 px-6">132 kg</td></tr>
+                                <tr><th class="py-4 px-6 font-medium text-gray-900 w-1/3">Dung tích xăng</th><td class="py-4 px-6">6.0 lít</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="tab-reviews" class="tab-content hidden max-w-4xl mx-auto animate-fade-in">
+                <div class="flex flex-col md:flex-row items-center gap-8 bg-gray-50 rounded-2xl p-8 mb-8">
+                    <div class="text-center md:text-left">
+                        <div class="text-5xl font-black text-gray-900 mb-1">@averageRating.ToString("F1")<span class="text-2xl text-gray-400 font-medium">/5</span></div>
+                        <div class="flex items-center justify-center md:justify-start gap-1 mb-2 text-yellow-400">
+                            @for (int i = 0; i < 5; i++)
+                            {
+                                <svg class="w-5 h-5 @(i < Math.Round(averageRating) ? "fill-current" : "text-gray-300 fill-current")" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
+                            }
+                        </div>
+                        <p class="text-sm text-gray-500">Dựa trên @reviews.Count đánh giá</p>
+                    </div>
+                </div>
+
+                <div class="space-y-6">
+                    @foreach (var r in reviews)
+                    {
+                        var ten = (r.TenNguoiDanhGia ?? "").Trim();
+                        var initial = ten.Length > 0 ? ten.Substring(0, 1).ToUpper() : "?";
+
+                        <div class="border-b border-gray-100 pb-6 last:border-0">
+                            <div class="flex justify-between items-start mb-2">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-500 uppercase">
+                                        @initial
+                                    </div>
+                                    <div>
+                                        <h5 class="font-bold text-gray-900">@r.TenNguoiDanhGia</h5>
+                                        <div class="flex gap-1 text-xs text-yellow-400">
+                                            @for (int i = 0; i < r.DiemDanhGia; i++)
+                                            {
+                                                <span>★</span>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                                <span class="text-xs text-gray-400">@r.NgayDanhGia.ToString("dd/MM/yyyy")</span>
+                            </div>
+                            <p class="text-gray-700 mt-2">@r.NoiDung</p>
+                        </div>
+                    }
+                    @if (!reviews.Any())
+                    {
+                        <p class="text-center text-gray-500 italic">Chưa có đánh giá nào. Hãy là người đầu tiên!</p>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+@if (related.Any())
+{
+    <section class="max-w-7xl mx-auto px-4 pb-16">
+        <h3 class="text-2xl font-bold text-gray-900 mb-6">Có thể bạn thích</h3>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
+            @foreach (var p in related)
+            {
+                <a href="@Url.Action("Details", "SanPham", new { slug = p.Slug })" class="group bg-white rounded-2xl border border-gray-100 overflow-hidden hover:shadow-xl hover:border-rose-200 transition duration-300 flex flex-col">
+                    <div class="aspect-[4/3] p-4 bg-gray-50 group-hover:bg-white transition">
+                        <img src="@(string.IsNullOrWhiteSpace(p.ImageUrl) ? Url.Content("~/images/no-image.jpg") : Url.Content(p.ImageUrl))"
+                             class="w-full h-full object-contain group-hover:scale-110 transition duration-500" alt="@p.TenSP" />
+                    </div>
+                    <div class="p-4 flex flex-col flex-1">
+                        <div class="text-xs text-gray-500 mb-1">@(p.ThuongHieu?.TenTH ?? "Hãng")</div>
+                        <h4 class="font-bold text-gray-900 line-clamp-2 mb-2 group-hover:text-rose-600 transition">@p.TenSP</h4>
+                        <div class="mt-auto flex items-center justify-between">
+                            <span class="text-rose-600 font-extrabold text-lg">@p.Gia.ToString("N0")₫</span>
+                            <span class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 group-hover:bg-rose-600 group-hover:text-white transition">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                            </span>
+                        </div>
+                    </div>
+                </a>
+            }
+        </div>
+    </section>
+}
+
+<form id="cartAddForm" method="post" action="@cartAddUrl" class="hidden">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="maSP" value="@Model.MaSP" />
+    <input type="hidden" name="quantity" id="fallbackQty" value="1" />
+</form>
+
+<form id="buyNowForm" method="post" action="@cartBuyNowUrl" class="hidden">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="maSP" value="@Model.MaSP" />
+    <input type="hidden" name="quantity" id="buyNowQty" value="1" />
+</form>
+
+@section Scripts {
+    <script>
+                function switchTab(tabName) {
+                    document.querySelectorAll('.tab-btn').forEach(btn => {
+                        btn.classList.remove('bg-white', 'text-gray-900', 'shadow-sm');
+                        btn.classList.add('text-gray-500');
+                    });
+                    document.querySelectorAll('.tab-content').forEach(content => {
+                        content.classList.add('hidden');
+                    });
+                    document.getElementById('btn-' + tabName).classList.add('bg-white', 'text-gray-900', 'shadow-sm');
+                    document.getElementById('btn-' + tabName).classList.remove('text-gray-500');
+                    document.getElementById('tab-' + tabName).classList.remove('hidden');
+                }
+
+                const maxStock = @Model.SoLuong;
+                const isOutOfStock = @isOutOfStock.ToString().ToLower(); // true/false
+
+                function updateQty(val) {
+                    const el = document.getElementById('qty');
+                    if (!el || isOutOfStock) return;
+
+                    let current = parseInt(el.value) || 1;
+                    let next = current + val;
+                    if (next < 1) next = 1;
+                    if (next > maxStock) next = maxStock;
+                    el.value = next;
+                }
+
+                // === TOAST THÔNG BÁO THÊM GIỎ HÀNG ===
+                function showCartToast(message, isError) {
+                    let box = document.getElementById('cart-toast');
+                    if (!box) {
+                        box = document.createElement('div');
+                        box.id = 'cart-toast';
+                        box.className = 'fixed top-20 right-5 z-50 w-full max-w-sm';
+                        document.body.appendChild(box);
+                    }
+
+                    box.innerHTML = `
+        <div class="${isError
+                ? 'bg-red-50 border-l-4 border-red-500 text-red-700'
+                : 'bg-emerald-50 border-l-4 border-emerald-500 text-emerald-700'
+            } p-4 rounded shadow-lg flex items-start gap-3 animate-fade-in-down">
+            <svg class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="${isError
+                        ? 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
+                        : 'M5 13l4 4L19 7'
+                      }" />
+            </svg>
+            <div>
+                <p class="font-bold">${isError ? 'Lỗi' : 'Thành công'}</p>
+                <p class="text-sm">${message}</p>
+            </div>
+        </div>`;
+                    // tự ẩn sau 2.5s
+                    setTimeout(() => { box.innerHTML = ''; }, 2500);
+                }
+
+                // === THÊM VÀO GIỎ HÀNG BẰNG AJAX, KHÔNG REDIRECT ===
+                async function AddToCart(id) {
+                    if (isOutOfStock || maxStock <= 0) {
+                        showCartToast('Sản phẩm đã hết hàng, không thể thêm vào giỏ.', true);
+                        return;
+                    }
+
+                    const qtyInput = document.getElementById('qty');
+                    const qty = parseInt(qtyInput?.value) || 1;
+
+                    // Lấy anti-forgery token từ form ẩn
+                    const tokenInput = document.querySelector('#cartAddForm input[name="__RequestVerificationToken"]');
+                    const token = tokenInput ? tokenInput.value : '';
+
+                    try {
+                        const res = await fetch('@Url.Action("AddJson", "Cart")', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'RequestVerificationToken': token
+                            },
+                            body: JSON.stringify({ maSP: id, quantity: qty })
+                        });
+
+                        const data = await res.json().catch(() => ({}));
+
+                        if (!res.ok || !data.ok) {
+                            showCartToast(data.message || 'Không thể thêm vào giỏ hàng.', true);
+                            return;
+                        }
+
+                        // Thông báo thành công
+                        showCartToast('Đã thêm ' + qty + ' sản phẩm vào giỏ hàng.', false);
+
+                        // Nếu m có badge số lượng giỏ hàng ở header (vd id="cart-count") thì update luôn:
+                        if (typeof data.count !== 'undefined') {
+                            const badge = document.getElementById('cart-count');
+                            if (badge) badge.textContent = data.count;
+                        }
+                    } catch (e) {
+                        showCartToast('Có lỗi khi thêm vào giỏ hàng, vui lòng thử lại.', true);
+                    }
+                }
+
+                function BuyNow(id) {
+                    if (isOutOfStock || maxStock <= 0) {
+                        alert('Sản phẩm đã hết hàng, không thể mua ngay.');
+                        return;
+                    }
+                    const qty = document.getElementById('qty').value || 1;
+                    document.getElementById('buyNowQty').value = qty;
+                    document.getElementById('buyNowForm').submit();
+                }
+
+                function chatWithShop() {
+                    localStorage.setItem('pending_product_id', '@Model.MaSP');
+                    window.location.href = '/Chat/Index';
+                }
+
+                function changeImage(btn) {
+                    const src = btn.getAttribute('data-src');
+                    document.getElementById('mainImage').src = src;
+                }
+    </script>
+}

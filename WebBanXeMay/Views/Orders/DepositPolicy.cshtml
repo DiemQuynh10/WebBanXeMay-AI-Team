@@ -1,0 +1,180 @@
+﻿@{
+    ViewData["Title"] = "Quy định đặt cọc";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+}
+
+@{
+    // Định nghĩa màu hồng chủ đạo (giống màu header của bạn)
+    string primaryColor = "#e83e8c";
+}
+
+<div class="container my-5 mx-auto" style="max-width: 900px;">
+
+    <div class="p-5 rounded-4 shadow-lg bg-white border border-2 border-light text-secondary" style="font-size: 0.95rem; line-height: 1.8;">
+
+        <header class="text-center mb-5 pb-3 border-bottom border-light">
+            <h1 class="fw-bolder display-5 mb-0" style="color: @primaryColor;">
+                QUY ĐỊNH ĐẶT CỌC KHI MUA XE🛵
+            </h1>
+            <p class="text-secondary fs-6 mt-3 mx-auto" style="max-width: 700px;">
+                Quy định này nhằm đảm bảo quyền lợi cho cả khách hàng và cửa hàng trong quá trình giữ xe,
+                chuẩn bị giao xe. Vui lòng **đọc kỹ** trước khi thực hiện đặt cọc.
+            </p>
+        </header>
+
+        <section class="mb-5">
+            <div class="p-3 mb-3 fw-bold rounded-top-3" style="background-color: #fce4ec; border-bottom: 2px solid @primaryColor;">
+                <h5 class="fw-bold d-flex align-items-center mb-0">
+                    <i class="bi bi-question-circle-fill me-3 fs-4" style="color: @primaryColor;"></i>
+                    <span class="text-uppercase" style="color: @primaryColor;">1. Khi nào cần đặt cọc?</span>
+                </h5>
+            </div>
+
+            <ul class="list-group list-group-flush px-3">
+                <li class="list-group-item border-0 px-0 py-2 bg-transparent">
+                    <i class="bi bi-dot me-1 fs-5" style="color: @primaryColor;"></i> Đơn hàng có giá trị từ **20.000.000 đ** trở lên.
+                </li>
+                <li class="list-group-item border-0 px-0 py-2 bg-transparent">
+                    <i class="bi bi-dot me-1 fs-5" style="color: @primaryColor;"></i> Xe phải đặt trước, chưa có sẵn tại cửa hàng.
+                </li>
+                <li class="list-group-item border-0 px-0 py-2 bg-transparent">
+                    <i class="bi bi-dot me-1 fs-5" style="color: @primaryColor;"></i> Xe trong chương trình ưu đãi đặc biệt yêu cầu đặt cọc.
+                </li>
+            </ul>
+        </section>
+
+        <section class="mb-5">
+            <div class="p-3 mb-3 fw-bold rounded-top-3" style="background-color: #fce4ec; border-bottom: 2px solid @primaryColor;">
+                <h5 class="fw-bold d-flex align-items-center mb-0">
+                    <i class="bi bi-cash-stack me-3 fs-4 text-warning"></i>
+                    <span class="text-uppercase" style="color: @primaryColor;">2. Mức tiền đặt cọc</span>
+                </h5>
+            </div>
+
+            <div class="px-3">
+                <p class="pt-2">
+                    Số tiền đặt cọc thông thường trong khoảng
+                    <strong style="color: @primaryColor; font-size: 1.1rem;">10% – 20% giá trị xe</strong> (tùy model và thời điểm).
+                </p>
+                <p class="mb-0 alert p-3 rounded-3" style="background-color: #f0f8ff; border: 1px solid #cce5ff;">
+                    <i class="bi bi-exclamation-triangle-fill me-2 text-primary"></i>
+                    Mức cọc cụ thể được hiển thị tại bước đặt hàng và trong
+                    <strong class="text-primary">Chi tiết đơn hàng → Số tiền cần đặt cọc</strong>.
+                </p>
+            </div>
+        </section>
+
+        <section class="mb-5">
+            <div class="p-3 mb-3 fw-bold rounded-top-3" style="background-color: #fce4ec; border-bottom: 2px solid @primaryColor;">
+                <h5 class="fw-bold d-flex align-items-center mb-0">
+                    <i class="bi bi-check-circle-fill me-3 fs-4 text-success"></i>
+                    <span class="text-uppercase" style="color: @primaryColor;">3. Trường hợp được hoàn lại tiền cọc</span>
+                </h5>
+            </div>
+
+            <div class="px-3">
+                <p class="pt-2">Khách hàng được hoàn cọc khi:</p>
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item border-0 px-0 py-2 bg-transparent">
+                        <i class="bi bi-check-lg me-2 text-success"></i> Cửa hàng không thể cung cấp đúng mẫu / phiên bản / màu xe đã đặt.
+                    </li>
+                    <li class="list-group-item border-0 px-0 py-2 bg-transparent">
+                        <i class="bi bi-check-lg me-2 text-success"></i> Xe phát sinh lỗi nghiêm trọng trước khi giao.
+                    </li>
+                    <li class="list-group-item border-0 px-0 py-2 bg-transparent">
+                        <i class="bi bi-check-lg me-2 text-success"></i> Hai bên cùng thống nhất hủy đơn và hoàn lại cọc.
+                    </li>
+                </ul>
+                <p class="mt-4 mb-0 alert alert-success p-3 border-0 rounded-3">
+                    <i class="bi bi-wallet-fill me-2"></i> Trạng thái sẽ là **“Đã hoàn cọc”** và tiền sẽ được
+                    chuyển trả theo phương thức thanh toán ban đầu.
+                </p>
+            </div>
+        </section>
+
+        <section class="mb-5">
+            <div class="p-3 mb-3 fw-bold rounded-top-3" style="background-color: #fce4ec; border-bottom: 2px solid @primaryColor;">
+                <h5 class="fw-bold d-flex align-items-center mb-0">
+                    <i class="bi bi-x-octagon-fill me-3 fs-4 text-danger"></i>
+                    <span class="text-uppercase" style="color: @primaryColor;">4. Trường hợp bị mất cọc</span>
+                </h5>
+            </div>
+
+            <div class="px-3">
+                <p class="pt-2">Tiền cọc **không được hoàn lại** khi:</p>
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item border-0 px-0 py-2 bg-transparent">
+                        <i class="bi bi-x-lg me-2 text-danger"></i> Khách tự ý hủy đơn sau khi cửa hàng đã nhập xe về hoặc đã giữ xe.
+                    </li>
+                    <li class="list-group-item border-0 px-0 py-2 bg-transparent">
+                        <i class="bi bi-x-lg me-2 text-danger"></i> Khách không đến nhận xe trong vòng
+                        **05 ngày** kể từ ngày hẹn, dù cửa hàng đã liên hệ nhiều lần.
+                    </li>
+                    <li class="list-group-item border-0 px-0 py-2 bg-transparent">
+                        <i class="bi bi-x-lg me-2 text-danger"></i> Các điều kiện đặc thù của từng chương trình khuyến mãi (nếu có).
+                    </li>
+                </ul>
+                <p class="mt-4 mb-0 alert alert-danger p-3 border-0 rounded-3">
+                    <i class="bi bi-lock-fill me-2"></i> Trạng thái sẽ là **“Mất cọc”**.
+                </p>
+            </div>
+        </section>
+
+        <section class="mb-4">
+            <div class="p-3 mb-3 fw-bold rounded-top-3" style="background-color: #fce4ec; border-bottom: 2px solid @primaryColor;">
+                <h5 class="fw-bold d-flex align-items-center mb-0">
+                    <i class="bi bi-info-square-fill me-3 fs-4 text-primary"></i>
+                    <span class="text-uppercase" style="color: @primaryColor;">5. Các trạng thái đặt cọc trong hệ thống</span>
+                </h5>
+            </div>
+            <div class="px-3">
+                <table class="table table-bordered table-striped table-hover mt-3">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col" style="width: 35%;">Trạng thái</th>
+                            <th scope="col">Ý nghĩa</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="fw-bold text-muted">Chưa cọc</td>
+                            <td>Đơn hàng có hỗ trợ đặt cọc nhưng chưa thanh toán.</td>
+                        </tr>
+                        <tr>
+                            <td class="fw-bold text-warning">Chờ xác nhận cọc</td>
+                            <td>Bạn đã chuyển khoản và báo đã thanh toán.</td>
+                        </tr>
+                        <tr>
+                            <td class="fw-bold" style="color: @primaryColor;">Đã cọc</td>
+                            <td>Cửa hàng đã xác nhận đã nhận được tiền cọc.</td>
+                        </tr>
+                        <tr>
+                            <td class="fw-bold text-success">Đã hoàn cọc</td>
+                            <td>Tiền cọc đã được hoàn trả.</td>
+                        </tr>
+                        <tr>
+                            <td class="fw-bold text-danger">Mất cọc</td>
+                            <td>Không đủ điều kiện hoàn cọc theo mục 4.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <footer class="alert p-4 mt-5 text-center rounded-4" style="background-color: #fce4ec; border: 1px solid @primaryColor;">
+            <h6 class="fw-bold mb-0" style="color: @primaryColor;">
+                <i class="bi bi-headset me-2"></i> CẦN HỖ TRỢ?
+            </h6>
+            <p class="mt-2 mb-0 text-dark">
+                Nếu bạn có thắc mắc, vui lòng liên hệ cửa hàng hoặc sử dụng mục
+                <strong class="text-primary">Liên hệ hỗ trợ</strong> trong chi tiết đơn hàng.
+            </p>
+        </footer>
+    </div>
+
+    <div class="text-center mt-5">
+        <a asp-controller="Orders" asp-action="Index" class="btn btn-outline-secondary btn-lg rounded-pill px-5">
+            ← Quay lại đơn hàng
+        </a>
+    </div>
+</div>

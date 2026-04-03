@@ -1,0 +1,312 @@
+﻿@model IEnumerable<WebBanXeMay.Models.Voucher>
+
+@{
+    ViewData["Title"] = "Kho Voucher & Ưu Đãi";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+}
+
+<style>
+    /* CSS riêng cho trang Voucher để không ảnh hưởng trang khác */
+    .voucher-container {
+        background-color: #f8f9fa;
+        min-height: 80vh;
+    }
+
+    .section-title {
+        color: #d81b60;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        position: relative;
+        display: inline-block;
+    }
+
+        .section-title::after {
+            content: '';
+            display: block;
+            width: 60px;
+            height: 4px;
+            background: #d81b60;
+            margin: 10px auto 0;
+            border-radius: 2px;
+        }
+
+    /* Card Voucher Style */
+    .voucher-card {
+        background: #fff;
+        border-radius: 15px;
+        overflow: hidden;
+        position: relative;
+        transition: all 0.3s ease;
+        border: 1px solid #ffe0e9;
+        display: flex;
+        height: 100%;
+        box-shadow: 0 5px 15px rgba(216, 27, 96, 0.1);
+    }
+
+        .voucher-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(216, 27, 96, 0.2);
+        }
+
+    /* Phần bên trái (Màu hồng) */
+    .voucher-left {
+        background: linear-gradient(135deg, #ff4081 0%, #c2185b 100%);
+        color: white;
+        width: 30%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 15px;
+        position: relative;
+        border-right: 2px dashed #fff; /* Đường cắt vé */
+    }
+
+        .voucher-left::before, .voucher-left::after {
+            content: "";
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #f8f9fa; /* Trùng màu nền web */
+            border-radius: 50%;
+            right: -10px;
+        }
+
+        .voucher-left::before {
+            top: -10px;
+        }
+
+        .voucher-left::after {
+            bottom: -10px;
+        }
+
+    .voucher-icon {
+        font-size: 2rem;
+        margin-bottom: 5px;
+    }
+
+    .voucher-amount {
+        font-size: 1.4rem;
+        font-weight: bold;
+        text-align: center;
+        line-height: 1.2;
+    }
+
+    /* Phần bên phải (Thông tin) */
+    .voucher-right {
+        padding: 20px;
+        width: 70%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+
+    .voucher-title {
+        font-weight: 700;
+        font-size: 1.1rem;
+        color: #333;
+        margin-bottom: 5px;
+    }
+
+    .voucher-date {
+        font-size: 0.85rem;
+        color: #888;
+        margin-bottom: 5px;
+    }
+
+    .voucher-cond {
+        font-size: 0.85rem;
+        color: #555;
+        margin-bottom: 10px;
+    }
+
+    .voucher-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: #fff0f5;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px dashed #d81b60;
+    }
+
+    .voucher-code {
+        font-family: 'Courier New', monospace;
+        font-weight: bold;
+        color: #d81b60;
+        font-size: 1rem;
+    }
+
+    .btn-copy {
+        background-color: #d81b60;
+        color: white;
+        border: none;
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        transition: background 0.2s;
+    }
+
+        .btn-copy:hover {
+            background-color: #ad1457;
+        }
+
+    /* Toast thông báo copy */
+    #copyToast {
+        visibility: hidden;
+        min-width: 250px;
+        background-color: #333;
+        color: #fff;
+        text-align: center;
+        border-radius: 4px;
+        padding: 16px;
+        position: fixed;
+        z-index: 1;
+        left: 50%;
+        bottom: 30px;
+        transform: translateX(-50%);
+        font-size: 17px;
+    }
+
+        #copyToast.show {
+            visibility: visible;
+            animation: fadein 0.5s, fadeout 0.5s 2.5s;
+        }
+
+    @@keyframes fadein {
+        from {
+            bottom: 0;
+            opacity: 0;
+        }
+
+        to {
+            bottom: 30px;
+            opacity: 1;
+        }
+    }
+
+    @@keyframes fadeout {
+        from {
+            bottom: 30px;
+            opacity: 1;
+        }
+
+        to {
+            bottom: 0;
+            opacity: 0;
+        }
+    }
+</style>
+
+<div class="voucher-container py-5">
+    <div class="container">
+        <div class="text-center mb-5">
+            <h2 class="section-title">Săn Mã Giảm Giá</h2>
+            <p class="text-muted mt-3">Lưu mã ngay hôm nay - Mua xe giá cực tốt!</p>
+        </div>
+
+        <div class="row">
+            @if (Model != null && Model.Any())
+            {
+                var now = DateTime.Now;
+
+                @foreach (var item in Model)
+                {
+                    // Nếu controller đã lọc rồi thì block này chỉ để hiển thị.
+                    // Nếu muốn chắc chắn chỉ show mã còn dùng được, có thể bỏ comment điều kiện dưới:
+                    // if (!item.IsActive || item.IsDeleted || item.NgayKetThuc < now || item.SoLuongDaDung >= item.SoLuong) { continue; }
+
+                    <div class="col-md-6 col-lg-6 mb-4">
+                        <div class="voucher-card">
+                            <div class="voucher-left">
+                                <div class="voucher-icon"><i class="fas fa-gift"></i></div>
+                                <div class="voucher-amount">
+                                    @if (item.IsPercent)
+                                    {
+                                        <span>GIẢM<br />@item.GiaTri%</span>
+                                    }
+                                    else
+                                    {
+                                        // hiển thị dạng K cho dễ nhìn: 50000 => 50K
+                                        <span>GIẢM<br />@((item.GiaTri / 1000).ToString("0"))K</span>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="voucher-right">
+                                <div>
+                                    <div class="voucher-title">
+                                        @(string.IsNullOrWhiteSpace(item.TenVoucher) ? "Ưu đãi hấp dẫn" : item.TenVoucher)
+                                    </div>
+
+                                    <div class="voucher-date">
+                                        <i class="far fa-clock"></i>
+                                        HSD: @item.NgayKetThuc.ToString("dd/MM/yyyy")
+                                        @* Có thể thêm trạng thái sắp hết hạn *@
+                                        @{
+                                            var daysLeft = (item.NgayKetThuc.Date - now.Date).TotalDays;
+                                            if (daysLeft >= 0 && daysLeft <= 3)
+                                            {
+                                                <span class="badge bg-danger ms-2">Sắp hết hạn</span>
+                                                ;
+                                            }
+                                        }
+                                    </div>
+
+                                    @if (item.DonHangToiThieu.HasValue)
+                                    {
+                                        <div class="voucher-cond">
+                                            Đơn tối thiểu: @item.DonHangToiThieu.Value.ToString("N0") đ
+                                        </div>
+                                    }
+
+                                    @if (item.GiaTriGiamToiDa.HasValue && item.IsPercent)
+                                    {
+                                        <div class="voucher-cond">
+                                            Giảm tối đa: @item.GiaTriGiamToiDa.Value.ToString("N0") đ
+                                        </div>
+                                    }
+
+                                    <div class="voucher-cond text-muted">
+                                        Đã dùng: @item.SoLuongDaDung / @item.SoLuong
+                                    </div>
+                                </div>
+
+                                <div class="voucher-footer">
+                                    <span class="voucher-code" id="code-text-@item.Id">@item.MaVoucher</span>
+                                    <button class="btn-copy" onclick="copyToClipboard('@item.MaVoucher')">
+                                        <i class="fas fa-copy"></i> Lưu
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="col-12 text-center py-5">
+                    <img src="https://cdn-icons-png.flaticon.com/512/4076/4076432.png" alt="Empty" style="width: 100px; opacity: 0.5;">
+                    <p class="text-muted mt-3">Hiện tại chưa có mã giảm giá nào.</p>
+                    <a href="/" class="btn btn-outline-danger rounded-pill mt-2">Quay lại trang chủ</a>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<div id="copyToast">Đã lưu mã giảm giá thành công!</div>
+
+<script>
+    function copyToClipboard(text) {
+        navigator.clipboard.writeText(text).then(function () {
+            var x = document.getElementById("copyToast");
+            x.className = "show";
+            x.innerText = "Đã lưu mã: " + text;
+            setTimeout(function () { x.className = x.className.replace("show", ""); }, 3000);
+        }, function (err) {
+            alert('Không thể copy: ' + err);
+        });
+    }
+</script>

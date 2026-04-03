@@ -1,0 +1,398 @@
+﻿@*
+    _AdminLayout.cshtml
+    Layout dùng cho khu vực Admin (Area = Admin)
+*@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] - Admin</title>
+
+    <!-- Font & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+    <!-- SB Admin 2 + site.css -->
+    <link href="~/admin-theme/css/sb-admin-2.min.css" rel="stylesheet" />
+    <link href="~/css/site.css" rel="stylesheet" />
+
+    <style>
+        body {
+            font-family: "Segoe UI", Arial, sans-serif;
+            background-color: #fdf2f8;
+            color: #333;
+            padding-top: 60px;
+        }
+
+        .sidebar {
+            background: linear-gradient(180deg, #ec4899 0%, #f43f5e 100%) !important;
+            position: fixed;
+            top: 56px;
+            left: 0;
+            height: calc(100vh - 56px);
+            width: 230px;
+            z-index: 1000;
+            transition: width 0.3s ease;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+
+            .sidebar .nav-item .nav-link {
+                color: #fff;
+                padding: 12px 20px;
+                border-radius: 8px;
+                margin: 5px 10px;
+                transition: all 0.2s;
+                font-weight: 500;
+                display: flex;
+                align-items: center;
+                white-space: nowrap;
+            }
+
+                .sidebar .nav-item .nav-link:hover {
+                    background: rgba(255, 255, 255, 0.2);
+                }
+
+                .sidebar .nav-item .nav-link.active {
+                    background: rgba(255, 255, 255, 0.3);
+                    font-weight: 600;
+                }
+
+                .sidebar .nav-item .nav-link i {
+                    margin-right: 10px;
+                    font-size: 1.1rem;
+                    min-width: 20px;
+                    text-align: center;
+                }
+
+        .sidebar-brand {
+            padding: 1.5rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .sidebar-brand-icon i {
+            font-size: 1.8rem;
+            color: #fff;
+        }
+
+        .sidebar-brand-text {
+            font-size: 1.15rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: #fff;
+            margin-left: 10px;
+            transition: opacity 0.3s ease;
+        }
+
+        body.sidebar-toggled .sidebar {
+            width: 80px !important;
+        }
+
+            body.sidebar-toggled .sidebar .nav-link span,
+            body.sidebar-toggled .sidebar .sidebar-brand-text,
+            body.sidebar-toggled .sidebar .sidebar-heading {
+                display: none !important;
+            }
+
+        .topbar {
+            background: linear-gradient(180deg, #ec4899 0%, #f43f5e 100%) !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 1000;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 1.5rem;
+        }
+
+            .topbar .navbar-brand {
+                font-weight: 600;
+                background: linear-gradient(90deg, #ec4899, #f43f5e);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+            }
+
+            .topbar .dropdown-menu {
+                border-radius: 10px;
+                overflow: hidden;
+            }
+
+            .topbar img {
+                object-fit: cover;
+                border: 2px solid #f9a8d4;
+            }
+
+            .topbar .dropdown-item:hover {
+                background-color: #fee2e2;
+                color: #ec4899;
+            }
+
+        #content-wrapper {
+            margin-left: 230px;
+            transition: margin-left 0.3s ease;
+            min-height: calc(100vh - 60px);
+            background-color: #fff;
+            display: flex;
+            flex-direction: column;
+            padding: 2rem;
+            border-top-left-radius: 16px;
+            padding-top: 20px;
+        }
+
+        body.sidebar-toggled #content-wrapper {
+            margin-left: 80px !important;
+        }
+
+        .sidebar-toggle-center {
+            position: fixed;
+            top: 50%;
+            left: 230px;
+            transform: translateY(-50%);
+            z-index: 1050;
+            transition: left 0.3s ease;
+        }
+
+        body.sidebar-toggled .sidebar-toggle-center {
+            left: 80px;
+        }
+
+        .sidebar-toggle-center #sidebarToggle {
+            background-color: #fff;
+            color: #ec4899;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            border: none;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+            .sidebar-toggle-center #sidebarToggle:hover {
+                transform: scale(1.1);
+                background: #ffe4ed;
+            }
+
+            .sidebar-toggle-center #sidebarToggle::before {
+                content: "\f100";
+                font-family: "Font Awesome 6 Free";
+                font-weight: 900;
+            }
+
+        body.sidebar-toggled .sidebar-toggle-center #sidebarToggle::before {
+            content: "\f101";
+        }
+
+        main {
+            flex: 1 0 auto;
+        }
+
+        footer.sticky-footer {
+            flex-shrink: 0;
+        }
+
+        .avatar-circle {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            background: #fce7f3;
+            border: 2px solid #f9a8d4;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #db2777;
+            font-size: 20px;
+            font-weight: 700;
+            overflow: hidden;
+        }
+
+        .avatar-letter {
+            text-transform: uppercase;
+        }
+
+        .profile-box {
+            padding: 6px 10px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 50px;
+            transition: 0.2s ease;
+        }
+
+            .profile-box:hover {
+                background: rgba(255,255,255,0.25);
+            }
+    </style>
+
+    @await RenderSectionAsync("Styles", required: false)
+</head>
+
+<body id="page-top">
+    @{
+        var currentController = ViewContext.RouteData.Values["Controller"]?.ToString();
+        string userName = User.Identity?.Name ?? "Admin";
+        string firstLetter = userName.Substring(0, 1).ToUpper();
+    }
+
+    <div id="wrapper">
+        <!-- Sidebar -->
+        <ul class="navbar-nav sidebar sidebar-dark accordion" id="accordionSidebar">
+            <hr class="sidebar-divider my-0" />
+
+            <li class="nav-item">
+                <a class="nav-link @(currentController == "Home" ? "active" : "")"
+                   asp-area="Admin" asp-controller="Home" asp-action="Index">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span>Dashboard</span>
+                </a>
+            </li>
+
+            <div class="sidebar-heading">Quản lý</div>
+
+            <li class="nav-item">
+                <a class="nav-link @(currentController == "Products" ? "active" : "")"
+                   asp-area="Admin" asp-controller="Products" asp-action="Index">
+                    <i class="fas fa-box-open"></i>
+                    <span>Sản phẩm</span>
+                </a>
+            </li>
+
+            <li class="nav-item">
+                <a class="nav-link @(currentController == "Orders" ? "active" : "")"
+                   asp-area="Admin" asp-controller="Orders" asp-action="Index">
+                    <i class="fas fa-file-invoice"></i>
+                    <span>Đơn hàng</span>
+                </a>
+            </li>
+
+            <li class="nav-item">
+                <a class="nav-link @(currentController == "Reviews" ? "active" : "")"
+                   asp-area="Admin" asp-controller="Reviews" asp-action="Index">
+                    <i class="fas fa-fw fa-star"></i>
+                    <span>Quản lý đánh giá</span>
+                </a>
+            </li>
+
+            <li class="nav-item">
+                <a class="nav-link @(currentController == "TuVan" ? "active" : "")"
+                   asp-area="Admin" asp-controller="TuVan" asp-action="Index">
+                    <i class="fas fa-fw fa-comments"></i>
+                    <span>Quản lý tư vấn</span>
+                </a>
+            </li>
+
+            <li class="nav-item">
+                <a class="nav-link @(currentController == "Chat" ? "active" : "")"
+                   asp-area="Admin" asp-controller="Chat" asp-action="Manage">
+                    <i class="fas fa-headset"></i>
+                    <span>CSKH - Chat (Live)</span>
+                </a>
+            </li>
+
+            <li class="nav-item @(currentController == "Voucher" &&
+                                  ViewContext.RouteData.Values["Area"]?.ToString() == "Admin" ? "active" : "")">
+                <a class="nav-link" asp-area="Admin" asp-controller="Voucher" asp-action="Index">
+                    <i class="fas fa-tags"></i>
+                    <span>Quản lý Voucher</span>
+                </a>
+            </li>
+        </ul>
+        <!-- End of Sidebar -->
+        <!-- Nút thu gọn sidebar -->
+        <div class="sidebar-toggle-center">
+            <button id="sidebarToggle"></button>
+        </div>
+
+        <!-- Content Wrapper -->
+        <div id="content-wrapper">
+            <!-- Topbar -->
+            <nav class="topbar d-flex justify-content-between align-items-center">
+                <a class="sidebar-brand d-flex align-items-center justify-content-center"
+                   asp-area="Admin" asp-controller="Home" asp-action="Index">
+                    <div class="sidebar-brand-icon rotate-n-15">
+                        <i class="fas fa-motorcycle"></i>
+                    </div>
+                    <div class="sidebar-brand-text mx-3">Quản Trị</div>
+                </a>
+
+                <div class="d-flex align-items-center">
+                    <a asp-area="" asp-controller="Home" asp-action="Index"
+                       class="btn btn-light text-danger btn-sm me-3 shadow-sm fw-bold"
+                       style="border-radius: 20px; padding: 6px 15px;">
+                        <i class="fas fa-store me-1"></i> Xem Shop
+                    </a>
+
+                    <div class="dropdown">
+                        <a href="#" class="d-flex align-items-center profile-box text-decoration-none"
+                           id="profileDropdown"
+                           data-toggle="dropdown">
+                            <div class="avatar-circle me-2">
+                                <span class="avatar-letter">@firstLetter</span>
+                            </div>
+                            <div class="d-flex flex-column lh-sm text-white text-start me-1">
+                                <span class="fw-semibold">@userName</span>
+                                <small class="opacity-75" style="font-size: 11px;">Quản trị viên</small>
+                            </div>
+                            <i class="fas fa-chevron-down ms-1 text-white" style="font-size: 12px;"></i>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end shadow-sm rounded-3 mt-2"
+                            aria-labelledby="profileDropdown"
+                            style="min-width: 180px;">
+                            <li>
+                                <a class="dropdown-item d-flex align-items-center"
+                                   asp-area="Admin" asp-controller="Account" asp-action="Profile">
+                                    <i class="fas fa-user-circle me-2 text-secondary"></i>
+                                    Hồ sơ của tôi
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider" /></li>
+                            <li>
+                                <form asp-area="Identity" asp-page="/Account/Logout" method="post">
+                                    <button type="submit" class="dropdown-item d-flex align-items-center text-danger">
+                                        <i class="fas fa-sign-out-alt me-2"></i> Đăng xuất
+                                    </button>
+                                </form>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </nav>
+            <!-- End of Topbar -->
+
+            <main>
+                @RenderBody()
+            </main>
+
+            <partial name="AdminFooter" />
+        </div>
+        <!-- End of Content Wrapper -->
+    </div>
+
+    <!-- ===== JS: jQuery phải load TRƯỚC Bootstrap & sb-admin-2 ===== -->
+    <!-- Dùng CDN cho chắc, không sợ 404 -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-easing/1.4.1/jquery.easing.min.js"></script>
+
+    <!-- Script sb-admin-2 phụ thuộc jQuery + Bootstrap -->
+    <script src="~/admin-theme/js/sb-admin-2.min.js"></script>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const toggle = document.getElementById("sidebarToggle");
+            if (toggle) {
+                toggle.addEventListener("click", function () {
+                    document.body.classList.toggle("sidebar-toggled");
+                });
+            }
+        });
+    </script>
+
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

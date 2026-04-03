@@ -1,0 +1,25 @@
+﻿@model IEnumerable<(string Text, string? Url)>
+
+<nav class="text-sm text-gray-500 mb-4" aria-label="Breadcrumb">
+    <ol class="flex flex-wrap items-center gap-2">
+        <!-- Trang chủ -->
+        <li>
+            <a asp-controller="Home" asp-action="Index" class="hover:text-pink-600">Trang chủ</a>
+        </li>
+
+        @foreach (var (text, url) in Model)
+        {
+            <li>›</li>
+            @if (!string.IsNullOrEmpty(url))
+            {
+                <li>
+                    <a href="@url" class="hover:text-pink-600">@text</a>
+                </li>
+            }
+            else
+            {
+                <li class="text-gray-700">@text</li>
+            }
+        }
+    </ol>
+</nav>

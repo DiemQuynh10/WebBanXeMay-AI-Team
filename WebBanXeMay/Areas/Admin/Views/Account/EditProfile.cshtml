@@ -1,0 +1,64 @@
+﻿@model WebBanXeMay.Models.ApplicationUser
+@{
+    ViewData["Title"] = "Sửa thông tin cá nhân";
+}
+
+<div class="container mt-4" style="max-width: 700px;">
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-primary text-white">
+            <h4 class="mb-0">Sửa thông tin cá nhân</h4>
+        </div>
+        <div class="card-body bg-light">
+            <form asp-area="Admin" asp-controller="Account" asp-action="EditProfile" method="post" enctype="multipart/form-data">
+                <div class="text-center mb-3">
+                    <img src="~/uploads/@(Model.AnhDaiDien ?? "default-avatar.png")"
+                         class="rounded-circle border border-2"
+                         width="120" height="120" style="object-fit:cover;" />
+                    <div class="mt-2">
+                        <input type="file" name="AnhDaiDien" class="form-control" />
+                    </div>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label class="form-label fw-semibold">Tên hiển thị</label>
+                    <input asp-for="TenHienThi" class="form-control" />
+                    <span asp-validation-for="TenHienThi" class="text-danger"></span>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label class="form-label fw-semibold">Email</label>
+                    <input asp-for="Email" class="form-control" />
+                    <span asp-validation-for="Email" class="text-danger"></span>
+                </div>
+
+                <div class="form-group mb-4">
+                    <label class="form-label fw-semibold">Số điện thoại</label>
+                    <input asp-for="PhoneNumber" class="form-control" />
+                </div>
+
+                <div class="text-end">
+                    <button type="submit" class="btn btn-primary px-4 me-2">
+                        💾 Lưu thay đổi
+                    </button>
+                    <a asp-area="Admin" asp-controller="Account" asp-action="Profile"
+                       class="btn btn-outline-secondary px-4">
+                        Hủy
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

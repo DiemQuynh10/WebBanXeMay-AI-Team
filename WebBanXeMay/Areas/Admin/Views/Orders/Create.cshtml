@@ -1,0 +1,96 @@
+﻿@model WebBanXeMay.Areas.Admin.ViewModels.DonHangViewModel
+
+
+@{
+    ViewData["Title"] = "Tạo đơn hàng mới";
+}
+
+<h2 class="mb-4">Tạo đơn hàng</h2>
+
+<form asp-action="Create" method="post">
+    <div class="card p-4 shadow-sm mb-4">
+        <h4>Thông tin đơn hàng</h4>
+        <hr />
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label asp-for="DonHang.NguoiNhan" class="form-label">Người nhận</label>
+                <input asp-for="DonHang.NguoiNhan" class="form-control" />
+                <span asp-validation-for="DonHang.NguoiNhan" class="text-danger"></span>
+            </div>
+            <div class="col-md-6 mb-3">
+                <label asp-for="DonHang.Phone" class="form-label">Số điện thoại</label>
+                <input asp-for="DonHang.Phone" class="form-control" />
+                <span asp-validation-for="DonHang.Phone" class="text-danger"></span>
+            </div>
+            <div class="col-md-12 mb-3">
+                <label asp-for="DonHang.DiaChi" class="form-label">Địa chỉ</label>
+                <input asp-for="DonHang.DiaChi" class="form-control" />
+                <span asp-validation-for="DonHang.DiaChi" class="text-danger"></span>
+            </div>
+            <div class="col-md-6 mb-3">
+                <label asp-for="DonHang.UserId" class="form-label">Người dùng</label>
+                <select asp-for="DonHang.UserId" asp-items="ViewBag.UserId" class="form-select"></select>
+                <span asp-validation-for="DonHang.UserId" class="text-danger"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card p-4 shadow-sm mb-4">
+        <h4>Chi tiết đơn hàng</h4>
+        <hr />
+        <table class="table table-bordered align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Sản phẩm</th>
+                    <th>Số lượng</th>
+                </tr>
+            </thead>
+            <tbody id="chiTietDonHangBody">
+                <tr>
+                    <td>
+                        <select name="ChiTietDHs[0].MaSP" class="form-select">
+                            @foreach (var sp in Model.DanhSachSanPham)
+                            {
+                                <option value="@sp.MaSP">@sp.TenSP</option>
+                            }
+                        </select>
+                    </td>
+                    <td>
+                        <input type="number" name="ChiTietDHs[0].SoLuong" value="1" min="1" class="form-control" />
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-secondary" id="addRow">+ Thêm sản phẩm</button>
+    </div>
+
+    <div class="text-end">
+        <a asp-action="Index" class="btn btn-outline-secondary">Quay lại</a>
+        <button type="submit" class="btn btn-primary">Tạo đơn hàng</button>
+    </div>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        let index = 1;
+        document.getElementById('addRow').addEventListener('click', () => {
+            const tbody = document.getElementById('chiTietDonHangBody');
+            const newRow = document.createElement('tr');
+            newRow.innerHTML = `
+                <td>
+                    <select name="ChiTietDHs[${index}].MaSP" class="form-select">
+                        @foreach (var sp in Model.DanhSachSanPham)
+                        {
+                                    <option value="@sp.MaSP">@sp.TenSP</option>
+                        }
+                    </select>
+                </td>
+                <td>
+                    <input type="number" name="ChiTietDHs[${index}].SoLuong" value="1" min="1" class="form-control" />
+                </td>`;
+            tbody.appendChild(newRow);
+            index++;
+        });
+    </script>
+}

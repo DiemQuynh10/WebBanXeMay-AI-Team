@@ -1,0 +1,119 @@
+﻿@model WebBanXeMay.Models.TuVan
+
+@{
+    ViewData["Title"] = "Gửi thông tin tư vấn";
+}
+
+<h2 class="text-center form-title mt-4 mb-4">Gửi thông tin tư vấn</h2>
+
+<!-- ✅ Thông báo gửi thành công -->
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success text-center w-50 mx-auto">
+        @TempData["SuccessMessage"]
+    </div>
+}
+
+<!-- ✅ Form gửi tư vấn -->
+<form asp-action="Create" asp-controller="TuVan" method="post" class="consult-form mx-auto">
+
+    <div class="form-group d-flex align-items-center mb-3">
+        <label asp-for="HoTen" class="me-3 fw-semibold" style="width: 100px;">Họ tên</label>
+        <input asp-for="HoTen" class="form-control" style="width: 70% font-weight:400;" />
+        <span asp-validation-for="HoTen" class="text-danger ms-2"></span>
+    </div>
+    <!-- Số điện thoại -->
+    <div class="form-group d-flex align-items-center mb-3">
+        <label asp-for="SoDienThoai" class="me-3 fw-semibold" style="width: 100px;">Số điện thoại</label>
+        <input asp-for="SoDienThoai" class="form-control" style="width: 70%;" />
+        <span asp-validation-for="SoDienThoai" class="text-danger ms-2"></span>
+    </div>
+
+    <!-- Email -->
+    <div class="form-group d-flex align-items-center mb-3">
+        <label asp-for="Email" class="me-3 fw-semibold" style="width: 100px;">Email</label>
+        <input asp-for="Email" class="form-control" style="width: 70%;" />
+        <span asp-validation-for="Email" class="text-danger ms-2"></span>
+    </div>
+
+    <!-- Nội dung tư vấn -->
+    <div class="form-group d-flex align-items-start mb-4">
+        <label asp-for="NoiDung" class="me-3 fw-semibold" style="width: 100px;">Nội dung</label>
+        <textarea asp-for="NoiDung" class="form-control" rows="4" style="width: 70%;"></textarea>
+        <span asp-validation-for="NoiDung" class="text-danger ms-2"></span>
+    </div>
+
+
+  
+
+
+    <div class="text-center">
+        <button type="submit" class="btn-submit">
+            Gửi thông tin
+        </button>
+    </div>
+</form>
+
+<!-- ✅ CSS tùy chỉnh -->
+<style>
+    .form-title {
+        font-weight: 700;
+        font-size: 24px;
+    }
+
+    .consult-form {
+        max-width: 650px;
+        background: #f9fafb;
+        padding: 30px 40px;
+        font-weight : bold;
+        border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        margin-bottom: 40px;
+    }
+        .form-group {
+            display: inline-flex;
+            justify-content: space-between;
+            width: 100%;
+        }
+
+        .consult-form label {
+            color: #1f2937;
+     
+        }
+
+        .consult-form .form-control {
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            padding: 10px 12px;
+          
+            transition: all 0.2s;
+            width: 70%;
+        }
+
+            .consult-form .form-control:focus {
+                border-color: #2563eb;
+                box-shadow: 0 0 4px rgba(37,99,235,0.3);
+            }
+
+    .btn-submit {
+        background-color: #db2777;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 12px 25px;
+        font-size: 16px;
+        font-weight: 500;
+        cursor: pointer;
+        width: 100%;
+        transition: background 0.25s;
+    }
+
+        .btn-submit:hover {
+            background-color: #db2777;
+            opacity: 0.9;
+        }
+</style>
+
+@section Scripts {
+    @await Html.PartialAsync("_ValidationScriptsPartial")
+}

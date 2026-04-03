@@ -1,0 +1,404 @@
+﻿@model IEnumerable<WebBanXeMay.Models.DonHang>
+@using WebBanXeMay.Models
+
+@{
+    ViewData["Title"] = "Quản lý Đơn hàng";
+
+    // Data Filter
+    var orderedStatuses = (ViewBag.Statuses as List<string>) ?? Enum.GetNames(typeof(TrangThaiDonHang)).ToList();
+    var currentStatus = ViewBag.CurrentStatus as string ?? "";
+    var cocStatuses = ViewBag.CocStatuses as List<string> ?? Enum.GetNames(typeof(TrangThaiCoc)).ToList();
+    var currentCoc = ViewBag.CurrentCoc as string ?? "";
+
+    // Flow Logic
+    var statusFlow = new List<string> {
+        nameof(TrangThaiDonHang.ChoXacNhan),
+        nameof(TrangThaiDonHang.DangXuLy),
+        nameof(TrangThaiDonHang.DangGiao),
+        nameof(TrangThaiDonHang.HoanTat)
+    };
+}
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+<style>
+    /* CSS TÙY CHỈNH CHO FILTER BAR */
+    .filter-card {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 24px 0 rgba(34, 41, 47, 0.05);
+        border: 1px solid rgba(0,0,0,0.05);
+        padding: 20px;
+        margin-bottom: 25px;
+        transition: all 0.3s ease;
+    }
+
+        .filter-card:hover {
+            box-shadow: 0 4px 24px 0 rgba(34, 41, 47, 0.1);
+        }
+
+    .form-label-custom {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #5e5873;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .form-control-custom, .form-select-custom {
+        border-radius: 6px;
+        border: 1px solid #d8d6de;
+        font-size: 0.9rem;
+        padding: 8px 12px;
+    }
+
+        .form-control-custom:focus, .form-select-custom:focus {
+            border-color: #7367f0;
+            box-shadow: 0 0 0 0.2rem rgba(115, 103, 240, 0.25);
+        }
+
+    /* CSS CHO BẢNG & BADGE */
+    .table-responsive-custom {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 24px 0 rgba(34, 41, 47, 0.05);
+        overflow: hidden; /* Bo tròn góc bảng */
+    }
+
+    .table thead th {
+        background-color: #f3f2f7;
+        color: #5e5873;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid #ebe9f1;
+        padding: 1.2rem 1rem;
+    }
+
+    .table tbody td {
+        padding: 1rem 1rem;
+        vertical-align: middle;
+        border-bottom: 1px solid #ebe9f1;
+        color: #6e6b7b;
+    }
+
+    /* Badge Pastel Styles */
+    .badge-soft {
+        padding: 8px 12px;
+        border-radius: 5px;
+        font-weight: 600;
+        font-size: 0.75rem;
+        border: none;
+    }
+
+    .badge-soft-warning {
+        background-color: rgba(255, 159, 67, 0.12);
+        color: #ff9f43;
+    }
+
+    .badge-soft-info {
+        background-color: rgba(0, 207, 232, 0.12);
+        color: #00cfe8;
+    }
+
+    .badge-soft-primary {
+        background-color: rgba(115, 103, 240, 0.12);
+        color: #7367f0;
+    }
+
+    .badge-soft-success {
+        background-color: rgba(40, 199, 111, 0.12);
+        color: #28c76f;
+    }
+
+    .badge-soft-danger {
+        background-color: rgba(234, 84, 85, 0.12);
+        color: #ea5455;
+    }
+
+    .badge-soft-secondary {
+        background-color: rgba(168, 170, 174, 0.12);
+        color: #a8aaae;
+    }
+
+    /* Hover effect cho dòng */
+    .hover-row:hover {
+        background-color: #f8f8f8;
+        transition: 0.2s;
+    }
+
+    /* Text highlight */
+    .text-price {
+        font-family: 'Segoe UI', sans-serif;
+        font-weight: 700;
+        color: #5e5873;
+    }
+</style>
+
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 fw-bold text-dark mb-1">Quản lý Đơn hàng</h1>
+        <p class="text-muted mb-0">Theo dõi và xử lý các đơn hàng hiện có trên hệ thống.</p>
+    </div>
+    <a asp-action="Create" class="btn btn-primary btn-sm shadow-sm px-3 py-2" style="border-radius: 6px;">
+        <i class="fas fa-plus me-1"></i> Tạo đơn mới
+    </a>
+</div>
+
+<div class="filter-card">
+    <form method="get" class="row g-3">
+        <div class="col-md-3">
+            <label class="form-label-custom">Tìm kiếm</label>
+            <div class="input-group">
+                <span class="input-group-text bg-white border-end-0 text-muted"><i class="fas fa-search"></i></span>
+                <input type="text" name="q" value="@ViewBag.Search" class="form-control form-control-custom border-start-0 ps-0" placeholder="Mã đơn, Tên, SĐT...">
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <label class="form-label-custom">Thời gian</label>
+            <div class="d-flex gap-2">
+                <input type="date" name="fromDate" value="@ViewBag.FromDate" class="form-control form-control-custom" placeholder="Từ ngày">
+                <input type="date" name="toDate" value="@ViewBag.ToDate" class="form-control form-control-custom" placeholder="Đến ngày">
+            </div>
+        </div>
+
+        <div class="col-md-2">
+            <label class="form-label-custom">Trạng thái Đơn</label>
+            <select name="status" class="form-select form-select-custom" onchange="this.form.submit()">
+                <option value="">-- Tất cả --</option>
+                @foreach (var s in orderedStatuses)
+                {
+                    <!option value="@s" selected="@(s == currentStatus)">@s</!option>
+                }
+            </select>
+        </div>
+
+        <div class="col-md-2">
+            <label class="form-label-custom">Trạng thái Cọc</label>
+            <select name="coc" class="form-select form-select-custom" onchange="this.form.submit()">
+                <option value="">-- Tất cả --</option>
+                @foreach (var c in cocStatuses)
+                {
+                    <!option value="@c" selected="@(c == currentCoc)">@c</!option>
+                }
+            </select>
+        </div>
+
+        <div class="col-md-1 d-flex align-items-end">
+            <a asp-action="Index" class="btn btn-outline-secondary w-100 py-2" style="border-radius: 6px;" title="Xóa lọc">
+                <i class="fas fa-sync-alt"></i>
+            </a>
+        </div>
+    </form>
+</div>
+
+@if (Model != null && Model.Any())
+{
+    <div class="table-responsive-custom">
+        <table class="table mb-0">
+            <thead>
+                <tr>
+                    <th class="ps-4">Mã Đơn</th>
+                    <th>Khách hàng</th>
+                    <th>Ngày đặt</th>
+                    <th>TT Cọc</th>
+                    <th>Tổng tiền</th>
+                    <th>Trạng thái</th>
+                    <th class="text-end pe-4">Thao tác</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in Model)
+                {
+                    // Logic màu sắc Badge (Giữ nguyên)
+                    string statusClass = "badge-soft-secondary";
+                    string statusIcon = "fa-circle";
+                    switch (item.TrangThai.ToString())
+                    {
+                        case "ChoXacNhan": statusClass = "badge-soft-warning"; statusIcon = "fa-clock"; break;
+                        case "DangXuLy": statusClass = "badge-soft-info"; statusIcon = "fa-cogs"; break;
+                        case "DangGiao": statusClass = "badge-soft-primary"; statusIcon = "fa-truck"; break;
+                        case "HoanTat": statusClass = "badge-soft-success"; statusIcon = "fa-check"; break;
+                        case "DaHuy": statusClass = "badge-soft-danger"; statusIcon = "fa-times"; break;
+                    }
+
+                    string cocClass = ""; string cocText = "";
+                    if (item.SoTienCoc.HasValue && item.SoTienCoc.Value > 0)
+                    {
+                        switch (item.TrangThaiCoc.ToString())
+                        {
+                            case "ChoXacNhanCoc": cocClass = "badge-soft-warning"; cocText = "Chờ xác nhận"; break;
+                            case "DaCoc": cocClass = "badge-soft-success"; cocText = "Đã cọc"; break;
+                            case "HoanCoc": cocClass = "badge-soft-secondary"; cocText = "Đã hoàn"; break;
+                            case "MatCoc": cocClass = "badge-soft-danger"; cocText = "Mất cọc"; break;
+                            default: cocClass = "badge-soft-secondary"; cocText = "Chưa cọc"; break;
+                        }
+                    }
+
+                    <tr class="hover-row">
+                        <td class="ps-4">
+                            <a asp-action="Details" asp-route-id="@item.MaDH" class="fw-bold text-primary text-decoration-none">
+                                #@item.MaDH
+                            </a>
+                        </td>
+                        <td>
+                            <div class="d-flex flex-column">
+                                <span class="fw-bold text-dark">@item.NguoiNhan</span>
+                                <small class="text-muted mt-1"><i class="fas fa-phone-alt fa-xs me-1"></i>@item.Phone</small>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="d-flex flex-column">
+                                <span>@item.NgayDH.ToString("dd/MM/yyyy")</span>
+                                <small class="text-muted">@item.NgayDH.ToString("HH:mm")</small>
+                            </div>
+                        </td>
+                        <td>
+                            @if (item.SoTienCoc.HasValue && item.SoTienCoc.Value > 0)
+                            {
+                                <div class="fw-bold small mb-1">@item.SoTienCoc.Value.ToString("N0")</div>
+                                <span class="badge-soft @cocClass" style="font-size: 0.7rem;">@cocText</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted small">-</span>
+                            }
+                        </td>
+                        <td>
+                            <span class="text-price" style="color: #ea5455;">@item.TongTien.ToString("N0")</span>
+                            @if (item.SoTienCoc.HasValue && item.SoTienCoc.Value > 0 &&
+                           (item.TrangThaiCoc == TrangThaiCoc.DaCoc || item.TrangThaiCoc == TrangThaiCoc.ChoXacNhanCoc))
+                            {
+                                <div class="small text-muted fst-italic mt-1" style="font-size: 0.75rem;">
+                                    Còn: @((item.TongTien - item.SoTienCoc.Value).ToString("N0"))
+                                </div>
+                            }
+                        </td>
+                        <td style="min-width: 190px;">
+                            <div class="mb-2">
+                                <span class="badge-soft @statusClass">
+                                    <i class="fas @statusIcon me-1"></i> @item.TrangThai
+                                </span>
+                            </div>
+                            @if (item.TrangThai != TrangThaiDonHang.HoanTat && item.TrangThai != TrangThaiDonHang.DaHuy)
+                            {
+                                <form asp-action="UpdateStatus" method="post" class="d-flex align-items-center">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@item.MaDH" />
+                                    <input type="hidden" name="statusFilter" value="@currentStatus" />
+                                    <input type="hidden" name="cocFilter" value="@currentCoc" />
+
+                                    <select name="nextStatus"
+                                            class="form-select form-select-sm py-1 ps-2 pe-3"
+                                            style="font-size: 0.8rem; border-radius: 4px; border-color: #d8d6de;"
+                                            onchange="this.form.submit()">
+
+                                        @foreach (var statusName in orderedStatuses)
+                                        {
+                                            bool isDisabled = false;
+                                            var currentName = item.TrangThai.ToString();
+                                            int currentIdx = statusFlow.IndexOf(currentName);
+                                            int targetIdx = statusFlow.IndexOf(statusName);
+
+                                            if (statusName == currentName) { }
+                                            else if (statusName == nameof(TrangThaiDonHang.DaHuy)) { if (currentName == nameof(TrangThaiDonHang.HoanTat)) isDisabled = true; }
+                                            else if (currentName == nameof(TrangThaiDonHang.DaHuy) || currentName == nameof(TrangThaiDonHang.HoanTat)) { isDisabled = true; }
+                                            else if (currentIdx != -1 && targetIdx != -1 && targetIdx < currentIdx) { isDisabled = true; }
+
+                                            <!option value="@statusName" selected="@(statusName == currentName)" disabled="@isDisabled">@statusName</!option>
+                                        }
+                                    </select>
+
+                                </form>
+                            }
+                        </td>
+                        <td class="text-end pe-4">
+                            <div class="dropdown">
+                                <button class="btn btn-sm btn-light border-0" type="button" data-toggle="dropdown">
+                                    <i class="fas fa-ellipsis-v text-muted"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end border-0 shadow-lg">
+                                    <li>
+                                        <a class="dropdown-item py-2" asp-action="Details" asp-route-id="@item.MaDH">
+                                            <i class="fas fa-eye me-2 text-primary"></i> Xem chi tiết
+                                        </a>
+                                    </li>
+                                    @if (item.SoTienCoc.HasValue && item.SoTienCoc.Value > 0 && item.TrangThaiCoc == TrangThaiCoc.ChoXacNhanCoc)
+                                    {
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li>
+                                            <form asp-action="ConfirmDeposit" method="post" class="d-block">
+                                                @Html.AntiForgeryToken() <input type="hidden" name="id" value="@item.MaDH" />
+                                                <button type="submit" class="dropdown-item py-2 text-success fw-bold" onclick="return confirm('Xác nhận ĐÃ NHẬN CỌC?');">
+                                                    <i class="fas fa-check-circle me-2"></i> Xác nhận Cọc
+                                                </button>
+                                            </form>
+                                        </li>
+                                    }
+                                </ul>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <div class="text-center py-5 bg-white rounded-3 shadow-sm">
+        <img src="https://cdn-icons-png.flaticon.com/512/7486/7486777.png" alt="Empty" style="width: 80px; opacity: 0.6; margin-bottom: 20px;">
+        <h6 class="text-muted">Không tìm thấy đơn hàng nào!</h6>
+        <a asp-action="Index" class="btn btn-sm btn-outline-primary mt-2">Xóa bộ lọc</a>
+    </div>
+}
+
+@if (ViewBag.TotalPages > 1)
+{
+    <nav class="mt-4">
+        <ul class="pagination justify-content-center">
+            @for (int p = 1; p <= (int)ViewBag.TotalPages; p++)
+            {
+                <li class="page-item @(p == (int)ViewBag.Page ? "active" : "")">
+                    <a class="page-link" asp-action="Index" asp-route-page="@p" asp-route-status="@currentStatus" asp-route-coc="@currentCoc" asp-route-q="@ViewBag.Search">@p</a>
+                </li>
+            }
+        </ul>
+    </nav>
+}
+
+<div style="height: 80px;"></div>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        // Kiểm tra xem có thông báo Success từ Controller không
+        var successMsg = '@(TempData["SuccessMessage"] ?? TempData["Success"])';
+        var errorMsg = '@(TempData["ErrorMessage"] ?? TempData["Error"])';
+
+        if (successMsg) {
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'success',
+                title: successMsg,
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true
+            });
+        }
+
+        if (errorMsg) {
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'error',
+                title: errorMsg,
+                showConfirmButton: false,
+                timer: 4000,
+                timerProgressBar: true
+            });
+        }
+    });
+</script>

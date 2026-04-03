@@ -1,0 +1,159 @@
+﻿@model WebBanXeMay.Areas.Admin.ViewModels.ProductCreateViewModel
+
+@{
+    ViewData["Title"] = "Thêm sản phẩm mới";
+}
+
+<h1 class="h3 mb-4 text-gray-800">@ViewData["Title"]</h1>
+
+
+
+<div class="row">
+    <div class="col-lg-10">
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Thông tin chi tiết sản phẩm</h6>
+            </div>
+            <div class="card-body">
+                <form asp-action="Create" method="post" enctype="multipart/form-data">
+                    <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+
+                    <!-- Tên sản phẩm -->
+                    <div class="form-group mb-3">
+                        <label asp-for="TenSP" class="control-label font-weight-bold">Tên sản phẩm</label>
+                        <input asp-for="TenSP" class="form-control" placeholder="Ví dụ: Honda Vision 2025" />
+                        <span asp-validation-for="TenSP" class="text-danger"></span>
+                    </div>
+
+                    <!-- Giá & Số lượng -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label asp-for="Gia" class="control-label font-weight-bold">Giá bán</label>
+                                <div class="input-group">
+                                    <input asp-for="Gia" class="form-control" type="number" placeholder="Ví dụ: 35000000" />
+                                    <div class="input-group-append">
+                                        <span class="input-group-text">VNĐ</span>
+                                    </div>
+                                </div>
+                                <span asp-validation-for="Gia" class="text-danger"></span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label asp-for="SoLuong" class="control-label font-weight-bold">Số lượng</label>
+                                <input asp-for="SoLuong" class="form-control" type="number" placeholder="Nhập số lượng tồn kho" />
+                                <span asp-validation-for="SoLuong" class="text-danger"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Phân khối -->
+                    <div class="form-group mb-3">
+                        <label asp-for="CC" class="control-label font-weight-bold">Phân khối (CC)</label>
+                        <input asp-for="CC" class="form-control" placeholder="Ví dụ: 110" />
+                        <span asp-validation-for="CC" class="text-danger"></span>
+                    </div>
+
+                    <!-- Mô tả --><div class="form-group mb-3">
+                        <label asp-for="MoTa" class="control-label font-weight-bold">Mô tả</label>
+                        <textarea asp-for="MoTa" class="form-control" rows="4" placeholder="Nhập mô tả chi tiết cho sản phẩm..."></textarea>
+                        <span asp-validation-for="MoTa" class="text-danger"></span>
+                    </div>
+
+                    <!-- Ảnh sản phẩm -->
+                    <div class="form-group mb-3">
+                        <label class="control-label font-weight-bold">Hình ảnh sản phẩm</label>
+                        <div>
+                            <input type="file" name="image" id="imageUrl" class="d-none" accept="image/*" />
+                            <button type="button" id="btnSelectImage" class="btn btn-outline-info">
+                                <i class="fas fa-upload"></i> Chọn ảnh
+                            </button>
+                            <span id="fileName" class="ml-2 text-muted">Chưa có tệp nào được chọn</span>
+                        </div>
+                        <div class="mt-2">
+                            <img id="imagePreview" src="" alt="Image Preview" class="rounded" style="display: none; max-width: 250px; max-height: 250px; object-fit: cover;" />
+                        </div>
+                    </div>
+
+                    <!-- Loại xe & Hãng xe -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label asp-for="MaLoai" class="control-label font-weight-bold">Loại xe</label>
+                                <select asp-for="MaLoai" class="form-control" asp-items="ViewBag.LoaiList">
+                                    <option value="">-- Chọn loại xe --</option>
+                                </select>
+                                <span asp-validation-for="MaLoai" class="text-danger"></span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label asp-for="MaTH" class="control-label font-weight-bold">Hãng xe</label>
+                                <select asp-for="MaTH" class="form-control" asp-items="ViewBag.THList">
+                                    <option value="">-- Chọn hãng xe --</option>
+                                </select>
+                                <span asp-validation-for="MaTH" class="text-danger"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Kích hoạt -->
+                    <div class="form-group form-check mb-3">
+                        <input class="form-check-input" asp-for="IsActive" />
+                        <label class="form-check-label" asp-for="IsActive">
+                            <b>Kích hoạt sản phẩm</b> (Sản phẩm sẽ được hiển thị ngoài trang chủ)
+                        </label>
+                    </div>
+
+                    <!-- Nút bấm -->
+                    <hr />
+                    <div class="form-group mt-4">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Tạo mới
+                        </button>
+                        <a asp-action="Index" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> Quay lại danh sách
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const realFileInput = document.getElementById('imageUrl');
+            const customButton = document.getElementById('btnSelectImage');
+            const fileNameSpan = document.getElementById('fileName');
+            const imagePreview = document.getElementById('imagePreview');
+
+            customButton.addEventListener('click', function () {
+                realFileInput.click();
+            });
+
+            realFileInput.addEventListener('change', function () {
+                if (realFileInput.files && realFileInput.files[0]) {
+                    const file = realFileInput.files[0];
+                    fileNameSpan.textContent = file.name;
+
+                    const reader = new FileReader();
+                    reader.onload = function (e) {
+                        imagePreview.src = e.target.result;
+                        imagePreview.style.display = 'block';
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    fileNameSpan.textContent = 'Chưa có tệp nào được chọn';
+                    imagePreview.src = '';
+                    imagePreview.style.display = 'none';
+                }
+            });
+        });
+    </script>
+}

@@ -1,0 +1,308 @@
+--- SẢN PHẨM XE MÁY ---
+
+== Côn Tay ==
+
+[Honda CBR 150R]
+Thương hiệu: Honda
+Giá: 72.000.000 đ
+Tình trạng: Còn hàng (3 xe)
+Mô tả: Honda CBR 150R là dòng sportbike 150cc với dáng ngồi thể thao, động cơ mạnh mẽ, phù hợp cho người thích tốc độ và cảm giác lái cá tính.
+Đánh giá: 4.0/5 (1 lượt đánh giá)
+Đánh giá nổi bật:
+  ★ 4/5 - Đinh Hoàng Đan: Giao hàng nhanh, xe mới 100%, chạy thử thấy mượt. Chỉ tiếc là giao chậm hơn dự kiến khoảng 30 phút.
+
+[Honda Rebel 500]
+Thương hiệu: Honda
+Giá: 180.000.000 đ
+Tình trạng: Còn hàng (3 xe)
+Mô tả: Honda Rebel 500 là cruiser tầm trung với phong cách bụi bặm, yên thấp, động cơ 471cc mạnh mẽ, thích hợp cho khách hàng yêu phượt và xe cá tính.
+
+[Honda Winner X]
+Thương hiệu: Honda
+Giá: 47.000.000 đ
+Tình trạng: Còn hàng (3 xe)
+Mô tả: Honda Winner X là xe côn tay thể thao phân khúc 150cc, thiết kế góc cạnh, động cơ mạnh, phù hợp cho giới trẻ thích trải nghiệm tốc độ.
+
+[Piaggio MP3 400]
+Thương hiệu: Piaggio
+Giá: 320.000.000 đ
+Tình trạng: Hết hàng (0 xe)
+Mô tả: Piaggio MP3 400 là xe ba bánh độc đáo, độ ổn định cao, phù hợp cho khách hàng muốn trải nghiệm mới lạ và an toàn khi di chuyển.
+
+[Suzuki GRX R150]
+Thương hiệu: Suzuki
+Giá: 71.000.000 đ
+Tình trạng: Còn hàng (3 xe)
+Mô tả: Suzuki GRX R150 là xe côn tay thể thao 150cc, ngoại hình khí động học, phù hợp cho người yêu thích sportbike và trải nghiệm tốc độ.
+
+[Suzuki Raider 150]
+Thương hiệu: Suzuki
+Giá: 52.000.000 đ
+Tình trạng: Còn hàng (5 xe)
+Mô tả: Suzuki Raider 150 là underbone côn tay nổi tiếng, máy 150cc mạnh, vòng tua cao, phù hợp cho người trẻ thích cảm giác lái bốc và cá tính.
+
+[Suzuki Satria F150]
+Thương hiệu: Suzuki
+Giá: 54.000.000 đ
+Tình trạng: Còn hàng (5 xe)
+Mô tả: Suzuki Satria F150 là bản underbone thể thao, động cơ 150cc mạnh mẽ, khung xe gọn, phù hợp cho khách hàng yêu thích xe nhỏ nhưng cực kỳ mạnh.
+
+[Suzuki V-Strom]
+Thương hiệu: Suzuki
+Giá: 129.000.000 đ
+Tình trạng: Còn hàng (2 xe)
+Mô tả: Suzuki V-Strom là mẫu adventure touring, dáng cao, tư thế ngồi thẳng, phù hợp chạy đường dài, đi phượt và các cung đường đa địa hình.
+
+[SYM Galaxy Sport]
+Thương hiệu: SYM
+Giá: 27.000.000 đ
+Tình trạng: Còn hàng (5 xe)
+Mô tả: SYM Galaxy Sport là phiên bản thể thao của dòng Galaxy, ngoại hình cá tính hơn, phù hợp cho khách hàng thích phong cách mạnh mẽ.
+
+[SYM Husky]
+Thương hiệu: SYM
+Giá: 36.000.000 đ
+Tình trạng: Còn hàng (3 xe)
+Mô tả: SYM Husky là mẫu xe phong cách cổ điển, phù hợp cho người thích kiểu dáng retro, dễ độ chế và tạo cá tính riêng.
+
+[Yamaha Exciter]
+Thương hiệu: Yamaha
+Giá: 48.000.000 đ
+Tình trạng: Còn hàng (6 xe)
+Mô tả: Yamaha Exciter là mẫu xe côn tay nổi tiếng, động cơ mạnh mẽ, dáng ngồi thể thao, thích hợp cho người yêu thích tốc độ và phong cách cá tính.
+
+[Yamaha MT15]
+Thương hiệu: Yamaha
+Giá: 78.000.000 đ
+Tình trạng: Còn hàng (4 xe)
+Mô tả: Yamaha MT15 là naked bike 155cc, thiết kế hầm hố, tư thế ngồi thể thao, sử dụng động cơ VVA mạnh mẽ, phù hợp cho người mê xe côn tay phân khối nhỏ.
+
+== Tay Ga ==
+
+[Honda Air Blade]
+Thương hiệu: Honda
+Giá: 45.000.000 đ
+Tình trạng: Còn hàng (8 xe)
+Mô tả: Honda Air Blade là mẫu xe ga thể thao, thiết kế sắc cạnh, phù hợp đi làm và đi học hằng ngày, nổi bật với khả năng tăng tốc mượt và tiết kiệm nhiên liệu tốt.
+Đánh giá: 2.0/5 (1 lượt đánh giá)
+
+[Honda PCX]
+Thương hiệu: Honda
+Giá: 56.000.000 đ
+Tình trạng: Còn hàng (7 xe)
+Mô tả: Honda PCX là xe ga cỡ trung, yên rộng, tư thế ngồi thoải mái, phù hợp di chuyển đường dài và nội đô, nổi bật với thiết kế sang trọng và nhiều tiện ích.
+
+[Honda SH 150i]
+Thương hiệu: Honda
+Giá: 95.000.000 đ
+Tình trạng: Còn hàng (5 xe)
+Mô tả: Honda SH 150i là dòng xe ga cao cấp, thiết kế sang trọng, động cơ 150cc mạnh mẽ, phanh ABS an toàn, phù hợp cho người cần hình ảnh đẳng cấp.
+
+[Honda Vision]
+Thương hiệu: Honda
+Giá: 31.000.000 đ
+Tình trạng: Còn hàng (7 xe)
+Mô tả: Honda Vision là xe ga đô thị nhỏ gọn, dễ điều khiển, tiết kiệm xăng, cốp rộng, rất được ưa chuộng bởi học sinh, sinh viên và nhân viên văn phòng.
+
+[Piaggio Beverly 300]
+Thương hiệu: Piaggio
+Giá: 130.000.000 đ
+Tình trạng: Còn hàng (3 xe)
+Mô tả: Piaggio Beverly 300 là xe ga cao cấp kiểu dáng maxi-scooter, bánh lớn, vận hành ổn định ở tốc độ cao, phù hợp cho đi lại nội thành và ngoại ô.
+
+[Piaggio Liberty 125]
+Thương hiệu: Piaggio
+Giá: 58.000.000 đ
+Tình trạng: Còn hàng (4 xe)
+Mô tả: Piaggio Liberty 125 là xe ga phong cách Ý, thiết kế thanh lịch, bánh trước lớn, phanh ABS, phù hợp cho người cần chiếc xe sang trọng, khác biệt.
+Đánh giá: 5.0/5 (1 lượt đánh giá)
+Đánh giá nổi bật:
+  ★ 5/5 - Người dùng ẩn danh: Sau 1 tuần sử dụng, xe chạy rất ổn, đề nổ êm, phanh chắc chắn. Mình sẽ giới thiệu cho bạn bè.
+
+[Piaggio Medley 150]
+Thương hiệu: Piaggio
+Giá: 87.000.000 đ
+Tình trạng: Còn hàng (3 xe)
+Mô tả: Piaggio Medley 150 là xe ga cao cấp động cơ 150cc, công nghệ iGet tiết kiệm xăng, hệ thống phanh ABS, thích hợp cho khách hàng yêu sự an toàn và tiện nghi.
+
+[Piaggio Vespa GTS 150]
+Thương hiệu: Piaggio
+Giá: 95.000.000 đ
+Tình trạng: Còn hàng (3 xe)
+
+[Piaggio Vespa LX]
+Thương hiệu: Piaggio
+Giá: 62.000.000 đ
+Tình trạng: Còn hàng (4 xe)
+Mô tả: Vespa LX là mẫu Vespa cổ điển, thiết kế bo tròn, sang trọng, phù hợp cho khách hàng yêu phong cách thời trang và khác biệt.
+
+[Piaggio Vespa Primavera]
+Thương hiệu: Piaggio
+Giá: 78.000.000 đ
+Tình trạng: Còn hàng (5 xe)
+Mô tả: Vespa Primavera là dòng Vespa hiện đại, kiểu dáng trẻ trung, màu sắc tươi sáng, là lựa chọn phổ biến của giới trẻ thành thị.
+
+[Piaggio Vespa Sprint]
+Thương hiệu: Piaggio
+Giá: 73.000.000 đ
+Tình trạng: Còn hàng (5 xe)
+Mô tả: Vespa Sprint mang phong cách thể thao, đuôi xe vuốt nhọn, bánh lớn, phù hợp với khách hàng trẻ trung thích sự năng động.
+
+[Piaggio Vespa Sprint S]
+Thương hiệu: Piaggio
+Giá: 76.000.000 đ
+Tình trạng: Còn hàng (5 xe)
+
+[Piaggio Zip 100]
+Thương hiệu: Piaggio
+Giá: 37.000.000 đ
+Tình trạng: Còn hàng (6 xe)
+Mô tả: Piaggio Zip 100 là xe ga nhỏ gọn, chiều cao yên thấp, phù hợp với nữ giới hoặc người mới đi xe, dễ điều khiển và tiết kiệm nhiên liệu.
+
+[Suzuki Burgman 125]
+Thương hiệu: Suzuki
+Giá: 49.000.000 đ
+Tình trạng: Còn hàng (4 xe)
+Mô tả: Suzuki Burgman 125 là xe ga kiểu maxi-scooter, yên rộng, tư thế ngồi thoải mái, phù hợp cho di chuyển đường dài và đi lại hằng ngày.
+
+[Suzuki Impulse 125]
+Thương hiệu: Suzuki
+Giá: 29.000.000 đ
+Tình trạng: Còn hàng (6 xe)
+
+[SYM Attila Venus]
+Thương hiệu: SYM
+Giá: 28.000.000 đ
+Tình trạng: Còn hàng (4 xe)
+
+[SYM Elite 50]
+Thương hiệu: SYM
+Giá: 22.000.000 đ
+Tình trạng: Còn hàng (5 xe)
+Mô tả: SYM Elite 50 là xe ga 50cc, không cần bằng lái, kiểu dáng trẻ trung, phù hợp cho học sinh và người mới chạy xe.
+
+[SYM Shark Mini]
+Thương hiệu: SYM
+Giá: 28.000.000 đ
+Tình trạng: Còn hàng (5 xe)
+Mô tả: SYM Shark Mini là xe ga cỡ nhỏ, thiết kế trẻ trung, dễ điều khiển, phù hợp với nữ giới hoặc người cần xe gọn đi phố.
+
+[Yamaha Freego]
+Thương hiệu: Yamaha
+Giá: 33.000.000 đ
+Tình trạng: Còn hàng (7 xe)
+Mô tả: Yamaha Freego là xe ga bánh nhỏ, sàn để chân rộng, cốp lớn, phù hợp đi lại trong thành phố, đặc biệt tiện lợi cho gia đình trẻ.
+
+[Yamaha Grande]
+Thương hiệu: Yamaha
+Giá: 45.000.000 đ
+Tình trạng: Còn hàng (2 xe)
+Mô tả: Yamaha Grande là xe ga cao cấp hướng đến phái nữ, thiết kế mềm mại, sang trọng, tích hợp nhiều công nghệ tiết kiệm xăng và tiện ích hiện đại.
+Đánh giá: 3.0/5 (1 lượt đánh giá)
+
+[Yamaha Latte]
+Thương hiệu: Yamaha
+Giá: 42.000.000 đ
+Tình trạng: Còn hàng (8 xe)
+Mô tả: Yamaha Latte là xe ga dành cho nữ, kiểu dáng thời trang, cốp cực rộng, mặt đồng hồ dễ nhìn, rất phù hợp đi làm, đi học và đi chơi trong phố.
+
+== Xe Số ==
+
+[Honda Cub 125]
+Thương hiệu: Honda
+Giá: 85.000.000 đ
+Tình trạng: Hết hàng (0 xe)
+Mô tả: Honda Cub 125 giữ kiểu dáng huyền thoại của Super Cub nhưng được nâng cấp động cơ, khung sườn và tiện nghi hiện đại, rất phù hợp cho người thích phong cách cổ điển.
+Đánh giá: 5.0/5 (1 lượt đánh giá)
+Đánh giá nổi bật:
+  ★ 5/5 - Đinh Hoàng Đan: Xe chạy êm, đề nổ nhẹ, nhân viên tư vấn nhiệt tình, giao xe đúng hẹn. Rất hài lòng!
+
+[Honda Future]
+Thương hiệu: Honda
+Giá: 31.000.000 đ
+Tình trạng: Còn hàng (7 xe)
+Mô tả: Honda Future là mẫu xe số cao cấp, máy 125cc bền bỉ, ít hao xăng, kiểu dáng hiện đại, phù hợp cho người đi làm cần một chiếc xe chắc chắn, ổn định.
+
+[Honda Wave]
+Thương hiệu: Honda
+Giá: 19.000.000 đ
+Tình trạng: Còn hàng (10 xe)
+Mô tả: Honda Wave là mẫu xe số quốc dân, bền bỉ, phụ tùng rẻ, dễ sửa chữa, phù hợp nhu cầu đi lại hằng ngày với chi phí thấp.
+
+[Suzuki Address 110]
+Thương hiệu: Suzuki
+Giá: 28.000.000 đ
+Tình trạng: Còn hàng (6 xe)
+Mô tả: Suzuki Address 110 là xe ga nhỏ gọn, tiết kiệm nhiên liệu, cốp rộng, phù hợp chạy phố và sử dụng cho gia đình hoặc học sinh sinh viên.
+
+[Suzuki Axelo 125]
+Thương hiệu: Suzuki
+Giá: 29.000.000 đ
+Tình trạng: Còn hàng (5 xe)
+Mô tả: Suzuki Axelo 125 là xe số thể thao, tăng tốc tốt, dáng xe gọn, thích hợp cho người trẻ muốn một chiếc xe số mạnh mẽ.
+
+[Suzuki GD110]
+Thương hiệu: Suzuki
+Giá: 28.000.000 đ
+Tình trạng: Còn hàng (8 xe)
+Mô tả: Suzuki GD110 là xe số cổ điển, dáng xe nhỏ gọn, phù hợp độ xe hoặc sử dụng trong phố với phong cách đơn giản, tiết kiệm xăng.
+
+[Suzuki Smash 110]
+Thương hiệu: Suzuki
+Giá: 18.000.000 đ
+Tình trạng: Còn hàng (9 xe)
+Mô tả: Suzuki Smash 110 là xe số phổ thông giá tốt, tiêu hao nhiên liệu thấp, phù hợp với nhu cầu di chuyển hằng ngày và lao động phổ thông.
+
+[SYM Angela 50]
+Thương hiệu: SYM
+Giá: 18.000.000 đ
+Tình trạng: Còn hàng (7 xe)
+Mô tả: SYM Angela 50 là xe số 50cc kiểu dáng nữ tính, phù hợp với học sinh, người chưa có bằng lái, dễ điều khiển và tiết kiệm xăng.
+
+[SYM Elegant 110]
+Thương hiệu: SYM
+Giá: 21.000.000 đ
+Tình trạng: Còn hàng (4 xe)
+Mô tả: SYM Elegant 110 là xe số nhỏ gọn, giá thành hợp lý, bền bỉ, phù hợp với học sinh sinh viên và người lao động.
+Đánh giá: 5.0/5 (1 lượt đánh giá)
+
+[SYM Galaxy 125]
+Thương hiệu: SYM
+Giá: 25.000.000 đ
+Tình trạng: Còn hàng (6 xe)
+Mô tả: SYM Galaxy 125 là xe số thể thao, thiết kế góc cạnh, động cơ 125cc tiết kiệm xăng, phù hợp cho người trẻ năng động.
+
+[SYM Passing 50]
+Thương hiệu: SYM
+Giá: 20.000.000 đ
+Tình trạng: Còn hàng (7 xe)
+Mô tả: SYM Passing 50 là xe số 50cc nhỏ gọn, tiết kiệm, phù hợp cho học sinh và người mới làm quen với xe máy.
+
+[SYM Star SR 125]
+Thương hiệu: SYM
+Giá: 26.000.000 đ
+Tình trạng: Còn hàng (6 xe)
+Mô tả: SYM Star SR 125 là xe số 125cc, khung sườn chắc chắn, động cơ mạnh, phù hợp cho người cần chiếc xe làm việc bền bỉ.
+
+[Yamaha Jupiter]
+Thương hiệu: Yamaha
+Giá: 30.000.000 đ
+Tình trạng: Còn hàng (9 xe)
+Mô tả: Yamaha Jupiter là xe số 110cc–115cc với thiết kế mạnh mẽ, máy khỏe, bền bỉ, phù hợp cho khách hàng cần chiếc xe làm việc hằng ngày.
+
+[Yamaha Sirius]
+Thương hiệu: Yamaha
+Giá: 21.000.000 đ
+Tình trạng: Còn hàng (9 xe)
+Mô tả: Yamaha Sirius là xe số phổ thông, dễ chạy, bền, chi phí bảo dưỡng thấp, là lựa chọn hợp lý cho nhu cầu đi làm, đi học mỗi ngày.
+
+--- TRI THỨC TƯ VẤN CHUNG ---
+
+Xe ga phù hợp với người cần dễ lái, cốp tiện dụng, di chuyển trong đô thị.
+Xe số thường tiết kiệm xăng hơn và chi phí bảo dưỡng thấp hơn.
+Sinh viên thường ưu tiên xe bền, tiết kiệm xăng, giá hợp lý và dễ sửa chữa.
+Người dùng nữ thường ưu tiên xe nhẹ, dễ điều khiển, thiết kế gọn gàng và tiện dụng.
+Đi học trong thành phố thường ưu tiên xe dễ xoay trở, ít tốn nhiên liệu và còn hàng trong hệ thống.
+Nếu người dùng hỏi tư vấn xe, nên ưu tiên các mẫu phổ biến, dễ bảo trì, có phụ tùng phổ biến và còn hàng.
+Khi tư vấn xe ga cho sinh viên nữ, thường ưu tiên xe gọn nhẹ, dễ điều khiển, tiết kiệm nhiên liệu và giá hợp lý.
+Khi tư vấn xe số cho sinh viên, thường ưu tiên xe bền, tiết kiệm xăng và chi phí bảo dưỡng thấp.

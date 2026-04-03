@@ -1,0 +1,757 @@
+﻿@using WebBanXeMay.Models
+@model WebBanXeMay.Models.ViewModels.MyOrderDetailsVM
+
+@{
+    ViewData["Title"] = "Chi tiết Đơn hàng #" + Model.OrderId;
+
+    // Tính toán tiền đặt cọc
+    var hasDeposit = Model.SoTienCoc.HasValue && Model.SoTienCoc.Value > 0;
+    var deposit = hasDeposit ? Model.SoTienCoc.Value : 0m;
+    var remaining = hasDeposit ? (Model.TotalAmount - deposit) : Model.TotalAmount;
+}
+
+@section Styles {
+    <style>
+        /* CSS Layout chính */
+        .order-detail-container {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 0 15px;
+        }
+
+        .order-detail-grid {
+            display: grid;
+            grid-template-columns: 2.5fr 1fr;
+            gap: 30px;
+            align-items: start;
+        }
+
+        .section-box {
+            background-color: #ffffff;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .summary-box {
+            position: sticky;
+            top: 90px; 
+            z-index: 1; 
+            padding: 20px;
+            background-color: #f8f9fa;
+            border: none;
+        }
+
+        @@media (max-width: 992px) {
+            .order-detail-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .summary-box {
+                position: static;
+            }
+        }
+
+        .product-thumb {
+            width: 60px;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 4px;
+            margin-right: 15px;
+        }
+
+        /* ================================================= */
+        /* === CSS MỚI CHO FORM ĐÁNH GIÁ (STYLE SHOPEE) === */
+        /* ================================================= */
+
+        .product-table th,
+        .product-table td {
+            padding: 12px 8px;
+            vertical-align: middle;
+        }
+
+        .product-table .product-col-image {
+            width: 80px;
+        }
+
+        .product-table .product-col-name {
+            width: auto;
+        }
+
+        .product-table .product-col-price {
+            width: 150px;
+            white-space: nowrap;
+        }
+
+        .product-table .product-col-action {
+            width: 120px;
+            text-align: right;
+        }
+
+        .review-form-container {
+            background-color: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 10px;
+        }
+
+        .star-rating-group {
+            display: flex;
+            gap: 5px;
+            font-size: 1.8rem;
+            color: #ced4da;
+        }
+
+            .star-rating-group .star-icon {
+                cursor: pointer;
+                transition: color 0.2s;
+            }
+
+                .star-rating-group .star-icon.hover {
+                    color: #ffda6a;
+                }
+
+                .star-rating-group .star-icon.selected {
+                    color: #ffc107;
+                }
+
+        .file-upload-wrapper {
+            display: flex;
+            gap: 15px;
+        }
+
+        .custom-file-upload {
+            flex: 1;
+            border: 1px dashed #dc3545;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            background-color: #fff;
+            color: #dc3545;
+            transition: all 0.2s;
+        }
+
+            .custom-file-upload:hover {
+                background-color: #fdf8f8;
+                border-style: solid;
+            }
+
+            .custom-file-upload i {
+                font-size: 2rem;
+                display: block;
+                margin-bottom: 10px;
+            }
+
+            .custom-file-upload input[type="file"] {
+                display: none;
+            }
+
+        .media-preview-area {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .preview-media-thumb {
+            max-width: 100%;
+            max-height: 100px;
+            object-fit: contain;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fff;
+        }
+
+        .review-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+            .review-actions .btn {
+                flex: 0 0 auto;
+                min-width: 120px;
+                font-weight: bold;
+            }
+
+        /* ============================= */
+        /* ====== TIMELINE LỊCH SỬ ===== */
+        /* ============================= */
+
+        .timeline {
+            position: relative;
+            margin-top: 10px;
+            padding-left: 18px;
+        }
+
+            .timeline::before {
+                content: "";
+                position: absolute;
+                left: 7px;
+                top: 4px;
+                bottom: 4px;
+                width: 2px;
+                background: linear-gradient(to bottom, #fecaca, #fee2e2);
+            }
+
+        .timeline-item {
+            position: relative;
+            padding-left: 16px;
+            margin-bottom: 14px;
+        }
+
+        .timeline-dot {
+            position: absolute;
+            left: -2px;
+            top: 4px;
+            width: 12px;
+            height: 12px;
+            border-radius: 9999px;
+            background: #f97316;
+            border: 2px solid #fff;
+            box-shadow: 0 0 0 2px #fed7d7;
+        }
+
+        .timeline-text-main {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #111827;
+        }
+
+        .timeline-time {
+            font-size: 0.8rem;
+            color: #6b7280;
+        }
+    </style>
+}
+
+<div class="order-detail-container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <a asp-action="Index" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Quay lại danh sách
+        </a>
+
+        <h2>Chi tiết Đơn hàng <strong>#@Model.OrderId</strong></h2>
+    </div>
+
+    <div class="order-detail-grid">
+        <div class="main-content">
+
+            <!-- THÔNG TIN GIAO HÀNG + TRẠNG THÁI CỌC -->
+            <div class="section-box info-box mb-4">
+                <h4 class="box-title"><i class="fas fa-box me-2"></i> Thông tin Giao hàng</h4>
+                <hr />
+                <p><strong>Mã đơn hàng:</strong> #@Model.OrderId</p>
+                <p>
+                    <strong>Trạng thái đơn:</strong>
+                    <span class="badge @(Model.Status == "HoanTat" ? "bg-success" : "bg-warning")">
+                        @Model.Status
+                    </span>
+                </p>
+
+                @if (hasDeposit)
+                {
+                    <p>
+                        <strong>Trạng thái đặt cọc:</strong>
+                        @{
+                            string cls = "bg-secondary";
+                            string text = "Không rõ";
+
+                            // 1. Chưa đặt cọc
+                            if (Model.TrangThaiCoc == TrangThaiCoc.ChuaCoc)
+                            {
+                                cls = "bg-secondary";
+                                text = "Chưa đặt cọc";
+                            }
+                            // 2. Đã chuyển – chờ shop xác nhận
+                            else if (Model.TrangThaiCoc == TrangThaiCoc.ChoXacNhanCoc)
+                            {
+                                cls = "bg-warning text-dark";
+                                text = "Chờ xác nhận cọc";
+                            }
+                            // 3. Đã cọc
+                            else if (Model.TrangThaiCoc == TrangThaiCoc.DaCoc)
+                            {
+                                cls = "bg-success";
+                                text = "Đã cọc";
+                            }
+                            // 4. Hoàn cọc
+                            else if (Model.TrangThaiCoc == TrangThaiCoc.HoanCoc)
+                            {
+                                cls = "bg-secondary";
+                                text = "Đã hoàn cọc";
+                            }
+                            // 5. Mất cọc
+                            else if (Model.TrangThaiCoc == TrangThaiCoc.MatCoc)
+                            {
+                                cls = "bg-danger";
+                                text = "Mất cọc";
+                            }
+                        }
+                        <span class="badge @cls">@text</span>
+                    </p>
+
+                    <p><strong>Số tiền đặt cọc:</strong> @deposit.ToString("N0") đ</p>
+
+                    @if (Model.HanCoc.HasValue)
+                    {
+                        <p><strong>Hạn cọc:</strong> @Model.HanCoc.Value.ToString("dd/MM/yyyy HH:mm")</p>
+                    }
+
+                    @if (Model.NgayCoc.HasValue)
+                    {
+                        <p><strong>Ngày cọc:</strong> @Model.NgayCoc.Value.ToString("dd/MM/yyyy HH:mm")</p>
+                    }
+
+                    @if (!string.IsNullOrWhiteSpace(Model.PhuongThucCoc))
+                    {
+                        <p><strong>Phương thức cọc:</strong> @Model.PhuongThucCoc</p>
+                    }
+                    @if (Model.IsDepositOverdue)
+                    {
+                        <p class="text-danger small mt-2 mb-0">
+                            ⚠ Đơn hàng của bạn đã quá hạn cọc. Đơn có thể bị hủy hoặc mất cọc theo quy định.
+                        </p>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(Model.MaGiaoDichCoc))
+                    {
+                        <p><strong>Mã giao dịch cọc:</strong> @Model.MaGiaoDichCoc</p>
+                    }
+                    <p class="text-muted small mb-1">
+                        Xem thêm về điều kiện hoàn / mất cọc tại
+                        <a asp-controller="Orders"
+                           asp-action="DepositPolicy"
+                           class="text-decoration-underline">
+                            Quy định đặt cọc
+                        </a>.
+                    </p>
+                    <hr />
+                }
+
+                <p><strong>Ngày đặt:</strong> @Model.OrderDate.ToString("dd/MM/yyyy HH:mm")</p>
+                <p><strong>Người nhận:</strong> @Model.ShippingRecipient</p>
+                <p><strong>Số điện thoại:</strong> @Model.ShippingPhone</p>
+                <p><strong>Địa chỉ:</strong> @Model.ShippingAddress</p>
+            </div>
+
+            <!-- DANH SÁCH SẢN PHẨM + FORM ĐÁNH GIÁ -->
+            <div class="section-box product-list-box mb-4">
+                <h4 class="box-title"><i class="fas fa-motorcycle me-2"></i> Các sản phẩm trong Đơn hàng (@Model.Items.Count)</h4>
+                <hr />
+                <table class="table table-borderless product-table align-middle">
+                    <thead>
+                        <tr>
+                            <th class="product-col-image"></th>
+                            <th class="product-col-name">Sản phẩm</th>
+                            <th class="product-col-price text-end">Giá</th>
+                            <th class="product-col-action"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Model.Items)
+                        {
+                            <tr>
+                                <td class="product-col-image">
+                                    <img src="@item.ImageUrl" alt="@item.ProductName" class="product-thumb" />
+                                </td>
+                                <td class="product-col-name">
+                                    <strong class="text-primary">@item.ProductName</strong>
+                                    <p class="text-muted small mb-0">@item.Quantity x @item.UnitPrice.ToString("N0") đ</p>
+                                </td>
+                                <td class="product-col-price text-end">
+                                    <strong>@item.TotalPrice.ToString("N0") đ</strong>
+                                </td>
+                            </tr>
+
+                            @if (!item.HasBeenReviewed && Model.Status == "HoanTat")
+                            {
+                                <tr class="review-form-row" id="review-form-@item.ProductId" style="display: none;">
+                                    <td colspan="4">
+                                        <div class="review-form-container">
+                                            <form asp-action="AddReview" asp-controller="Orders" method="post" enctype="multipart/form-data">
+                                                <input type="hidden" name="MaDH" value="@Model.OrderId" />
+                                                <input type="hidden" name="MaSP" value="@item.ProductId" />
+
+                                                <div class="mb-3 d-flex align-items-center">
+                                                    <label class="form-label me-3 mb-0" style="width: 180px;">Chất lượng sản phẩm (*)</label>
+                                                    <div class="star-rating-group" data-input-target="#rating-input-@item.ProductId">
+                                                        <i class="far fa-star star-icon" data-value="1"></i>
+                                                        <i class="far fa-star star-icon" data-value="2"></i>
+                                                        <i class="far fa-star star-icon" data-value="3"></i>
+                                                        <i class="far fa-star star-icon" data-value="4"></i>
+                                                        <i class="far fa-star star-icon" data-value="5"></i>
+                                                    </div>
+                                                    <input type="hidden" name="DiemDanhGia" id="rating-input-@item.ProductId" value="0" required />
+                                                </div>
+
+                                                <div class="mb-3">
+                                                    <textarea name="NoiDung" class="form-control" rows="4"
+                                                              placeholder="Hãy chia sẻ nhận xét của bạn về sản phẩm này nhé! (Tối thiểu 50 ký tự để nhận xu...)" required></textarea>
+                                                </div>
+
+                                                <div class="mb-3 file-upload-wrapper">
+                                                    <label class="custom-file-upload">
+                                                        <input type="file" name="Images" class="file-input-preview" data-preview-target="#preview-area-@item.ProductId" accept="image/*" />
+                                                        <i class="fas fa-camera"></i>
+                                                        Thêm Hình ảnh
+                                                    </label>
+
+                                                    <label class="custom-file-upload">
+                                                        <input type="file" name="Videos" class="file-input-preview" data-preview-target="#preview-area-@item.ProductId" accept="video/*" />
+                                                        <i class="fas fa-video"></i>
+                                                        Thêm Video
+                                                    </label>
+                                                </div>
+
+                                                <div class="media-preview-area" id="preview-area-@item.ProductId"></div>
+
+                                                <div class="form-check form-switch d-flex justify-content-between align-items-center mb-4 mt-4">
+                                                    <div>
+                                                        <input class="form-check-input" type="checkbox" name="IsAnonymous" value="true" id="anon-@item.ProductId">
+                                                        <label class="form-check-label" for="anon-@item.ProductId">Hiển thị tên đăng nhập trên đánh giá này</label>
+                                                    </div>
+                                                    <input type="hidden" name="IsAnonymous" value="false" />
+                                                </div>
+
+                                                <hr />
+                                                <div class="review-actions">
+                                                    <button type="button" class="btn btn-secondary btn-cancel-review"><strong>Hủy</strong></button>
+                                                    <button type="submit" class="btn btn-danger"><strong>Gửi đánh giá</strong></button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+
+                @{
+                    var firstPending = Model.Items
+                    .FirstOrDefault(x => Model.Status == "HoanTat" && !x.HasBeenReviewed);
+                }
+
+                @if (firstPending != null)
+                {
+                    <div class="bg-pink-50 border border-pink-200 rounded-lg p-4 mt-4 d-flex align-items-center justify-content-between">
+                        <div>
+                            <p class="fw-medium text-pink-700 mb-1">Bạn đã nhận hàng?</p>
+                            <p class="text-sm text-muted mb-0">Hãy chia sẻ cảm nhận của bạn để giúp người khác lựa chọn tốt hơn 💬</p>
+                        </div>
+
+                        <button type="button"
+                                class="bg-pink-500 text-white px-4 py-2 rounded-lg hover:bg-pink-600 transition btn-toggle-review"
+                                data-target-form="#review-form-@firstPending.ProductId">
+                            Viết đánh giá ngay
+                        </button>
+                    </div>
+                }
+            </div>
+
+            <!-- DANH SÁCH ĐÁNH GIÁ -->
+            <div class="section-box review-list-box">
+                <h4 class="box-title"><i class="fas fa-star me-2"></i> Đánh giá của bạn và những người khác</h4>
+                @if (Model.Reviews.Any())
+                {
+                    @foreach (var review in Model.Reviews)
+                    {
+                        <div class="review-item mb-3 p-3 border rounded">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <strong>@review.ProductName</strong>
+                                <small class="text-muted">
+                                    Đánh giá bởi
+                                    @if (review.IsAnonymous)
+                                    {
+                                        <strong>Người dùng ẩn danh</strong>
+                                    }
+                                    else
+                                    {
+                                        <strong>@review.ReviewerName</strong>
+                                    }
+                                </small>
+                            </div>
+                            <div class="star-rating mb-2" data-rating="@review.Rating">
+                                @for (int i = 1; i <= 5; i++)
+                                {
+                                    <span class="star" style="color: @(i <= review.Rating ? "#ffc107" : "#ced4da"); font-size: 1.2rem;">★</span>
+                                }
+                            </div>
+                            <p>@review.Comment</p>
+                            @if (!string.IsNullOrEmpty(review.ImageUrl))
+                            {
+                                <div class="mt-2"><img src="@review.ImageUrl" class="preview-media-thumb" alt="Ảnh đánh giá" /></div>
+                            }
+                            @if (!string.IsNullOrEmpty(review.VideoUrl))
+                            {
+                                <div class="mt-2"><video src="@review.VideoUrl" class="preview-media-thumb" controls></video></div>
+                            }
+                            <small class="text-muted d-block mt-2">Ngày: @review.CreatedAt.ToString("dd/MM/yyyy")</small>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="text-muted">Chưa có đánh giá nào cho đơn hàng này.</div>
+                }
+            </div>
+
+            <!-- TIMELINE LỊCH SỬ XỬ LÝ ĐƠN HÀNG -->
+            <div class="section-box mt-3">
+                <h4 class="box-title"><i class="fas fa-clock me-2"></i> Lịch sử xử lý đơn hàng</h4>
+                <hr />
+                @if (Model.Logs != null && Model.Logs.Any())
+                {
+                    <div class="timeline">
+                        @foreach (var log in Model.Logs.OrderByDescending(x => x.ThoiGian))
+                        {
+                            <div class="timeline-item">
+                                <div class="timeline-dot"></div>
+                                <div class="timeline-text-main">@log.NoiDung</div>
+                                <div class="timeline-time">@log.ThoiGian.ToString("HH:mm, dd/MM/yyyy")</div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <p class="text-muted mb-0">Chưa có ghi nhận lịch sử cho đơn hàng này.</p>
+                }
+            </div>
+        </div>
+
+        <!-- SIDEBAR TÓM TẮT THANH TOÁN + CỌC -->
+        <div class="sidebar-content">
+            <div class="section-box summary-box sticky-top">
+                <h4 class="box-title"><i class="fas fa-credit-card me-2"></i> Tóm tắt Thanh toán</h4>
+                <hr />
+                <p class="d-flex justify-content-between">
+                    <span>Tổng tiền sản phẩm:</span>
+                    <strong>@Model.TotalAmount.ToString("N0") đ</strong>
+                </p>
+                <p class="d-flex justify-content-between text-muted small">
+                    <span>Phí vận chuyển:</span>
+                    <span>Miễn phí</span>
+                </p>
+
+                @if (hasDeposit)
+                {
+                    <div class="mb-2">
+                        @* 1) ĐÃ CỌC / CHỜ XÁC NHẬN CỌC *@
+                        @if (Model.TrangThaiCoc == TrangThaiCoc.DaCoc
+                       || Model.TrangThaiCoc == TrangThaiCoc.ChoXacNhanCoc)
+                        {
+                            <p class="d-flex justify-content-between mb-1">
+                                <span>Đã đặt cọc:</span>
+                                <span class="text-success">- @deposit.ToString("N0") đ</span>
+                            </p>
+                            <p class="d-flex justify-content-between text-muted small mb-1">
+                                <span>Còn lại ước tính:</span>
+                                <strong>@remaining.ToString("N0") đ</strong>
+                            </p>
+
+                            @if (Model.TrangThaiCoc == TrangThaiCoc.ChoXacNhanCoc)
+                            {
+                                <p class="text-muted small mb-0">
+                                    (Đang chờ shop xác nhận đã nhận tiền cọc)
+                                </p>
+                            }
+                        }
+                        @* 2) HOÀN CỌC *@
+                        else if (Model.TrangThaiCoc == TrangThaiCoc.HoanCoc)
+                        {
+                            <p class="d-flex justify-content-between mb-1">
+                                <span>Đã hoàn lại tiền cọc:</span>
+                                <span class="text-success">+ @deposit.ToString("N0") đ</span>
+                            </p>
+                            <p class="text-muted small mb-0">
+                                Đơn hàng đã được hủy, bạn không cần thanh toán thêm.
+                            </p>
+                        }
+                        @* 3) MẤT CỌC *@
+                        else if (Model.TrangThaiCoc == TrangThaiCoc.MatCoc)
+                        {
+                            <p class="d-flex justify-content-between mb-1">
+                                <span>Tiền cọc:</span>
+                                <span class="text-danger">- @deposit.ToString("N0") đ</span>
+                            </p>
+                            <p class="text-muted small mb-0">
+                                Bạn đã mất tiền cọc. Đơn hàng đã kết thúc, vui lòng xem lại quy định đặt cọc.
+                            </p>
+                        }
+                    </div>
+                    <hr />
+                }
+                else
+                {
+                    <hr />
+                }
+
+                <h4 class="d-flex justify-content-between">
+                    <span>Thành tiền (niêm yết):</span>
+                    <strong class="text-danger">@Model.TotalAmount.ToString("N0") đ</strong>
+                </h4>
+                <button class="btn btn-primary w-100 mt-3 disabled">Liên hệ hỗ trợ</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        $(document).ready(function () {
+
+            // === 1. LOGIC HIỆN/ẨN FORM ĐÁNH GIÁ ===
+            $('.btn-toggle-review').on('click', function () {
+                var targetFormId = $(this).data('target-form');
+                var $targetFormRow = $(targetFormId);
+
+                $('.review-form-row').not($targetFormRow).each(function () {
+                    $(this).slideUp();
+                    $(this).find('form')[0].reset();
+                    $(this).find('.media-preview-area').empty();
+                    resetStarRatings($(this));
+                });
+
+                $targetFormRow.slideToggle();
+            });
+
+            $('.btn-cancel-review').on('click', function () {
+                var $formRow = $(this).closest('.review-form-row');
+                $formRow.slideUp();
+                $formRow.find('form')[0].reset();
+                $formRow.find('.media-preview-area').empty();
+                resetStarRatings($formRow);
+            });
+
+            function resetStarRatings($formContainer) {
+                $formContainer.find('.star-rating-group .star-icon').removeClass('selected hover fas').addClass('far');
+                $formContainer.find('input[name="DiemDanhGia"]').val(0);
+                $formContainer.find('textarea[name="NoiDung"]').css('border', '');
+            }
+
+            // === 2. SAO ===
+            $('.star-rating-group .star-icon').on('mouseenter', function () {
+                var $parent = $(this).closest('.star-rating-group');
+                var value = $(this).data('value');
+
+                $parent.find('.star-icon').each(function () {
+                    if ($(this).data('value') <= value) {
+                        $(this).addClass('hover').removeClass('far').addClass('fas');
+                    } else {
+                        if (!$(this).hasClass('selected')) {
+                            $(this).removeClass('hover').removeClass('fas').addClass('far');
+                        }
+                    }
+                });
+            });
+
+            $('.star-rating-group').on('mouseleave', function () {
+                $(this).find('.star-icon').removeClass('hover');
+                $(this).find('.star-icon').each(function () {
+                    if ($(this).hasClass('selected')) {
+                        $(this).removeClass('far').addClass('fas');
+                    } else {
+                        $(this).removeClass('fas').addClass('far');
+                    }
+                });
+            });
+
+            $('.star-rating-group .star-icon').on('click', function () {
+                var $parent = $(this).closest('.star-rating-group');
+                var value = $(this).data('value');
+                var $input = $($parent.data('input-target'));
+
+                $input.val(value);
+
+                $parent.find('.star-icon').removeClass('selected').removeClass('fas').addClass('far');
+
+                $parent.find('.star-icon').each(function () {
+                    if ($(this).data('value') <= value) {
+                        $(this).addClass('selected').removeClass('far').addClass('fas');
+                    }
+                });
+            });
+
+            // === 3. PREVIEW ẢNH/VIDEO ===
+            $('.file-input-preview').on('change', function (e) {
+                var $input = $(this);
+                var $previewArea = $($input.data('preview-target'));
+                var file = e.target.files[0];
+
+                if (!file) {
+                    $previewArea.find('[data-input-name="' + $input.attr('name') + '"]').remove();
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = function (r) {
+                    var fileType = file.type.split('/')[0];
+                    var $thumb;
+
+                    $previewArea.find('[data-input-name="' + $input.attr('name') + '"]').remove();
+
+                    if (fileType === 'image') {
+                        $thumb = $('<img>')
+                            .attr('src', r.target.result)
+                            .addClass('preview-media-thumb')
+                            .attr('alt', 'Preview Image')
+                            .attr('data-input-name', $input.attr('name'));
+                    } else if (fileType === 'video') {
+                        $thumb = $('<video>')
+                            .attr('src', r.target.result)
+                            .addClass('preview-media-thumb')
+                            .attr('controls', true)
+                            .attr('data-input-name', $input.attr('name'));
+                    }
+
+                    if ($thumb) {
+                        $previewArea.append($thumb);
+                    }
+                };
+                reader.readAsDataURL(file);
+            });
+
+            // === 4. VALIDATE FORM ===
+            $('.review-form-container form').on('submit', function (e) {
+                var $form = $(this);
+                var $ratingInput = $form.find('input[name="DiemDanhGia"]');
+                var $comment = $form.find('textarea[name="NoiDung"]');
+                var isValid = true;
+
+                $ratingInput.closest('.star-rating-group').css('border', '');
+                $comment.css('border', '');
+
+                if (parseInt($ratingInput.val()) === 0) {
+                    alert('Vui lòng chọn số sao cho Chất lượng sản phẩm!');
+                    $ratingInput.closest('.star-rating-group').css('border', '1px solid red');
+                    isValid = false;
+                }
+
+                if ($comment.val().length < 10) { // test
+                    alert('Vui lòng nhập nhận xét dài hơn (ít nhất 10 ký tự).');
+                    $comment.css('border', '1px solid red');
+                    isValid = false;
+                }
+
+                if (!isValid) {
+                    e.preventDefault();
+                }
+            });
+
+            // === 5. Đồng bộ checkbox ẩn danh ===
+            $('input[type="checkbox"][name="IsAnonymous"]').on('change', function () {
+                var isChecked = $(this).is(':checked');
+                $(this).closest('.form-check')
+                    .find('input[type="hidden"][name="IsAnonymous"]')
+                    .val(isChecked ? 'true' : 'false');
+            });
+        });
+    </script>
+}

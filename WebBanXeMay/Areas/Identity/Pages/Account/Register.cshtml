@@ -1,0 +1,66 @@
+﻿@page
+@model RegisterModel
+
+@{
+    ViewData["Title"] = "Đăng ký";
+}
+
+<div class="flex items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
+    <div class="w-full max-w-md space-y-8">
+
+        <div class="bg-white p-8 sm:p-10 rounded-xl shadow-lg border border-gray-100">
+
+            <div class="text-center">
+                <h2 class="text-3xl font-bold tracking-tight text-gray-900">
+                    Tạo tài khoản mới
+                </h2>
+                <p class="mt-2 text-sm text-gray-600">
+                    Đã có tài khoản?
+                    <a asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl" class="font-medium text-pink-600 hover:text-pink-500">
+                        Đăng nhập
+                    </a>
+                </p>
+            </div>
+
+            <form id="registerForm" asp-route-returnUrl="@Model.ReturnUrl" method="post" class="mt-8 space-y-6">
+
+                <div asp-validation-summary="ModelOnly" class="text-red-600 text-sm" role="alert"></div>
+
+                <div>
+                    <label asp-for="Input.Email" class="block text-sm font-medium text-gray-700"></label>
+                    <div class="mt-1">
+                        <input asp-for="Input.Email" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm" autocomplete="username" aria-required="true" placeholder="you@example.com" />
+                    </div>
+                    <span asp-validation-for="Input.Email" class="text-red-600 text-sm"></span>
+                </div>
+
+                <div>
+                    <label asp-for="Input.Password" class="block text-sm font-medium text-gray-700"></label>
+                    <div class="mt-1">
+                        <input asp-for="Input.Password" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm" autocomplete="new-password" aria-required="true" placeholder="••••••••" />
+                    </div>
+                    <span asp-validation-for="Input.Password" class="text-red-600 text-sm"></span>
+                </div>
+
+                <div>
+                    <label asp-for="Input.ConfirmPassword" class="block text-sm font-medium text-gray-700"></label>
+                    <div class="mt-1">
+                        <input asp-for="Input.ConfirmPassword" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-pink-500 focus:ring-pink-500 sm:text-sm" autocomplete="new-password" aria-required="true" placeholder="••••••••" />
+                    </div>
+                    <span asp-validation-for="Input.ConfirmPassword" class="text-red-600 text-sm"></span>
+                </div>
+
+                <div>
+                    <button id="registerSubmit" type="submit" class="group relative flex w-full justify-center rounded-md border border-transparent bg-pink-600 px-4 py-3 text-sm font-medium text-white hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-offset-2">
+                        Đăng ký
+                    </button>
+                </div>
+            </form>
+
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

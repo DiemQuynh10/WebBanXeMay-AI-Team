@@ -1,0 +1,33 @@
+﻿@model IEnumerable<WebBanXeMay.Models.SanPham>
+
+<div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    @foreach (var p in Model)
+    {
+        <div class="rounded-2xl border bg-white shadow-sm overflow-hidden">
+            <!-- Toàn bộ card là link tới trang chi tiết -->
+            <a asp-controller="SanPham"
+               asp-action="Details"
+               asp-route-slug="@p.Slug"
+               class="block h-full hover:shadow-md transition-shadow duration-150">
+
+                <!-- Ảnh -->
+                <div class="aspect-[4/3] bg-gray-50 flex items-center justify-center">
+                    <img class="h-full object-contain"
+                         src="@Url.Content(string.IsNullOrWhiteSpace(p.ImageUrl) ? "~/images/brands/" + (p.ThuongHieu?.Slug ?? "honda") + ".png" : p.ImageUrl)"
+                         alt="@p.TenSP" loading="lazy" />
+                </div>
+
+                <!-- Thông tin -->
+                <div class="p-4">
+                    <h3 class="font-semibold text-gray-900 line-clamp-2">@p.TenSP</h3>
+                    <div class="text-sm text-gray-500 mt-1">
+                        @(p.ThuongHieu?.TenTH ?? "--") • @(p.Loai?.TenLoai ?? "--")
+                    </div>
+                    <div class="mt-2 text-pink-600 font-bold text-lg">
+                        @p.Gia.ToString("N0") đ
+                    </div>
+                </div>
+            </a>
+        </div>
+    }
+</div>

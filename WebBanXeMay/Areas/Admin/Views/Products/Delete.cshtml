@@ -1,0 +1,76 @@
+﻿@model WebBanXeMay.Models.SanPham
+
+@{
+    ViewData["Title"] = "Xác nhận Xóa sản phẩm";
+}
+
+<h1 class="h3 mb-4 text-gray-800">@ViewData["Title"]</h1>
+
+<div class="alert alert-danger" role="alert">
+    <h4 class="alert-heading">Cảnh báo!</h4>
+    <p>Bạn có chắc chắn muốn xóa sản phẩm này không? Hành động này không thể hoàn tác.</p>
+    <hr>
+    <p class="mb-0">Tất cả dữ liệu liên quan đến sản phẩm này sẽ bị xóa vĩnh viễn.</p>
+</div>
+
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Thông tin sản phẩm sắp xóa: @Model.TenSP</h6>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-3">Tên sản phẩm</dt>
+                    <dd class="col-sm-9">@Html.DisplayFor(model => model.TenSP)</dd>
+
+                    <dt class="col-sm-3">Giá bán</dt>
+                    <dd class="col-sm-9">@Model.Gia.ToString("N0") VNĐ</dd>
+
+                    <dt class="col-sm-3">Số lượng</dt>
+                    <dd class="col-sm-9">@Html.DisplayFor(model => model.SoLuong)</dd>
+
+                    <dt class="col-sm-3">Phân khối</dt>
+                    <dd class="col-sm-9">@Html.DisplayFor(model => model.CC)</dd>
+
+                    <dt class="col-sm-3">Mô tả</dt>
+                    <dd class="col-sm-9">@Html.DisplayFor(model => model.MoTa)</dd>
+
+                    <dt class="col-sm-3">Loại xe</dt>
+                    <dd class="col-sm-9">@Html.DisplayFor(model => model.Loai.TenLoai)</dd>
+
+                    <dt class="col-sm-3">Hãng xe</dt>
+                    <dd class="col-sm-9">@(Model.ThuongHieu?.TenTH ?? "(Chưa có)")</dd>
+
+
+                    <dt class="col-sm-3">Hình ảnh</dt>
+                    <dd class="col-sm-9">
+                        <img src="@Model.ImageUrl" alt="Hình ảnh sản phẩm" style="max-width: 250px;" class="img-thumbnail" />
+                    </dd>
+
+                    <dt class="col-sm-3">Trạng thái</dt>
+                    <dd class="col-sm-9">
+                        @(Model.IsActive ? "Đang bán" : "Không bán")
+                    </dd>
+                </dl>
+
+                <hr />
+
+                <form asp-action="Delete">
+                    <!-- Input ẩn để gửi ID của sản phẩm cần xóa đi -->
+                    <input type="hidden" asp-for="MaSP" />
+
+                    <!-- Nút Xóa màu đỏ để cảnh báo -->
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash"></i> Xóa vĩnh viễn
+                    </button>
+
+                    <a asp-action="Index" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left"></i> Hủy và Quay lại
+                    </a>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

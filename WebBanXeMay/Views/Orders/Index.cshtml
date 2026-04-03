@@ -1,0 +1,642 @@
+﻿@using WebBanXeMay.Models
+@using System.Linq
+@model IEnumerable<WebBanXeMay.Models.DonHang>
+
+@{
+    ViewData["Title"] = "Đơn hàng của tôi";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+
+    var list = Model ?? Enumerable.Empty<DonHang>();
+    string statusStr = (Context?.Request?.Query["status"].ToString() ?? "").Trim();
+    string q = (Context?.Request?.Query["q"].ToString() ?? "").Trim();
+
+    int allCount = list.Count();
+    int choCount = list.Count(x => x.TrangThai == TrangThaiDonHang.ChoXacNhan);
+    int xlCount = list.Count(x => x.TrangThai == TrangThaiDonHang.DangXuLy);
+    int giaoCount = list.Count(x => x.TrangThai == TrangThaiDonHang.DangGiao);
+    int doneCount = list.Count(x => x.TrangThai == TrangThaiDonHang.HoanTat);
+    int cancelCount = list.Count(x => x.TrangThai == TrangThaiDonHang.DaHuy);
+
+    string Badge(TrangThaiDonHang s) => s switch
+    {
+        TrangThaiDonHang.ChoXacNhan => "bg-warning text-dark",
+        TrangThaiDonHang.DangXuLy => "bg-info text-dark",
+        TrangThaiDonHang.DangGiao => "bg-primary",
+        TrangThaiDonHang.HoanTat => "bg-success",
+        TrangThaiDonHang.DaHuy => "bg-danger",
+        _ => "bg-secondary"
+    };
+}
+
+<style>
+    .orders-wrap {
+        max-width: 980px;
+        margin: 0 auto;
+    }
+
+    .order-filter {
+        border-radius: 14px;
+        background: #fff;
+        box-shadow: 0 6px 18px rgba(0,0,0,.05);
+    }
+
+    .pill {
+        border-radius: 9999px !important;
+    }
+
+    .tab-pill {
+        border: 1px solid #fce7f3;
+        color: #db2777;
+        background: #fff;
+        font-weight: 500;
+        font-size: .9rem;
+    }
+
+        .tab-pill.active {
+            background: #ec4899;
+            color: #fff;
+            border-color: #ec4899;
+        }
+
+            .tab-pill.active .tab-badge {
+                background: #fff;
+                color: #ec4899;
+            }
+
+        .tab-pill .tab-badge {
+            background: #fff3f8;
+            color: #ec4899;
+            border-radius: 9999px;
+            padding: .1rem .5rem;
+            margin-left: .35rem;
+            font-weight: 600;
+        }
+
+    .search-shopee {
+        background: #f3f4f6;
+        border-radius: 9999px;
+        padding: 10px 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+        .search-shopee .icon {
+            opacity: .6;
+        }
+
+        .search-shopee input {
+            border: none;
+            background: transparent;
+            outline: none;
+            width: 100%;
+            font-size: .9rem;
+        }
+
+    #ordersList {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .card-order {
+        border: 1px solid #f1f5f9;
+        border-radius: 14px;
+        background: #fff;
+        overflow: hidden;
+        transition: box-shadow .2s ease, transform .1s ease;
+    }
+
+        .card-order:hover {
+            box-shadow: 0 12px 30px rgba(248,113,113,.20);
+            transform: translateY(-1px);
+        }
+
+    .order-head {
+        background: #fff;
+        border-bottom: 1px solid #f3f4f6;
+        padding: .7rem 1rem;
+    }
+
+    .order-meta {
+        font-weight: 600;
+        font-size: .95rem;
+    }
+
+    .order-sub {
+        font-size: .82rem;
+        color: #6b7280;
+    }
+
+    .order-status-line {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: .25rem;
+        font-size: .8rem;
+    }
+
+        .order-status-line small {
+            color: #6b7280;
+        }
+
+    .order-line {
+        padding: .7rem 1rem;
+        background: #fff;
+    }
+
+        .order-line + .order-line {
+            border-top: 1px dashed #eef2f7;
+        }
+
+    .order-line-grid {
+        display: grid;
+        grid-template-columns: 86px 1fr 150px;
+        align-items: center;
+        column-gap: 14px;
+    }
+
+    .order-thumb {
+        width: 72px;
+        height: 72px;
+        object-fit: cover;
+        border-radius: 10px;
+        border: 1px solid #e5e7eb;
+        background: #f9fafb;
+    }
+
+    .order-title a {
+        text-decoration: none;
+        color: #111827;
+        font-size: .95rem;
+    }
+
+        .order-title a:hover {
+            color: #ec4899;
+        }
+
+    .price-col {
+        text-align: right;
+        white-space: nowrap;
+        font-size: .9rem;
+    }
+
+    .item-price {
+        color: #ec4899;
+        font-weight: 700;
+    }
+
+    .order-foot {
+        background: #fff;
+        border-top: 1px solid #f3f4f6;
+        padding: .7rem 1rem .9rem;
+    }
+
+    .price-total-label {
+        font-size: .78rem;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        color: #9ca3af;
+        margin-bottom: .2rem;
+        font-weight: 600;
+    }
+
+    .price-total {
+        font-size: 1.1rem;
+        font-weight: 800;
+        color: #f97316;
+        margin: 0;
+    }
+
+    .deposit-row {
+        font-size: .82rem;
+        line-height: 1.4;
+    }
+
+        .deposit-row .deposit-amount {
+            color: #16a34a;
+            font-weight: 600;
+        }
+
+        .deposit-row .remaining-label {
+            color: #9ca3af;
+        }
+
+        .deposit-row .remaining-amount {
+            color: #db2777;
+            font-weight: 700;
+        }
+
+    .foot-actions {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+    }
+
+    .btn-chip {
+        border-radius: 9999px;
+        padding: .42rem .9rem;
+        font-weight: 600;
+        font-size: .85rem;
+    }
+
+    .btn-ghost {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        color: #374151;
+    }
+
+        .btn-ghost:hover {
+            background: #f9fafb;
+            border-color: #d1d5db;
+        }
+
+    .btn-pink {
+        background: #ec4899;
+        border-color: #ec4899;
+        color: #fff;
+    }
+
+        .btn-pink:hover {
+            background: #db2777;
+            border-color: #db2777;
+            color: #fff;
+        }
+
+    .btn-cancel {
+        background: #fff;
+        border: 1px solid #fecaca;
+        color: #b91c1c;
+    }
+
+        .btn-cancel:hover {
+            background: #fef2f2;
+            border-color: #fca5a5;
+            color: #991b1b;
+        }
+
+    .card-click {
+        cursor: pointer;
+    }
+
+        .card-click .no-prop {
+            pointer-events: auto;
+        }
+
+    @@media (max-width:768px) {
+        .order-line-grid
+
+    {
+        grid-template-columns: 70px 1fr;
+        row-gap: 6px;
+    }
+
+    .price-col {
+        grid-column: 2 / -1;
+        text-align: left;
+        margin-top: .25rem;
+    }
+
+    .orders-wrap {
+        padding: 0 .5rem;
+    }
+
+    .foot-actions {
+        width: 100%;
+        justify-content: flex-end;
+        margin-top: .5rem;
+    }
+
+    .order-foot {
+        flex-direction: column;
+        align-items: flex-end !important;
+        gap: .4rem;
+    }
+
+    }
+</style>
+
+<div class="container my-3 orders-wrap">
+
+    <!-- Filter + Search -->
+    <div class="order-filter p-3 mb-3">
+        <div class="d-flex flex-wrap gap-2 align-items-center justify-content-center">
+            <button type="button" class="btn tab-pill px-3 py-1 pill" data-tab="all">
+                Tất cả <span class="tab-badge">@allCount</span>
+            </button>
+
+            <button type="button" class="btn tab-pill px-3 py-1 pill" data-tab="ChoXacNhan">
+                Chờ xác nhận <span class="tab-badge">@choCount</span>
+            </button>
+
+            <button type="button" class="btn tab-pill px-3 py-1 pill" data-tab="DangXuLy">
+                Vận chuyển <span class="tab-badge">@xlCount</span>
+            </button>
+
+            <button type="button" class="btn tab-pill px-3 py-1 pill" data-tab="DangGiao">
+                Chờ giao hàng <span class="tab-badge">@giaoCount</span>
+            </button>
+
+            <button type="button" class="btn tab-pill px-3 py-1 pill" data-tab="HoanTat">
+                Hoàn thành <span class="tab-badge">@doneCount</span>
+            </button>
+
+            <button type="button" class="btn tab-pill px-3 py-1 pill" data-tab="DaHuy">
+                Đã hủy <span class="tab-badge">@cancelCount</span>
+            </button>
+        </div>
+
+        <div class="mt-3">
+            <div class="search-shopee">
+                <span class="icon"><i class="bi bi-search"></i></span>
+                <input id="qBox"
+                       type="text"
+                       value="@q"
+                       placeholder="Bạn có thể tìm theo tên xe, ID đơn hàng hoặc Tên sản phẩm" />
+            </div>
+        </div>
+    </div>
+
+    @if (!list.Any())
+    {
+        <div class="text-center py-5 border rounded-4 bg-light">
+            <div class="display-6 mb-2">📦</div>
+            <div class="fw-semibold">Bạn chưa có đơn hàng nào</div>
+        </div>
+    }
+    else
+    {
+        <div id="ordersList">
+            @foreach (var o in list.OrderByDescending(x => x.NgayDH))
+            {
+                var firstItem = o.ChiTietDHs?.FirstOrDefault();
+                var buyUrl = (firstItem?.SanPham?.Slug is string slug && !string.IsNullOrWhiteSpace(slug))
+                ? Url.Action("Details", "SanPham", new { slug })
+                : Url.Action("Index", "SanPham");
+
+                var linkDetails = Url.Action("Details", "Orders", new { id = o.MaDH });
+
+                var hasDepositRequest = o.SoTienCoc.HasValue && o.SoTienCoc.Value > 0;
+                var deposit = hasDepositRequest ? o.SoTienCoc.Value : 0m;
+                var remaining = hasDepositRequest ? (o.TongTien - deposit) : o.TongTien;
+
+                var hasDeposit = hasDepositRequest;
+                var isDepositStarted = hasDeposit && o.TrangThaiCoc != TrangThaiCoc.ChuaCoc;
+                var canCancel = (o.TrangThai == TrangThaiDonHang.ChoXacNhan) && !isDepositStarted;
+
+                var searchText = $"#{o.MaDH} {o.NgayDH:dd/MM/yyyy HH:mm}";
+                if (o.ChiTietDHs != null)
+                {
+                    searchText += " " + string.Join(" ", o.ChiTietDHs.Select(ct => ct.SanPham?.TenSP ?? ""));
+                }
+
+                <div class="card-order card-click"
+                     data-status="@o.TrangThai"
+                     data-text="@searchText"
+                     onclick="if(!event.target.closest('.no-prop')) window.location='@linkDetails'">
+
+                    <div class="order-head d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="order-meta">Mã đơn: #@o.MaDH</div>
+                            <div class="order-sub">
+                                Ngày đặt: @o.NgayDH.ToString("dd/MM/yyyy HH:mm")
+                            </div>
+                        </div>
+                        <div class="order-status-line">
+                            <span class="badge @Badge(o.TrangThai) fs-6">@o.TrangThai</span>
+
+                            @if (hasDepositRequest)
+                            {
+                                <small>
+                                    Đặt cọc:
+                                    @{
+                                        if (o.TrangThaiCoc == TrangThaiCoc.ChuaCoc)
+                                        {
+                                            <span class="badge bg-secondary ms-1">Chưa cọc</span>
+                                            ;
+                                        }
+                                        else if (o.TrangThaiCoc == TrangThaiCoc.ChoXacNhanCoc)
+                                        {
+                                            <span class="badge bg-warning text-dark ms-1">Chờ xác nhận cọc</span>
+                                            ;
+                                        }
+                                        else if (o.TrangThaiCoc == TrangThaiCoc.DaCoc)
+                                        {
+                                            <span class="badge bg-success ms-1">Đã cọc</span>
+                                            ;
+                                        }
+                                        else if (o.TrangThaiCoc == TrangThaiCoc.HoanCoc)
+                                        {
+                                            <span class="badge bg-secondary ms-1">Hoàn cọc</span>
+                                            ;
+                                        }
+                                        else if (o.TrangThaiCoc == TrangThaiCoc.MatCoc)
+                                        {
+                                            <span class="badge bg-danger ms-1">Mất cọc</span>
+                                            ;
+                                        }
+                                    }
+                                </small>
+                            }
+                        </div>
+                    </div>
+
+                    @if (o.ChiTietDHs != null)
+                    {
+                        foreach (var it in o.ChiTietDHs)
+                        {
+                            <div class="order-line">
+                                <div class="order-line-grid">
+                                    <a href="@linkDetails" class="no-prop">
+                                        <img class="order-thumb"
+                                             src="@(it.SanPham?.ImageUrl ?? "/images/no-image.png")"
+                                             alt="@it.SanPham?.TenSP" />
+                                    </a>
+                                    <div>
+                                        <div class="order-title fw-semibold">
+                                            <a href="@linkDetails" class="no-prop">@it.SanPham?.TenSP</a>
+                                        </div>
+                                        <div class="text-muted small">x@(it.SoLuong)</div>
+                                    </div>
+                                    <div class="price-col">
+                                        <span class="item-price">
+                                            @((it.Gia * it.SoLuong).ToString("N0")) đ
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+
+                    <div class="order-foot d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="price-total-label">Tổng tiền sản phẩm</div>
+                            <p class="price-total mb-1">@o.TongTien.ToString("N0") đ</p>
+
+                            @if (hasDepositRequest)
+                            {
+                                <div class="deposit-row">
+                                    @* 1. CHƯA CỌC *@
+                                    @if (o.TrangThaiCoc == TrangThaiCoc.ChuaCoc)
+                                    {
+                                        <span class="deposit-amount">
+                                            Tiền cọc dự kiến: @deposit.ToString("N0") đ
+                                        </span>
+
+                                        <br />
+                                        <span class="remaining-label">
+                                            Bạn chưa đặt cọc, số tiền cần thanh toán vẫn là:
+                                        </span>
+                                        <span class="remaining-amount">
+                                            @o.TongTien.ToString("N0") đ
+                                        </span>
+                                    }
+                                    @* 2. ĐÃ CHUYỂN – CHỜ XÁC NHẬN *@
+                                    else if (o.TrangThaiCoc == TrangThaiCoc.ChoXacNhanCoc)
+                                    {
+                                        <span class="deposit-amount">
+                                            Đã chuyển cọc: - @deposit.ToString("N0") đ
+                                        </span>
+
+                                        <br />
+                                        <span class="remaining-label">Còn lại ước tính: </span>
+                                        <span class="remaining-amount">@remaining.ToString("N0") đ</span>
+
+                                        <br />
+                                        <span class="remaining-label">
+                                            (Đang chờ shop xác nhận đã nhận tiền cọc)
+                                        </span>
+                                    }
+                                    @* 3. ĐÃ CỌC *@
+                                    else if (o.TrangThaiCoc == TrangThaiCoc.DaCoc)
+                                    {
+                                        <span class="deposit-amount">
+                                            Đã đặt cọc: - @deposit.ToString("N0") đ
+                                        </span>
+
+                                        <br />
+                                        <span class="remaining-label">Còn lại ước tính: </span>
+                                        <span class="remaining-amount">@remaining.ToString("N0") đ</span>
+                                    }
+                                    @* 4. HOÀN CỌC *@
+                                    else if (o.TrangThaiCoc == TrangThaiCoc.HoanCoc)
+                                    {
+                                        <span class="deposit-amount">
+                                            Đã hoàn lại tiền cọc: + @deposit.ToString("N0") đ
+                                        </span>
+
+                                        <br />
+                                        <span class="remaining-label">
+                                            Đơn hàng đã được hủy, bạn không cần thanh toán thêm.
+                                        </span>
+                                    }
+                                    @* 5. MẤT CỌC *@
+                                    else if (o.TrangThaiCoc == TrangThaiCoc.MatCoc)
+                                    {
+                                        <span class="deposit-amount text-danger">
+                                            Đã mất tiền cọc: - @deposit.ToString("N0") đ
+                                        </span>
+
+                                        <br />
+                                        <span class="remaining-label">
+                                            Đơn hàng đã kết thúc, vui lòng xem lại quy định đặt cọc.
+                                        </span>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <div class="foot-actions">
+                            @if (canCancel)
+                            {
+                                <form action="@Url.Action("Cancel","Orders")"
+                                      method="post"
+                                      class="no-prop d-inline"
+                                      onsubmit="return confirm('Hủy đơn #@o.MaDH?');">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@o.MaDH" />
+                                    <button type="submit" class="btn btn-cancel btn-chip">
+                                        <i class="bi bi-x-circle me-1"></i> Hủy đơn
+                                    </button>
+                                </form>
+                            }
+                            @if (o.SoTienCoc.HasValue && o.SoTienCoc > 0 && o.TrangThai != TrangThaiDonHang.DaHuy)
+                            {
+                                <a asp-action="Deposit"
+                                   asp-controller="Orders"
+                                   asp-route-id="@o.MaDH"
+                                   class="btn btn-outline-pink btn-sm">
+                                    @(o.TrangThaiCoc == TrangThaiCoc.ChuaCoc
+                                        ? "Đặt cọc ngay"
+                                        : (o.TrangThaiCoc == TrangThaiCoc.ChoXacNhanCoc
+                                        ? "Xem trạng thái cọc"
+                                        : "Thông tin cọc"))
+                                </a>
+                            }
+                            <a href="@buyUrl"
+                               class="btn btn-pink btn-chip no-prop">
+                                <i class="bi bi-bag-heart me-1"></i> Mua lại
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const tabs  = document.querySelectorAll('[data-tab]');
+            const cards = document.querySelectorAll('.card-order');
+            const qBox  = document.getElementById('qBox');
+
+            const url = new URL(window.location.href);
+
+            let currentStatus = '@statusStr';
+            if (!currentStatus) currentStatus = 'all';
+
+            tabs.forEach(t => t.classList.toggle(
+                'active',
+                t.dataset.tab === currentStatus ||
+                (currentStatus === 'all' && t.dataset.tab === 'all')
+            ));
+
+            function applyFilters() {
+                const qv = (qBox?.value || '').trim().toLowerCase();
+                cards.forEach(c => {
+                    const st  = c.dataset.status;
+                    const txt = (c.dataset.text || '').toLowerCase();
+                    const okSt = (currentStatus === 'all') || (st === currentStatus);
+                    const okQ  = !qv || txt.includes(qv);
+                    c.style.display = (okSt && okQ) ? '' : 'none';
+                });
+
+                const qs = new URLSearchParams();
+                if (currentStatus !== 'all') qs.set('status', currentStatus);
+                if (qv) qs.set('q', qv);
+                const newUrl = window.location.pathname + (qs.toString() ? ('?' + qs.toString()) : '');
+                window.history.replaceState({}, '', newUrl);
+            }
+
+            tabs.forEach(t => t.addEventListener('click', () => {
+                tabs.forEach(x => x.classList.remove('active'));
+                t.classList.add('active');
+                currentStatus = t.dataset.tab;
+                applyFilters();
+            }));
+
+            if (qBox) {
+                qBox.addEventListener('keyup', () => {
+                    applyFilters();
+                });
+            }
+
+            const qFromUrl = url.searchParams.get('q');
+            if (qFromUrl && qBox) qBox.value = qFromUrl;
+
+            applyFilters();
+        })();
+    </script>
+}

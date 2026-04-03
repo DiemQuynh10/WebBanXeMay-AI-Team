@@ -1,0 +1,173 @@
+﻿@model WebBanXeMay.Models.DonHang
+@using WebBanXeMay.Helpers
+@{
+    ViewData["Title"] = "Đặt hàng thành công";
+
+    var hasDeposit = Model.SoTienCoc.HasValue && Model.SoTienCoc.Value > 0;
+    var deposit = hasDeposit ? Model.SoTienCoc.Value : 0m;
+    var remaining = hasDeposit ? (Model.TongTien - deposit) : Model.TongTien;
+}
+
+<section class="mx-auto max-w-6xl px-4 py-6">
+    <!-- Breadcrumb -->
+    <nav class="mb-6 text-sm text-gray-500">
+        <ol class="flex items-center gap-2">
+            <li><a href="/" class="hover:text-pink-600">Trang chủ</a></li>
+            <li>›</li>
+            <li><a href="/cart" class="hover:text-pink-600">Giỏ hàng</a></li>
+            <li>›</li>
+            <li class="text-gray-900 font-medium">Hoàn tất</li>
+        </ol>
+    </nav>
+
+    <div class="rounded-2xl border bg-white shadow-sm">
+        <!-- Header -->
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b px-5 py-4">
+            <div>
+                <h1 class="text-xl md:text-2xl font-bold">🎉 Đặt hàng thành công!</h1>
+                <div class="mt-1 text-sm text-gray-600">
+                    Mã đơn: <span class="font-semibold">#@Model.MaDH</span>
+                    · Ngày: <span class="font-medium">@Model.NgayDH.ToString("dd/MM/yyyy HH:mm")</span>
+                </div>
+            </div>
+            <div class="flex flex-col items-start md:items-end gap-2">
+                <!-- Badge trạng thái đơn -->
+                <span class="inline-flex items-center rounded-full px-3 py-1 text-sm font-medium
+                             border bg-pink-50 text-pink-700 border-pink-200">
+                    @Model.TrangThai.ToLabel()
+                </span>
+
+                @if (hasDeposit)
+                {
+                    <!-- Badge trạng thái đặt cọc -->
+                    <div class="text-xs text-gray-600">
+                        Trạng thái đặt cọc:
+                        @switch (Model.TrangThaiCoc)
+                        {
+                            case TrangThaiCoc.ChoXacNhanCoc:
+                                @:<span class="ml-1 inline-flex items-center rounded-full bg-amber-100 text-amber-700 px-2 py-0.5">Chờ cọc</span>;
+                                break;
+                            case TrangThaiCoc.DaCoc:
+                                @:<span class="ml-1 inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5">Đã cọc</span>;
+                                break;
+                            case TrangThaiCoc.HoanCoc:
+                                @:<span class="ml-1 inline-flex items-center rounded-full bg-slate-100 text-slate-700 px-2 py-0.5">Hoàn cọc</span>;
+                                break;
+                            case TrangThaiCoc.MatCoc:
+                                @:<span class="ml-1 inline-flex items-center rounded-full bg-red-100 text-red-700 px-2 py-0.5">Mất cọc</span>;
+                                break;
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 px-5 py-6">
+            <!-- LEFT -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Recipient -->
+                <div class="rounded-xl border px-4 py-4">
+                    <h2 class="text-lg font-semibold mb-3">Thông tin nhận hàng</h2>
+                    <div class="space-y-1 text-sm">
+                        <div><span class="text-gray-600">Người nhận:</span> <span class="font-medium">@Model.NguoiNhan</span></div>
+                        <div><span class="text-gray-600">SĐT:</span> <span class="font-medium">@Model.Phone</span></div>
+                        <div><span class="text-gray-600">Địa chỉ:</span> <span class="font-medium">@Model.DiaChi</span></div>
+                        <div><span class="text-gray-600">Thanh toán:</span> <span class="font-medium text-pink-600">COD</span></div>
+                    </div>
+                </div>
+
+                <!-- Items -->
+                <div class="rounded-xl border overflow-hidden">
+                    <div class="px-4 py-3 border-b">
+                        <h2 class="text-lg font-semibold">Chi tiết đơn hàng</h2>
+                    </div>
+
+                    <!-- Header row -->
+                    <div class="hidden md:grid px-4 py-2 text-sm text-gray-500 border-b
+                                grid-cols-[minmax(0,1fr)_88px_160px_160px]">
+                        <div class="pr-3">Sản phẩm</div>
+                        <div class="text-center">SL</div>
+                        <div class="text-right">Giá</div>
+                        <div class="text-right">Thành tiền</div>
+                    </div>
+
+                    <div class="divide-y">
+                        @foreach (var ct in Model.ChiTietDHs)
+                        {
+                            <div class="px-4 py-3 gap-3
+                                        grid grid-cols-12 md:gap-0
+                                        md:grid-cols-[minmax(0,1fr)_88px_160px_160px]">
+                                <!-- Tên sp -->
+                                <div class="col-span-12 md:col-span-1 pr-3">
+                                    <div class="font-medium">@ct.SanPham?.TenSP</div>
+                                </div>
+
+                                <!-- SL -->
+                                <div class="col-span-6 md:col-span-1 text-left md:text-center">
+                                    x @ct.SoLuong
+                                </div>
+
+                                <!-- Giá -->
+                                <div class="col-span-6 md:col-span-1 md:text-right whitespace-nowrap tabular-nums">
+                                    @ct.Gia.ToString("n0")<span class="ml-1">đ</span>
+                                </div>
+
+                                <!-- Thành tiền -->
+                                <div class="col-span-12 md:col-span-1 md:text-right font-semibold whitespace-nowrap tabular-nums">
+                                    @((ct.Gia * ct.SoLuong).ToString("n0"))<span class="ml-1">đ</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT: summary -->
+            <aside class="lg:col-span-1">
+                <div class="rounded-xl border px-4 py-4 lg:sticky lg:top-24">
+                    <h3 class="text-lg font-semibold mb-3">Tổng thanh toán</h3>
+
+                    <div class="space-y-1 text-sm">
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-600">Tổng đơn (niêm yết)</span>
+                            <span class="font-medium tabular-nums">@Model.TongTien.ToString("n0") đ</span>
+                        </div>
+
+                        @if (hasDeposit)
+                        {
+                            <div class="flex items-center justify-between text-emerald-700">
+                                <span>Đặt cọc</span>
+                                <span class="font-medium tabular-nums">- @deposit.ToString("n0") đ</span>
+                            </div>
+
+                            <div class="flex items-center justify-between pt-1 mt-1 border-t">
+                                <span class="font-semibold">Còn lại ước tính</span>
+                                <span class="font-bold text-pink-600 tabular-nums">@remaining.ToString("n0") đ</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="flex items-center justify-between pt-1 mt-1 border-t">
+                                <span class="font-semibold">Thành tiền</span>
+                                <span class="font-bold text-pink-600 tabular-nums">@Model.TongTien.ToString("n0") đ</span>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="mt-5 grid grid-cols-1 gap-2">
+                        <a href="/" class="inline-flex items-center justify-center rounded-lg border px-4 py-2 hover:bg-gray-50">
+                            ← Tiếp tục mua sắm
+                        </a>
+                        <a href="/orders" class="inline-flex items-center justify-center rounded-lg bg-pink-600 px-4 py-2 font-semibold text-white hover:bg-pink-700">
+                            Xem đơn hàng của tôi
+                        </a>
+                    </div>
+
+                    <p class="mt-3 text-xs text-gray-500">
+                        * Mọi thắc mắc về đơn #@Model.MaDH, vui lòng liên hệ hotline trên trang.
+                    </p>
+                </div>
+            </aside>
+        </div>
+    </div>
+</section>

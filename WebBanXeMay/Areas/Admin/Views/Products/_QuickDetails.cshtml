@@ -1,0 +1,61 @@
+﻿@model WebBanXeMay.Models.SanPham
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-4 text-center mb-3">
+            <img src="@(string.IsNullOrEmpty(Model.ImageUrl)
+                        ? "https://via.placeholder.com/250x180.png?text=No+Image"
+                        : Model.ImageUrl)"
+                 alt="@Model.TenSP"
+                 class="img-fluid rounded shadow-sm" />
+        </div>
+        <div class="col-md-8">
+            <h4 class="font-weight-bold mb-2">@Model.TenSP</h4>
+            <p class="mb-1">
+                <strong>Hãng:</strong> @Model.ThuongHieu?.TenTH
+                &nbsp;&nbsp;|&nbsp;&nbsp;
+                <strong>Loại:</strong> @Model.Loai?.TenLoai
+            </p>
+            <p class="mb-1">
+                <strong>Giá:</strong> @Model.Gia.ToString("N0") VNĐ
+            </p>
+            <p class="mb-1">
+                <strong>Trạng thái kho:</strong>
+                @if (!Model.IsActive)
+                {
+                    <span class="badge bg-secondary">Ngừng kinh doanh</span>
+                }
+                else if (Model.SoLuong <= 0)
+                {
+                    <span class="badge bg-danger">Hết hàng</span>
+                }
+                else if (Model.SoLuong <= 5)
+                {
+                    <span class="badge bg-warning text-dark">Sắp hết (@Model.SoLuong)</span>
+                }
+                else
+                {
+                    <span class="badge bg-success">Còn hàng (@Model.SoLuong)</span>
+                }
+            </p>
+            @if (Model.CC.HasValue)
+            {
+                <p class="mb-1">
+                    <strong>Dung tích xi-lanh:</strong> @Model.CC cc
+                </p>
+            }
+
+            <hr />
+            <div class="small text-muted" style="max-height: 180px; overflow-y: auto;">
+                @if (!string.IsNullOrWhiteSpace(Model.MoTa))
+                {
+                    @Html.Raw(Model.MoTa)
+                }
+                else
+                {
+                    <em>Chưa có mô tả chi tiết.</em>
+                }
+            </div>
+        </div>
+    </div>
+</div>

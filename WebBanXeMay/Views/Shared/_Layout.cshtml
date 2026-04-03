@@ -1,0 +1,394 @@
+﻿@{
+    var title = ViewData["Title"] as string ?? "Web Bán Xe Máy";
+}
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>@title</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" />
+
+    @RenderSection("Head", required: false)
+    @RenderSection("Styles", required: false)
+
+    <style>
+        /* Animation chấm đỏ */
+        @@keyframes bounce-short {
+            0%, 100%
+
+        {
+            transform: translateY(0);
+        }
+
+        50% {
+            transform: translateY(-5px);
+        }
+
+        }
+
+        .animate-bounce-short {
+            animation: bounce-short 0.5s infinite;
+        }
+
+        /* Nút chat nổi (Fix cứng CSS) */
+        .my-chat-bubble {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #ee4d2d, #ff7337);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 15px rgba(238, 77, 45, 0.5);
+            z-index: 9999;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+            .my-chat-bubble:hover {
+                transform: scale(1.1);
+                color: white;
+            }
+
+            .my-chat-bubble i {
+                font-size: 28px;
+            }
+
+        .my-chat-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background-color: #ff0000;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            height: 24px;
+            min-width: 24px;
+            border-radius: 12px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid white;
+        }
+
+            .my-chat-badge.show {
+                display: flex;
+                animation: bounce-short 0.5s infinite;
+            }
+        /* ... Giữ nguyên CSS cũ ... */
+
+        .chat-tooltip {
+            position: absolute;
+            /* Thay đổi: Tăng khoảng cách từ phải sang (càng lớn càng sang trái) */
+            right: 75px;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: white;
+            color: #ee4d2d;
+            padding: 8px 16px; /* Tăng padding cho thoáng */
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 700; /* Chữ đậm hơn */
+            white-space: nowrap;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            /* Thay đổi: Luôn hiển thị */
+            opacity: 1;
+            visibility: visible;
+            pointer-events: none;
+            border: 1px solid #ffeceb; /* Viền nhẹ */
+        }
+
+            /* Mũi tên nhỏ chỉ vào nút */
+            .chat-tooltip::after {
+                content: '';
+                position: absolute;
+                right: -6px;
+                top: 50%;
+                transform: translateY(-50%);
+                border-left: 6px solid white;
+                border-top: 6px solid transparent;
+                border-bottom: 6px solid transparent;
+            }
+        /* Icon Giỏ hàng Shopee Mới */
+        .shopee-cart-wrapper {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            margin-right: 5px;
+            cursor: pointer;
+        }
+
+        .shopee-cart-badge {
+            position: absolute;
+            top: -4px;
+            right: -6px;
+            background-color: #ee4d2d;
+            color: white;
+            font-size: 10px;
+            font-weight: 700;
+            min-width: 18px;
+            height: 18px;
+            border-radius: 9px;
+            border: 2px solid white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 4px;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
+
+    <header class="bg-white shadow-sm sticky top-0 z-50">
+        @await Html.PartialAsync("_Header")
+    </header>
+
+    <main class="container mx-auto px-4 py-6 flex-1">
+        @RenderBody()
+    </main>
+
+    <footer class="bg-white border-t">
+        @await Html.PartialAsync("_Footer")
+    </footer>
+
+    <input id="__isAuth" type="hidden" value="@(User?.Identity?.IsAuthenticated == true ? "1" : "0")" />
+    <form id="__af" method="post" class="hidden">@Html.AntiForgeryToken()</form>
+
+    <div id="auth-modal" class="fixed inset-0 hidden items-center justify-center z-50">
+        <div class="absolute inset-0 bg-black/40"></div>
+        <div class="relative bg-white rounded-2xl shadow-xl max-w-sm w-[92%] p-5">
+            <h3 class="text-lg font-semibold mb-2">Cần đăng nhập</h3>
+            <p class="text-sm text-gray-600 mb-4">Bạn cần đăng nhập để thực hiện chức năng này.</p>
+            <div class="flex gap-2 justify-end">
+                <button id="auth-cancel" type="button" class="px-3 py-2 rounded-lg border">Để sau</button>
+                <a id="auth-login" class="px-3 py-2 rounded-lg bg-pink-600 text-white">Đăng nhập</a>
+                <a id="auth-register" class="px-3 py-2 rounded-lg bg-gray-900 text-white">Đăng ký</a>
+            </div>
+        </div>
+    </div>
+
+    <div id="mini-cart-flyout" class="fixed left-4 bottom-4 z-[70] w-[320px] sm:w-[360px] translate-x-[-400px] opacity-0 transition-all duration-300">
+        <div class="bg-white/95 backdrop-blur rounded-2xl shadow-xl border">
+            <div class="px-4 py-3 border-b flex items-center justify-between">
+                <div class="font-semibold text-pink-600">Đã thêm vào giỏ</div>
+                <button type="button" class="text-gray-500 hover:text-gray-800" data-mc-close>✕</button>
+            </div>
+            <div class="p-3 space-y-3 max-h-[220px] overflow-auto" id="mc-items"></div>
+            <div class="px-4 pb-4 pt-2">
+                <div class="flex items-center justify-between text-sm text-gray-600 mb-2">
+                    <span>Tổng:</span><span id="mc-total" class="font-semibold text-gray-900">0 ₫</span>
+                </div>
+                <div class="flex gap-2">
+                    <a href="/Cart" class="flex-1 px-3 py-2 rounded-xl border text-center">Xem giỏ</a>
+                    <a id="mc-checkout" class="flex-1 px-3 py-2 rounded-xl bg-pink-600 text-white text-center">Thanh toán</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <a href="/Chat/Index" id="globalChatBubble" class="my-chat-bubble" title="Chat với Shop">
+        <span class="chat-tooltip">Chat ngay với Shop</span>
+        <i class="fas fa-comment-dots"></i>
+        <span id="globalChatBadge" class="my-chat-badge">0</span>
+    </a>
+
+    <audio id="chatSound" src="https://www.soundjay.com/button/beep-07.mp3" preload="auto"></audio>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/jquery-validation/dist/jquery.validate.min.js"></script>
+    <script src="~/lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.js"></script>
+
+    <script>
+        // 1. Helpers
+        function isAuth() { return document.getElementById('__isAuth')?.value === '1'; }
+        function currReturnUrl() { return encodeURIComponent(location.pathname + location.search); }
+        function getToken() { return document.getElementById('__af')?.querySelector('input')?.value ?? ''; }
+
+        const __modal = document.getElementById('auth-modal');
+        function openAuthModal(targetUrl) {
+            const ret = targetUrl ? encodeURIComponent(targetUrl) : currReturnUrl();
+            document.getElementById('auth-login').href = `/Identity/Account/Login?returnUrl=${ret}`;
+            document.getElementById('auth-register').href = `/Identity/Account/Register?returnUrl=${ret}`;
+            __modal.classList.remove('hidden'); __modal.classList.add('flex');
+        }
+        function closeAuthModal() { __modal.classList.add('hidden'); __modal.classList.remove('flex'); }
+
+        // 2. API Fetch
+        window.fetchAuth = async function (url, init) {
+            const headers = new Headers(init?.headers || {});
+            if (!headers.has('RequestVerificationToken')) headers.set('RequestVerificationToken', getToken());
+            const res = await fetch(url, { ...init, headers });
+            if (res.status === 401) { location.href = `/Identity/Account/Login?returnUrl=${currReturnUrl()}`; throw new Error('Unauthorized'); }
+            return res;
+        };
+        window.postJsonAuth = async function (url, data) {
+            if (!isAuth()) { openAuthModal(); return null; }
+            return fetchAuth(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data || {}) });
+        };
+
+        // 3. Mini Cart
+        let __mcTimer = null;
+        function mcClose() {
+            const box = document.getElementById('mini-cart-flyout');
+            if(box) { box.classList.add('translate-x-[-400px]', 'opacity-0'); box.classList.remove('translate-x-0', 'opacity-100'); }
+            if (__mcTimer) clearTimeout(__mcTimer);
+        }
+        function mcOpen() {
+            const box = document.getElementById('mini-cart-flyout');
+            if(box) { box.classList.remove('translate-x-[-400px]', 'opacity-0'); box.classList.add('translate-x-0', 'opacity-100'); }
+            if (__mcTimer) clearTimeout(__mcTimer);
+            __mcTimer = setTimeout(mcClose, 4000);
+        }
+        function mcItemRow({ tenSP, imageUrl, gia, soLuong }) {
+            const img = imageUrl || '/images/hero-showroom.jpg';
+            const p = (gia || 0).toLocaleString('vi-VN') + ' ₫';
+            return `<div class="flex gap-3 items-center"><img src="${img}" class="w-14 h-14 rounded-lg object-cover border"><div class="flex-1 min-w-0"><div class="text-sm font-medium line-clamp-2">${tenSP || ''}</div><div class="text-xs text-gray-500 mt-0.5">SL: ${soLuong || 1} • ${p}</div></div></div>`;
+        }
+        window.showMiniCart = function (opts) {
+            document.getElementById('mc-items').innerHTML = (opts.items || []).slice(0, 3).map(mcItemRow).join('');
+            document.getElementById('mc-total').textContent = (opts.cartTotal || 0).toLocaleString('vi-VN') + ' ₫';
+            document.getElementById('mc-checkout').href = '/Checkout';
+            mcOpen();
+        }
+
+        // 4. Cart Badge Logic
+        window.Cart = window.Cart || {};
+        window.Cart.refreshBadge = async function () {
+             try {
+                 const res = await fetch('/Cart/Count'); // Gọi API đếm số lượng
+                 if (!res.ok) return;
+                 const data = await res.json();
+
+                 const count = data?.count ?? 0;
+                 // Cập nhật badge cũ (nếu còn)
+                 const b1 = document.getElementById('cart-badge');
+                 if (b1) b1.textContent = count;
+                 // Cập nhật badge mới (Shopee style)
+                 const b2 = document.getElementById('shopee-cart-count');
+                 if (b2) b2.textContent = count;
+             } catch { }
+        };
+
+        window.Cart.add = async function (maSP, quantity = 1) {
+            try {
+                const res = await window.postJsonAuth('/Cart/AddJson', { maSP: maSP, quantity: quantity });
+                if (res === null) return;
+                const data = await res.json();
+                if (res.ok && data.ok) {
+                    if (window.Cart.refreshBadge) window.Cart.refreshBadge();
+                    const mini = await fetch('/Cart/Mini');
+                    if (mini.ok) {
+                        const mData = await mini.json();
+                        window.showMiniCart({ items: mData.items, cartTotal: mData.total });
+                    }
+                } else { alert(data.message || 'Thêm thất bại.'); }
+            } catch (err) { console.error(err); }
+        };
+
+        // 5. Main Init
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // [ADD] Thay thế Icon Giỏ Hàng
+            const headerCartLink = document.querySelector('header a[href*="/Cart"]');
+            if(headerCartLink) {
+                // Ẩn icon cũ
+                const oldIcons = headerCartLink.querySelectorAll('svg:not(.shopee-icon), i');
+                oldIcons.forEach(i => i.style.display = 'none');
+
+                // Lấy số lượng hiện tại
+                let currentCount = "0";
+                const oldBadge = document.getElementById("cart-badge");
+                if(oldBadge) {
+                    currentCount = oldBadge.innerText;
+                    oldBadge.style.display = 'none'; // Ẩn badge cũ
+                }
+
+                // Chèn Icon Mới
+                if (!document.querySelector('.shopee-cart-wrapper')) {
+                    const shopeeIconHTML = `
+                    <div class="shopee-cart-wrapper">
+                        <svg viewBox="0 0 26.6 25.6" class="w-7 h-7 text-pink-600 shopee-icon">
+                            <polyline fill="none" points="2 1.7 5.5 1.7 9.6 18.3 21.2 18.3 24.6 6.1 7 6.1" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-miterlimit="10" stroke-width="2.5"></polyline>
+                            <circle cx="10.7" cy="23" r="2.2" fill="currentColor"></circle>
+                            <circle cx="19.7" cy="23" r="2.2" fill="currentColor"></circle>
+                        </svg>
+                        <span id="shopee-cart-count" class="shopee-cart-badge">${currentCount}</span>
+                    </div>`;
+                    headerCartLink.insertAdjacentHTML('afterbegin', shopeeIconHTML);
+                }
+            }
+
+            // Gọi update badge ngay lập tức
+            window.Cart.refreshBadge();
+
+            // Dropdown Logic
+            const triggers = Array.from(document.querySelectorAll('[data-dropdown-trigger]'));
+            function closeAllMenus(except) {
+                document.querySelectorAll('[data-dropdown-menu]').forEach(m => {
+                    if(m !== except && !m.classList.contains('hidden')) m.classList.add('hidden');
+                });
+            }
+            triggers.forEach(t => {
+                const menu = document.getElementById(t.getAttribute('data-dropdown-trigger'));
+                if(!menu) return;
+                menu.setAttribute('data-dropdown-menu', 'true');
+                if(!menu.classList.contains('hidden')) menu.classList.add('hidden');
+                t.addEventListener('click', (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    const open = !menu.classList.contains('hidden');
+                    closeAllMenus(open ? null : menu);
+                    menu.classList.toggle('hidden', open);
+                });
+                menu.addEventListener('click', e => e.stopPropagation());
+            });
+            document.addEventListener('click', () => closeAllMenus(null));
+            document.addEventListener('keydown', e => { if(e.key === 'Escape') closeAllMenus(null); });
+
+            // Chat Bubble Logic
+            (function initChatBubble() {
+                if (window.location.pathname.toLowerCase().includes("/chat/index")) {
+                    const b = document.getElementById('globalChatBubble');
+                    if(b) b.style.display = 'none';
+                    return;
+                }
+                if (!isAuth()) return;
+                if (typeof signalR === 'undefined') return;
+
+                const connection = new signalR.HubConnectionBuilder().withUrl("/chatHub").withAutomaticReconnect().build();
+                connection.start().then(() => console.log("🔔 Chat Connected")).catch(err => console.error(err));
+
+                connection.on("ReceiveMessage", function (senderId, message, productData) {
+                    const b = document.getElementById("globalChatBadge");
+                    if(b) {
+                        let c = parseInt(b.innerText) || 0;
+                        b.innerText = c + 1;
+                        b.classList.add('show');
+                        b.style.display = 'flex';
+                    }
+                    const audio = document.getElementById("chatSound");
+                    if(audio) audio.play().catch(e=>{});
+                });
+            })();
+        });
+    </script>
+
+    @await RenderSectionAsync("Scripts", required: false)
+    <noscript>
+        <div class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded-lg shadow">Vui lòng bật JavaScript.</div>
+    </noscript>
+    @await Html.PartialAsync("_AiChatbot")
+    <script src="~/js/ai-chatbot.js" asp-append-version="true"></script>
+</body>
+</html>

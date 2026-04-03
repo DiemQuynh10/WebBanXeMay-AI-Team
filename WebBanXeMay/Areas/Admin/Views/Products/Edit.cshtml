@@ -1,0 +1,124 @@
+﻿@model WebBanXeMay.Areas.Admin.ViewModels.ProductEditViewModel
+
+@{
+    ViewData["Title"] = "Chỉnh sửa sản phẩm";
+    Layout = "~/Areas/Admin/Views/Shared/_AdminLayout.cshtml";
+}
+
+<div class="container mt-4">
+
+  
+
+    <div class="card shadow-lg border-0 rounded-4">
+        <div class="card-header text-white" style="background: linear-gradient(90deg, #9c27b0, #673ab7);">
+            <h4 class="mb-0"><i class="bi bi-pencil-square me-2"></i> Chỉnh sửa sản phẩm</h4>
+        </div>
+
+        <div class="card-body p-4">
+            <form asp-action="Edit" method="post" enctype="multipart/form-data">
+                <!-- Hiển thị lỗi model -->
+                <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+                <!-- Ẩn các trường không hiển thị -->
+                <input type="hidden" asp-for="MaSP" />
+                <input type="hidden" asp-for="ImageUrl" />
+
+                <div class="row g-3">
+                    <!-- Tên sản phẩm -->
+                    <div class="col-md-6">
+                        <label asp-for="TenSP" class="form-label fw-semibold">Tên sản phẩm</label>
+                        <input asp-for="TenSP" class="form-control" placeholder="Nhập tên sản phẩm..." />
+                        <span asp-validation-for="TenSP" class="text-danger"></span>
+                    </div>
+
+                    <!-- Giá -->
+                    <div class="col-md-6">
+                        <label asp-for="Gia" class="form-label fw-semibold">Giá (VNĐ)</label>
+                        <input asp-for="Gia" type="number" step="any" class="form-control" placeholder="Ví dụ: 35000000" />
+                        <span asp-validation-for="Gia" class="text-danger"></span>
+                    </div>
+
+                    <!-- Số lượng -->
+                    <div class="col-md-6">
+                        <label asp-for="SoLuong" class="form-label fw-semibold">Số lượng</label>
+                        <input asp-for="SoLuong" type="number" class="form-control" placeholder="Nhập số lượng tồn" />
+                        <span asp-validation-for="SoLuong" class="text-danger"></span>
+                    </div>
+
+                    <!-- Phân khối -->
+                    <div class="col-md-6">
+                        <label asp-for="CC" class="form-label fw-semibold">Phân khối (CC)</label>
+                        <input asp-for="CC" type="number" class="form-control" placeholder="Ví dụ: 125" />
+                        <span asp-validation-for="CC" class="text-danger"></span>
+                    </div>
+
+                    <!-- Mô tả -->
+                    <div class="col-md-12">
+                        <label asp-for="MoTa" class="form-label fw-semibold">Mô tả</label>
+                        <textarea asp-for="MoTa" class="form-control" rows="3" placeholder="Nhập mô tả chi tiết..."></textarea><span asp-validation-for="MoTa" class="text-danger"></span>
+                    </div>
+
+                    <!-- Hình ảnh hiện tại -->
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Hình ảnh hiện tại</label>
+                        <div class="border rounded-3 p-2 text-center mb-2 bg-light">
+                            <img src="@Model.ImageUrl"
+                                 alt="@Model.TenSP"
+                                 class="img-fluid rounded shadow-sm"
+                                 style="max-height: 220px; object-fit: contain;">
+                        </div>
+
+                        <!-- Upload ảnh mới -->
+                        <label class="form-label fw-semibold">Chọn ảnh mới (để trống nếu không thay đổi)</label>
+                        <input type="file" name="NewImageFile" class="form-control" accept="image/*" />
+                    </div>
+
+                    <!-- Dropdown loại xe -->
+                    <div class="col-md-3">
+                        <label asp-for="MaLoai" class="form-label fw-semibold">Loại xe</label>
+                        <select asp-for="MaLoai" class="form-select" asp-items="Model.LoaiXeList">
+                            <option value="">-- Chọn loại xe --</option>
+                        </select>
+                        <span asp-validation-for="MaLoai" class="text-danger"></span>
+                    </div>
+
+                    <!-- Dropdown hãng xe -->
+                    <div class="col-md-3">
+                        <label asp-for="MaTH" class="form-label fw-semibold">Hãng xe</label>
+                        <select asp-for="MaTH" class="form-select" asp-items="Model.HangXeList">
+                            <option value="">-- Chọn hãng xe --</option>
+                        </select>
+                        <span asp-validation-for="MaTH" class="text-danger"></span>
+                    </div>
+
+                    <!-- Trạng thái -->
+                    <div class="col-md-12 mt-3">
+                        <div class="form-check">
+                            <input class="form-check-input" asp-for="IsActive" />
+                            <label class="form-check-label fw-semibold" asp-for="IsActive">
+                                Đang bán (hiển thị ngoài trang chủ)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="my-4" />
+
+                <div class="d-flex justify-content-between">
+                    <a asp-action="Index" class="btn btn-outline-secondary px-4">
+                        <i class="bi bi-arrow-left"></i> Quay lại
+                    </a>
+                    <button type="submit" class="btn btn-primary px-4">
+                        <i class="bi bi-save2"></i> Lưu thay đổi
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+}

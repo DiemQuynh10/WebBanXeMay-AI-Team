@@ -1,0 +1,505 @@
+﻿@model IEnumerable<WebBanXeMay.Models.DanhGia>
+
+@{
+    ViewData["Title"] = "Quản lý Đánh giá";
+    Layout = "~/Areas/Admin/Views/Shared/_AdminLayout.cshtml";
+
+    // Logic giữ nguyên
+    string q = ViewBag.Q as string ?? "";
+    bool? approved = ViewBag.Approved as bool?;
+    bool? featured = ViewBag.Featured as bool?;
+    int page = ViewBag.Page;
+    int totalPages = ViewBag.TotalPages;
+}
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+    :root {
+        --brand-color: #ff4d6d; /* Màu chủ đạo */
+        --brand-bg: #fff0f3;
+        --text-dark: #2d3436;
+        --text-gray: #636e72;
+        --border-color: #f1f2f6;
+    }
+
+    body {
+        font-family: 'Nunito', sans-serif;
+        background-color: #f8f9fa;
+        color: var(--text-dark);
+    }
+
+    /* --- Card Style --- */
+    .card-box {
+        background: #fff;
+        border: none;
+        border-radius: 16px; /* Bo góc tròn hơn */
+        box-shadow: 0 10px 30px rgba(0,0,0,0.03); /* Bóng đổ mềm mại */
+        overflow: hidden;
+        margin-bottom: 24px;
+        transition: transform 0.2s;
+    }
+
+    /* --- Filter Inputs --- */
+    .form-control, .form-select {
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 10px 15px;
+        font-size: 0.95rem;
+        transition: all 0.2s;
+        background-color: #fdfdfd;
+    }
+
+        .form-control:focus, .form-select:focus {
+            border-color: var(--brand-color);
+            background-color: #fff;
+            box-shadow: 0 0 0 4px rgba(255, 77, 109, 0.1); /* Hiệu ứng focus đẹp */
+        }
+
+    .input-group-text {
+        background: #fff;
+        border: 1px solid var(--border-color);
+        border-right: none;
+        border-radius: 10px 0 0 10px;
+        color: #b2bec3;
+    }
+
+    .input-group .form-control {
+        border-left: none;
+    }
+
+    .btn-brand {
+        background-color: var(--brand-color);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        font-weight: 700;
+        padding: 10px;
+        transition: 0.2s;
+    }
+
+        .btn-brand:hover {
+            background-color: #e63950;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 77, 109, 0.3);
+            color: white;
+        }
+
+    /* --- Table Modern --- */
+    .table-responsive {
+        border-radius: 16px;
+    }
+
+    .table-modern {
+        margin-bottom: 0;
+        width: 100%;
+        white-space: nowrap;
+    }
+
+        .table-modern thead th {
+            background-color: #f8f9fa;
+            color: var(--text-gray);
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
+            padding: 18px 20px;
+            border-bottom: 2px solid #edf2f9;
+        }
+
+        .table-modern tbody td {
+            padding: 18px 20px;
+            vertical-align: middle;
+            border-bottom: 1px solid #f8f9fa;
+            font-size: 0.95rem;
+            color: var(--text-dark);
+        }
+
+        .table-modern tbody tr {
+            transition: background-color 0.2s;
+        }
+
+            .table-modern tbody tr:hover {
+                background-color: #fffbfd;
+            }
+    /* Hover rất nhẹ */
+
+    /* --- Avatar Initials (Xịn hơn icon thường) --- */
+    .avatar-initial {
+        width: 40px;
+        height: 40px;
+        background: linear-gradient(135deg, #a29bfe, #6c5ce7); /* Gradient tím nhạt */
+        color: #fff;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 16px;
+        margin-right: 12px;
+        box-shadow: 0 3px 10px rgba(108, 92, 231, 0.2);
+    }
+
+        .avatar-initial.anonymous {
+            background: linear-gradient(135deg, #dfe6e9, #b2bec3);
+            color: #636e72;
+            box-shadow: none;
+        }
+
+    /* --- Star Ratings --- */
+    .star-rating i {
+        font-size: 12px;
+        margin-right: 1px;
+    }
+
+    .star-filled {
+        color: #f1c40f;
+        drop-shadow: 0 2px 4px rgba(241, 196, 15, 0.3);
+    }
+    /* Vàng có bóng */
+    .star-empty {
+        color: #dfe6e9;
+    }
+
+    /* --- Badges & Buttons --- */
+    .badge-pill {
+        padding: 6px 12px;
+        border-radius: 30px;
+        font-weight: 700;
+        font-size: 0.7rem;
+        letter-spacing: 0.3px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .badge-success {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .badge-warning {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .badge-featured {
+        background: linear-gradient(135deg, #fff0f3, #ffccd5);
+        color: #d63353;
+        border: 1px solid #ffccd5;
+    }
+
+    .action-btn {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        border: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Hiệu ứng nảy */
+        margin-left: 6px;
+        cursor: pointer;
+    }
+
+    .btn-check-soft {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+        .btn-check-soft:hover {
+            background: #059669;
+            color: white;
+            transform: scale(1.1);
+        }
+
+    .btn-trash-soft {
+        background: #fee2e2;
+        color: #ef4444;
+    }
+
+        .btn-trash-soft:hover {
+            background: #ef4444;
+            color: white;
+            transform: scale(1.1);
+        }
+
+    .btn-star-soft {
+        background: #f3f4f6;
+        color: #b2bec3;
+    }
+        /* Chưa nổi bật */
+        .btn-star-soft:hover {
+            background: #d1d5db;
+            color: #636e72;
+            transform: scale(1.1);
+        }
+
+    .btn-star-active {
+        background: #fff7ed;
+        color: #f59e0b;
+        border: 1px solid #ffedd5;
+    }
+        /* Đã nổi bật */
+        .btn-star-active:hover {
+            background: #f59e0b;
+            color: white;
+            transform: scale(1.1);
+        }
+
+    /* --- Pagination --- */
+    .page-link {
+        border: none;
+        margin: 0 4px;
+        border-radius: 8px;
+        font-weight: 700;
+        color: var(--text-gray);
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .page-item.active .page-link {
+        background-color: var(--brand-color);
+        color: white;
+        box-shadow: 0 4px 10px rgba(255, 77, 109, 0.3);
+    }
+
+    .page-item.disabled .page-link {
+        opacity: 0.5;
+    }
+</style>
+
+<div class="container-fluid mt-4 pb-5">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3 class="fw-bold text-dark mb-1">Quản lý Đánh giá</h3>
+            <p class="text-muted small mb-0">Kiểm duyệt và quản lý ý kiến khách hàng</p>
+        </div>
+        <div class="d-none d-md-block">
+            <span class="badge bg-white text-dark shadow-sm p-2 px-3 border rounded-pill me-2">
+                <i class="fa fa-star text-warning me-1"></i> Tổng: <strong>@Model.Count()</strong> review
+            </span>
+        </div>
+    </div>
+
+    <div class="card-box p-4">
+        <form method="get" class="row g-3 align-items-center">
+            <div class="col-md-5">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="fa fa-search"></i></span>
+                    <input type="text" name="q" value="@q" class="form-control" placeholder="Tìm kiếm nội dung, tên khách..." />
+                </div>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" name="approved" onchange="this.form.submit()">
+                    <option value="">-- Trạng thái --</option>
+                    <option value="true" selected="@(approved == true)">✅ Đã duyệt</option>
+                    <option value="false" selected="@(approved == false)">⏳ Chờ duyệt</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" name="featured" onchange="this.form.submit()">
+                    <option value="">-- Loại --</option>
+                    <option value="true" selected="@(featured == true)">🌟 Nổi bật</option>
+                    <option value="false" selected="@(featured == false)">📄 Thường</option>
+                </select>
+            </div>
+            <div class="col-md-1">
+                <button class="btn btn-brand w-100" title="Lọc dữ liệu"><i class="fa-solid fa-filter"></i></button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card-box">
+        <div class="table-responsive">
+            <table class="table table-modern align-middle">
+                <thead>
+                    <tr>
+                        <th class="ps-4">Khách hàng</th>
+                        <th class="text-center">Đánh giá</th>
+                        <th style="min-width: 300px;">Nội dung</th>
+                        <th>Sản phẩm</th>
+                        <th>Thời gian</th>
+                        <th class="text-center">Trạng thái</th>
+                        <th class="text-end pe-4">Hành động</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!Model.Any())
+                    {
+                        <tr>
+                            <td colspan="7" class="text-center py-5">
+                                <div class="opacity-50">
+                                    <i class="fa-regular fa-folder-open fa-3x mb-3 text-secondary"></i>
+                                    <h6 class="text-muted fw-bold">Không tìm thấy dữ liệu</h6>
+                                    <p class="small text-muted mb-0">Thử thay đổi bộ lọc hoặc tìm kiếm từ khóa khác.</p>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        foreach (var item in Model)
+                        {
+                            // Lấy chữ cái đầu của tên để làm Avatar
+                            string firstLetter = !string.IsNullOrEmpty(item.TenNguoiDanhGia) && !item.IsAnonymous
+                            ? item.TenNguoiDanhGia.Substring(0, 1).ToUpper()
+                            : "?";
+
+                            <tr>
+                                <td class="ps-4">
+                                    <div class="d-flex align-items-center">
+                                        <div class="avatar-initial @(item.IsAnonymous ? "anonymous" : "")">
+                                            @if (item.IsAnonymous)
+                                            {
+                                                <i class="fa fa-user-secret"></i>
+                                            }
+                                            else
+                                            {
+                                                @firstLetter
+                                            }
+                                        </div>
+                                        <div>
+                                            <div class="fw-bold text-dark">
+                                                @(item.IsAnonymous ? "Ẩn danh" : item.TenNguoiDanhGia)
+                                            </div>
+                                            @if (!item.IsAnonymous)
+                                            {
+                                                <small class="text-muted" style="font-size: 11px;">Khách hàng</small>
+                                            }
+                                        </div>
+                                    </div>
+                                </td>
+
+                                <td class="text-center">
+                                    <div class="star-rating mb-1">
+                                        @for (int i = 1; i <= 5; i++)
+                                        {
+                                            if (i <= item.DiemDanhGia)
+                                            {
+                                                <i class="fa-solid fa-star star-filled"></i>
+                                            }
+                                            else
+                                            {
+                                                <i class="fa-solid fa-star star-empty"></i>
+                                            }
+                                        }
+                                    </div>
+                                    <span class="fw-bold small">@item.DiemDanhGia/5</span>
+                                </td>
+
+                                <td>
+                                    <div class="text-wrap" style="max-width: 350px; line-height: 1.5;">
+                                        <span class="text-secondary">@item.NoiDung</span>
+                                    </div>
+                                </td>
+
+                                <td>
+                                    <span class="fw-semibold text-primary" style="font-size: 0.9rem;">
+                                        @item.SanPham?.TenSP
+                                    </span>
+                                </td>
+
+                                <td class="text-muted small">
+                                    <i class="fa-regular fa-clock me-1"></i> @item.NgayDanhGia.ToString("dd/MM/yyyy")
+                                </td>
+
+                                <td class="text-center">
+                                    @if (!item.IsApproved)
+                                    {
+                                        <span class="badge-pill badge-warning">Chờ duyệt</span>
+                                    }
+                                    else
+                                    {
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span class="badge-pill badge-success">Đã duyệt</span>
+                                            @if (item.IsFeatured)
+                                            {
+                                                <span class="badge-pill badge-featured">Nổi bật</span>
+                                            }
+                                        </div>
+                                    }
+                                </td>
+
+                                <td class="text-end pe-4">
+                                    <div class="d-flex justify-content-end align-items-center">
+
+                                        @if (!item.IsApproved)
+                                        {
+                                            <form asp-area="Admin" asp-controller="Reviews" asp-action="Approve" asp-route-id="@item.MaDanhGia" method="post">
+                                                @Html.AntiForgeryToken()
+                                                <button type="submit" class="action-btn btn-check-soft" title="Duyệt đánh giá này">
+                                                    <i class="fa-solid fa-check"></i>
+                                                </button>
+                                            </form>
+                                        }
+                                        else
+                                        {
+                                            if (item.IsFeatured)
+                                            {
+                                                <form asp-area="Admin" asp-controller="Reviews" asp-action="UnFeature" asp-route-id="@item.MaDanhGia" method="post">
+                                                    @Html.AntiForgeryToken()
+                                                    <button type="submit" class="action-btn btn-star-active" title="Bỏ nổi bật">
+                                                        <i class="fa-solid fa-star"></i>
+                                                    </button>
+                                                </form>
+                                            }
+                                            else
+                                            {
+                                                <form asp-area="Admin" asp-controller="Reviews" asp-action="Feature" asp-route-id="@item.MaDanhGia" method="post">
+                                                    @Html.AntiForgeryToken()
+                                                    <button type="submit" class="action-btn btn-star-soft" title="Đánh dấu nổi bật">
+                                                        <i class="fa-regular fa-star"></i>
+                                                    </button>
+                                                </form>
+                                            }
+                                        }
+
+                                        <form asp-area="Admin" asp-controller="Reviews" asp-action="DeleteConfirmed" asp-route-id="@item.MaDanhGia" method="post" onsubmit="return confirm('Bạn chắc chắn muốn xóa đánh giá này? Hành động này không thể hoàn tác.');">
+                                            @Html.AntiForgeryToken()
+                                            <button type="submit" class="action-btn btn-trash-soft ms-1" title="Xóa vĩnh viễn">
+                                                <i class="fa-regular fa-trash-can"></i>
+                                            </button>
+                                        </form>
+
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (totalPages > 1)
+        {
+            <div class="d-flex justify-content-center py-4 border-top border-light">
+                <nav>
+                    <ul class="pagination mb-0">
+                        <li class="page-item @(page <= 1 ? "disabled" : "")">
+                            <a class="page-link" href="?page=@(page - 1)&q=@q&approved=@approved&featured=@featured">
+                                <i class="fa fa-chevron-left small"></i>
+                            </a>
+                        </li>
+                        @for (int i = 1; i <= totalPages; i++)
+                        {
+                            <li class="page-item @(i == page ? "active" : "")">
+                                <a class="page-link" href="?page=@i&q=@q&approved=@approved&featured=@featured">@i</a>
+                            </li>
+                        }
+                        <li class="page-item @(page >= totalPages ? "disabled" : "")">
+                            <a class="page-link" href="?page=@(page + 1)&q=@q&approved=@approved&featured=@featured">
+                                <i class="fa fa-chevron-right small"></i>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+        }
+    </div>
+</div>

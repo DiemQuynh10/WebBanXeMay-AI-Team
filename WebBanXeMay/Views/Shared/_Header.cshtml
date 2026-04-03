@@ -1,0 +1,221 @@
+﻿@* Header Redesign: Standard E-commerce Layout *@
+@using WebBanXeMay.Models
+@inject Microsoft.AspNetCore.Identity.SignInManager<ApplicationUser> SignInManager
+@inject Microsoft.AspNetCore.Identity.UserManager<ApplicationUser> UserManager
+
+<header class="sticky top-0 z-50 bg-white shadow-md font-sans">
+
+    @* --- TẦNG 1: MAIN HEADER (Logo - Search - Actions) --- *@
+    <div class="container mx-auto px-4 py-4">
+        <div class="flex items-center justify-between gap-4 md:gap-8">
+
+            @* 1. LOGO SECTION *@
+            <a asp-controller="Home" asp-action="Index" class="flex-shrink-0 flex items-center gap-3 group">
+                <img src="/images/logo-moto.png" alt="Motorbike Store" class="h-12 w-12 object-contain group-hover:scale-105 transition-transform">
+                <div class="hidden md:block">
+                    <div class="text-2xl font-extrabold text-pink-600 tracking-tight uppercase">Xe Máy</div>
+                    <div class="text-[11px] text-gray-500 font-medium tracking-wide">Đồng hành cùng bạn</div>
+                </div>
+            </a>
+
+            @* 2. SEARCH BAR (Centered & Prominent) *@
+            <div class="flex-1 max-w-2xl hidden md:block">
+                <form asp-controller="SanPham" asp-action="Index" method="get" class="relative group">
+                    <input name="q" type="text"
+                           placeholder="Bạn muốn tìm xe gì hôm nay?..."
+                           class="w-full pl-5 pr-12 py-2.5 rounded-full border border-gray-300 bg-gray-50 text-gray-700 text-sm focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 focus:bg-white transition-all shadow-sm"
+                           autocomplete="off">
+                    <button type="submit"
+                            class="absolute right-1 top-1/2 -translate-y-1/2 bg-pink-600 hover:bg-pink-700 text-white rounded-full p-2 transition-colors shadow-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                        </svg>
+                    </button>
+                </form>
+            </div>
+
+            @* 3. ACTIONS (Cart & Account) *@
+            <div class="flex items-center gap-4 md:gap-6 flex-shrink-0">
+
+                @* Cart *@
+                <a asp-controller="Cart" asp-action="Index" class="relative group flex flex-col items-center justify-center text-gray-600 hover:text-pink-600 transition-colors">
+                    <div class="relative p-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
+                        </svg>
+                        <span id="cart-badge" class="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-pink-600 text-[10px] font-bold text-white shadow-sm ring-2 ring-white">0</span>
+                    </div>
+                    @* <span class="text-[10px] font-medium hidden md:block">Giỏ hàng</span> *@
+                </a>
+
+                @* Account Divider *@
+                <div class="h-8 w-px bg-gray-200 hidden md:block"></div>
+
+                @* Account Actions *@
+                <div class="relative">
+                    @if (SignInManager.IsSignedIn(User))
+                    {
+                        var currentUser = await UserManager.GetUserAsync(User);
+                        <button id="account-menu-trigger" data-dropdown-trigger="account-dropdown-menu" class="flex items-center gap-2 hover:bg-gray-50 rounded-full p-1 pr-3 transition-colors border border-transparent hover:border-gray-200">
+                            <div class="h-9 w-9 rounded-full bg-gradient-to-br from-pink-500 to-pink-600 text-white flex items-center justify-center font-bold shadow-sm">
+                                @(User.Identity.Name?.Substring(0, 1).ToUpper() ?? "U")
+                            </div>
+                            <div class="hidden md:flex flex-col items-start">
+                                <span class="text-xs text-gray-500 font-medium">Xin chào,</span>
+                                <span class="text-sm font-bold text-gray-800 max-w-[100px] truncate leading-none">@User.Identity.Name</span>
+                            </div>
+                        </button>
+
+                        @* User Dropdown *@
+                        <div id="account-dropdown-menu" data-dropdown-menu="true" class="hidden absolute right-0 top-full mt-3 w-64 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-50 origin-top-right transition-all duration-200">
+                            <div class="px-4 py-3 bg-gray-50 border-b border-gray-100">
+                                <p class="text-sm font-bold text-gray-800 truncate">@User.Identity.Name</p>
+                                <p class="text-xs text-gray-500 truncate">@currentUser?.Email</p>
+                            </div>
+                            <div class="py-1">
+                                <a href="/Identity/Account/Manage" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-pink-50 hover:text-pink-600">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                                    Hồ sơ của tôi
+                                </a>
+                                <a href="/orders" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-pink-50 hover:text-pink-600">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                                    Đơn hàng
+                                </a>
+                                @if (User.IsInRole("Admin"))
+                                {
+                                    <a asp-area="Admin" asp-controller="Home" asp-action="Index" class="flex items-center gap-3 px-4 py-2.5 text-sm text-pink-700 bg-pink-50/50 hover:bg-pink-100 font-medium">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                        Trang Quản trị
+                                    </a>
+                                }
+                            </div>
+                            <div class="border-t border-gray-100 py-1">
+                                <form asp-area="Identity" asp-page="/Account/Logout" asp-route-returnUrl="@(Context.Request.Path + Context.Request.QueryString)" method="post">
+                                    <button type="submit" class="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                                        Đăng xuất
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="flex items-center gap-2">
+                            <a href="/Identity/Account/Login" class="px-4 py-2 rounded-full text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-pink-600 transition-colors">Đăng nhập</a>
+                            <a href="/Identity/Account/Register" class="px-4 py-2 rounded-full text-sm font-bold bg-pink-600 text-white hover:bg-pink-700 transition-all shadow-md hover:shadow-lg">Đăng ký</a>
+                        </div>
+                    }
+                </div>
+
+                @* Mobile Menu Toggle *@
+                <button id="mobile-menu-toggle" class="md:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @* --- TẦNG 2: NAVIGATION BAR (Clean Pink Stripe) --- *@
+    <nav class="bg-pink-600 text-white shadow-inner relative">
+        <div class="container mx-auto px-4">
+
+            @* Mobile Search (Visible only on mobile) *@
+            <div class="md:hidden py-3 border-b border-pink-500">
+                <form asp-controller="SanPham" asp-action="Index" method="get" class="relative">
+                    <input name="q" type="search" placeholder="Tìm kiếm..."
+                           class="w-full rounded-lg border-none bg-pink-700/50 text-white placeholder-pink-200 px-4 py-2 text-sm focus:outline-none focus:bg-pink-700 focus:ring-1 focus:ring-white">
+                    <button type="submit" class="absolute right-2 top-1/2 -translate-y-1/2 text-pink-200"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg></button>
+                </form>
+            </div>
+
+            @* Desktop Menu *@
+            <div class="hidden md:flex items-center gap-1 text-sm font-medium">
+                @* Trang Chủ *@
+                <a asp-controller="Home" asp-action="Index"
+                   class="px-5 py-3 hover:bg-pink-700 transition-colors border-b-2 border-transparent hover:border-white @(ViewContext.RouteData.Values["controller"]?.ToString() == "Home" ? "bg-pink-700 border-pink-400" : "")">
+                    TRANG CHỦ
+                </a>
+
+                @* Sản Phẩm Dropdown *@
+                <li class="group relative">
+                    <button id="product-menu-trigger"
+                            data-dropdown-trigger="product-dropdown-menu"
+                            class="px-5 py-3 flex items-center gap-1 hover:bg-pink-700 transition-colors border-b-2 border-transparent hover:border-white @(ViewContext.RouteData.Values["controller"]?.ToString() == "SanPham" ? "bg-pink-700 border-pink-400" : "")">
+                        SẢN PHẨM
+                        <svg class="w-3 h-3 opacity-70 group-hover:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </button>
+
+                    <div id="product-dropdown-menu"
+                         data-dropdown-menu="true"
+                         class="absolute left-0 top-full z-50 w-[850px] bg-white text-gray-800 shadow-xl rounded-b-xl border-t border-gray-100 hidden group-hover:block animate-fade-in-down">
+
+                        <div class="grid grid-cols-4 gap-6 p-6">
+                            @* Honda *@
+                            <div>
+                                <div class="font-bold text-pink-600 mb-3 uppercase tracking-wider text-xs border-b border-pink-100 pb-2">Honda</div>
+                                <ul class="space-y-2 text-sm text-gray-600 whitespace-nowrap">
+                                    <li><a asp-controller="SanPham" asp-action="Index" asp-route-brand="honda" asp-route-model="wave" class="hover:text-pink-600 hover:translate-x-1 transition-all inline-block">Wave Alpha</a></li>
+                                    <li><a asp-controller="SanPham" asp-action="Index" asp-route-brand="honda" asp-route-model="vision" class="hover:text-pink-600 hover:translate-x-1 transition-all inline-block">Vision</a></li>
+                                    <li><a asp-controller="SanPham" asp-action="Index" asp-route-brand="honda" asp-route-model="airblade" class="hover:text-pink-600 hover:translate-x-1 transition-all inline-block">Air Blade</a></li>
+                                    <li><a asp-controller="SanPham" asp-action="Index" asp-route-brand="honda" asp-route-model="sh" class="hover:text-pink-600 hover:translate-x-1 transition-all inline-block">SH Mode / SH 150i</a></li>
+                                    <li><a asp-controller="SanPham" asp-action="Index" asp-route-brand="honda" asp-route-model="winnerx" class="hover:text-pink-600 hover:translate-x-1 transition-all inline-block">Winner X</a></li>
+                                </ul>
+                            </div>
+
+                            @* Yamaha *@
+                            <div>
+                                <div class="font-bold text-pink-600 mb-3 uppercase tracking-wider text-xs border-b border-pink-100 pb-2">Yamaha</div>
+                                <ul class="space-y-2 text-sm text-gray-600 whitespace-nowrap">
+                                    <li><a asp-controller="SanPham" asp-action="Index" asp-route-brand="yamaha" asp-route-model="exciter" class="hover:text-pink-600 hover:translate-x-1 transition-all inline-block">Exciter 155 VVA</a></li>
+                                    <li><a asp-controller="SanPham" asp-action="Index" asp-route-brand="yamaha" asp-route-model="sirius" class="hover:text-pink-600 hover:translate-x-1 transition-all inline-block">Sirius Fi</a></li>
+                                    <li><a asp-controller="SanPham" asp-action="Index" asp-route-brand="yamaha" asp-route-model="grande" class="hover:text-pink-600 hover:translate-x-1 transition-all inline-block">Grande Hybrid</a></li>
+                                    <li><a asp-controller="SanPham" asp-action="Index" asp-route-brand="yamaha" asp-route-model="nvx" class="hover:text-pink-600 hover:translate-x-1 transition-all inline-block">NVX 155</a></li>
+                                    <li><a asp-controller="SanPham" asp-action="Index" asp-route-brand="yamaha" asp-route-model="r15" class="hover:text-pink-600 hover:translate-x-1 transition-all inline-block">YZF-R15</a></li>
+                                </ul>
+                            </div>
+
+                            @* Piaggio & SYM *@
+                            <div>
+                                <div class="font-bold text-pink-600 mb-3 uppercase tracking-wider text-xs border-b border-pink-100 pb-2">Piaggio / Vespa</div>
+                                <ul class="space-y-2 text-sm text-gray-600 mb-5 whitespace-nowrap">
+                                    <li><a asp-controller="SanPham" asp-action="Index" asp-route-brand="piaggio" asp-route-model="liberty" class="hover:text-pink-600 hover:translate-x-1 transition-all inline-block">Liberty</a></li>
+                                    <li><a asp-controller="SanPham" asp-action="Index" asp-route-brand="piaggio" asp-route-model="vespa" class="hover:text-pink-600 hover:translate-x-1 transition-all inline-block">Vespa Sprint</a></li>
+                                </ul>
+
+                                <div class="font-bold text-pink-600 mb-2 uppercase tracking-wider text-xs border-b border-pink-100 pb-2">Suzuki</div>
+                                <ul class="space-y-2 text-sm text-gray-600 whitespace-nowrap">
+                                    <li><a asp-controller="SanPham" asp-action="Index" asp-route-brand="suzuki" asp-route-model="raider" class="hover:text-pink-600 hover:translate-x-1 transition-all inline-block">Raider R150</a></li>
+                                </ul>
+                            </div>
+
+                        </div>
+                    </div>
+                </li>
+
+                @* Đơn hàng *@
+                @if (SignInManager.IsSignedIn(User))
+                {
+                    <a href="/orders"
+                       class="px-5 py-3 hover:bg-pink-700 transition-colors border-b-2 border-transparent hover:border-white @(ViewContext.RouteData.Values["controller"]?.ToString() == "Orders" ? "bg-pink-700 border-pink-400" : "")">
+                        TRA CỨU ĐƠN HÀNG
+                    </a>
+                }
+            </div>
+        </div>
+
+        @* Mobile Menu Drawer (Hidden by default) *@
+        <div id="mobile-menu" class="hidden md:hidden bg-white text-gray-800 border-t border-gray-200 shadow-lg">
+            <div class="flex flex-col py-2">
+                <a asp-controller="Home" asp-action="Index" class="px-4 py-3 hover:bg-pink-50 font-medium border-l-4 border-transparent hover:border-pink-600">Trang chủ</a>
+                <a asp-controller="SanPham" asp-action="Index" class="px-4 py-3 hover:bg-pink-50 font-medium border-l-4 border-transparent hover:border-pink-600">Tất cả sản phẩm</a>
+                @if (SignInManager.IsSignedIn(User))
+                {
+                    <a href="/orders" class="px-4 py-3 hover:bg-pink-50 font-medium border-l-4 border-transparent hover:border-pink-600">Đơn hàng của tôi</a>
+                }
+            </div>
+        </div>
+    </nav>
+</header>

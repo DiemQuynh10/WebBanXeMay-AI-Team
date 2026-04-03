@@ -1,0 +1,47 @@
+﻿<div id="aiChatbotWidget" class="ai-chatbot-widget">
+    <button id="aiChatToggle" class="ai-chatbot-toggle" type="button" aria-label="Mở trợ lý ảo">
+        <i class="fas fa-robot"></i>
+    </button>
+
+    <div id="aiChatPanel" class="ai-chatbot-panel d-none" role="dialog" aria-label="Trợ lý ảo xe máy">
+        <div class="ai-chatbot-header">
+            <div class="ai-chatbot-header-text">
+                <div class="ai-chatbot-title">Trợ lý ảo xe máy</div>
+                <div class="ai-chatbot-subtitle">Hỏi giá, tồn kho, tư vấn xe phù hợp</div>
+            </div>
+
+            <div class="ai-chatbot-actions">
+                <button id="aiChatReset" type="button" class="btn btn-light btn-sm">Mới</button>
+                <button id="aiChatClose" type="button" class="btn btn-light btn-sm" aria-label="Đóng chatbot">×</button>
+            </div>
+        </div>
+
+        <div id="aiChatMessages" class="ai-chatbot-messages">
+            <div class="ai-msg bot ai-msg-welcome">
+                <div class="ai-msg-text">
+                    Xin chào 👋 Tôi có thể hỗ trợ bạn:
+                    <br>- Tra cứu giá xe
+                    <br>- Kiểm tra tồn kho
+                    <br>- Tư vấn mẫu xe phù hợp
+                </div>
+            </div>
+        </div>
+
+        <div class="ai-chatbot-suggestions">
+            <button class="ai-suggest-btn" type="button" data-message="Vision giá bao nhiêu?">Vision giá bao nhiêu?</button>
+            <button class="ai-suggest-btn" type="button" data-message="Còn Air Blade không?">Còn Air Blade không?</button>
+            <button class="ai-suggest-btn" type="button" data-message="Tư vấn xe tay ga cho nữ">Tư vấn xe tay ga cho nữ</button>
+        </div>
+
+        <div class="ai-chatbot-footer">
+            <input id="aiChatInput"
+                   type="text"
+                   class="form-control"
+                   placeholder="Nhập câu hỏi của bạn..."
+                   autocomplete="off" />
+            <button id="aiChatSend" type="button" aria-label="Gửi tin nhắn">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+    </div>
+</div>

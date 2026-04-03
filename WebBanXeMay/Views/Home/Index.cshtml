@@ -1,0 +1,240 @@
+﻿@using WebBanXeMay.Models
+@using WebBanXeMay.Models.ViewModels
+@{
+    ViewData["Title"] = "Trang chủ";
+
+    // Lấy top xe bán chạy (HomeController bơm: ViewBag.TopSelling = List<TopSellingVM>)
+    var topSelling = ViewBag.TopSelling as IEnumerable<TopSellingVM>
+                        ?? new List<TopSellingVM>();
+
+    // VÒNG LẶP MỚI: Lấy danh sách đánh giá nổi bật từ Controller
+    var featuredReviews = ViewBag.FeaturedReviews as List<DanhGia>
+                          ?? new List<DanhGia>(); // Gán rỗng nếu không có
+}
+
+<section class="mb-10">
+    <div class="mx-auto max-w-screen-xl px-4 md:px-6">
+        <div class="rounded-2xl overflow-hidden bg-white border soft-shadow">
+            <div class="grid md:grid-cols-2">
+                <div class="bg-gradient-to-br from-pink-500 to-rose-500 text-white p-8 md:p-12 flex items-center">
+                    <div class="max-w-xl">
+                        <a asp-controller="UuDai" asp-action="Index"
+                           class="inline-block px-3 py-1 rounded-full bg-white/20 text-sm mb-4 hover:bg-white/30 transition duration-300">
+                            Ưu đãi tháng này
+                        </a>
+
+                        <h1 class="text-3xl md:text-5xl font-extrabold leading-tight">Motorbike Store</h1>
+                        <p class="mt-2 text-lg md:text-xl opacity-95">Đồng hành cùng bạn trên mọi nẻo đường</p>
+                        <p class="mt-3 text-white/90">• Xe chính hãng</p>
+                        <p class="mt-3 text-white/90">• Giá tốt</p>
+                        <p class="mt-3 text-white/90">• Giao nhanh</p>
+                        <p class="mt-3 text-white/90">• Bảo hành toàn quốc</p>
+
+                        <div class="mt-6 flex flex-wrap gap-3">
+                            <a asp-controller="SanPham" asp-action="Index"
+                               class="px-6 py-3 rounded-xl bg-white text-pink-600 font-semibold hover:bg-gray-100">
+                                Xem xe ngay
+                            </a>
+                            <a href="/TuVan/Create"
+                               class="px-6 py-3 rounded-xl bg-white text-pink-600 font-semibold hover:bg-gray-100">
+                                Cần tư vấn
+                            </a>
+
+                            <a asp-controller="Home" asp-action="UuDai"
+                               class="px-6 py-3 rounded-xl bg-white text-pink-600 font-semibold hover:bg-gray-100 flex items-center">
+                                <i class="fas fa-gift mr-2"></i> Săn Voucher
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="relative">
+                    <img src="/images/hero-showroom.jpg"
+                         alt="Motorbike showroom"
+                         class="h-full w-full object-cover clip-l"
+                         style="object-position: 70% center; filter: contrast(1.05) saturate(1.05);" loading="lazy" />
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="container mx-auto px-6 mb-12">
+    <h2 class="text-2xl font-bold text-center text-pink-600 mb-6">Thương hiệu nổi bật</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-5 max-w-5xl mx-auto">
+        <a asp-controller="SanPham" asp-action="Index" asp-route-brand="honda"
+           class="group bg-white border rounded-xl p-5 h-28 flex flex-col items-center justify-center hover:shadow-lg hover:border-pink-300 transition">
+            <img src="/images/brands/honda.png" class="h-10 mb-2 object-contain opacity-90 group-hover:opacity-100" alt="Honda" />
+            <span class="font-medium">Honda</span>
+        </a>
+
+        <a asp-controller="SanPham" asp-action="Index" asp-route-brand="yamaha"
+           class="group bg-white border rounded-xl p-5 h-28 flex flex-col items-center justify-center hover:shadow-lg hover:border-pink-300 transition">
+            <img src="/images/brands/yamaha.png" class="h-10 mb-2 object-contain opacity-90 group-hover:opacity-100" alt="Yamaha" />
+            <span class="font-medium">Yamaha</span>
+        </a>
+
+        <a asp-controller="SanPham" asp-action="Index" asp-route-brand="suzuki"
+           class="group bg-white border rounded-xl p-5 h-28 flex flex-col items-center justify-center hover:shadow-lg hover:border-pink-300 transition">
+            <img src="/images/brands/suzuki.png" class="h-10 mb-2 object-contain opacity-90 group-hover:opacity-100" alt="Suzuki" />
+            <span class="font-medium">Suzuki</span>
+        </a>
+
+        <a asp-controller="SanPham" asp-action="Index" asp-route-brand="sym"
+           class="group bg-white border rounded-xl p-5 h-28 flex flex-col items-center justify-center hover:shadow-lg hover:border-pink-300 transition">
+            <img src="/images/brands/sym.png" class="h-10 mb-2 object-contain opacity-90 group-hover:opacity-100" alt="SYM" />
+            <span class="font-medium">SYM</span>
+        </a>
+
+        <a asp-controller="SanPham" asp-action="Index" asp-route-brand="piaggio"
+           class="group bg-white border rounded-xl p-5 h-28 flex flex-col items-center justify-center hover:shadow-lg hover:border-pink-300 transition">
+            <img src="/images/brands/piaggio.png" class="h-10 mb-2 object-contain opacity-90 group-hover:opacity-100" alt="Piaggio" />
+            <span class="font-medium">Piaggio</span>
+        </a>
+    </div>
+</section>
+
+<section class="container mx-auto px-6 mb-12">
+    <div class="flex items-center justify-between mb-6">
+        <h2 class="text-2xl font-bold text-pink-600">Xe bán chạy nhất</h2>
+        <a asp-controller="SanPham" asp-action="Index" class="text-pink-600 hover:underline">Xem tất cả</a>
+    </div>
+
+    <div class="flex flex-wrap gap-6 justify-center">
+        @foreach (var item in topSelling)
+        {
+            var p = item.SanPham;
+            var brandSlug = p?.ThuongHieu?.Slug ?? "placeholder";
+            var img = !string.IsNullOrWhiteSpace(p?.ImageUrl)
+            ? p.ImageUrl
+            : $"/images/brands/{brandSlug}.png";
+            var brandName = p?.ThuongHieu?.TenTH ?? "Thương hiệu";
+            var loaiName = p?.Loai?.TenLoai ?? "";
+
+            <!-- Toàn bộ card clickable -->
+            <a asp-controller="SanPham"
+               asp-action="Details"
+               asp-route-slug="@p?.Slug"
+               class="w-[300px] bg-white border rounded-2xl overflow-hidden hover:shadow-xl transition flex flex-col block">
+
+                <div class="relative">
+                    <div class="aspect-[4/3] bg-gray-50 flex items-center justify-center">
+                        <img class="h-full object-contain"
+                             src="@Url.Content(img)" alt="@p?.TenSP" loading="lazy" />
+                    </div>
+
+                    <div class="absolute top-2 left-2 bg-rose-500 text-white text-xs px-2 py-1 rounded-md shadow">
+                        Đã bán @item.Sold
+                    </div>
+                </div>
+
+                <div class="p-4 flex-1">
+                    <h3 class="font-semibold line-clamp-2 text-gray-900">@p?.TenSP</h3>
+
+                    <p class="text-sm text-gray-500 mb-2">
+                        @brandName @(string.IsNullOrWhiteSpace(loaiName) ? "" : $" • {loaiName}")
+                    </p>
+
+                    <div class="font-bold text-pink-600 mb-1 tabular-nums whitespace-nowrap">
+                        @(p?.Gia.ToString("n0")) đ
+                    </div>
+                </div>
+
+            </a>
+        }
+
+        @if (!topSelling.Any())
+        {
+            <div class="text-gray-600 bg-white border rounded-xl p-6">
+                Chưa có dữ liệu bán chạy. Hãy hoàn tất một vài đơn để mục này tự cập nhật nha!
+            </div>
+        }
+    </div>
+</section>
+
+<section class="container mx-auto px-6 mb-12">
+    <div class="rounded-2xl bg-pink-50 border border-pink-100 p-6 md:flex items-center gap-6">
+        <img src="/images/promo.png" class="w-full md:w-72 h-40 object-cover rounded-xl mb-4 md:mb-0" alt="Khuyến mãi" />
+        <div class="flex-1">
+            <h3 class="text-xl font-bold text-pink-700 mb-1">Giảm đến 2.000.000 ₫ cho xe exciter</h3>
+            <p class="text-gray-600 mb-3">Áp dụng cho Vision, Janus, Grande… số lượng có hạn trong tháng này.</p>
+            <a asp-controller="UuDai" asp-action="Index"
+               class="inline-block px-4 py-2 rounded-lg bg-pink-500 text-white hover:bg-pink-600">Xem ưu đãi</a>
+        </div>
+    </div>
+</section>
+
+<section class="container mx-auto px-6 mb-12">
+    <h2 class="text-2xl font-bold text-center text-pink-600 mb-6">Khách hàng nói gì?</h2>
+
+    @if (featuredReviews.Any())
+    {
+        <div class="grid md:grid-cols-3 gap-6">
+            @foreach (var review in featuredReviews)
+            {
+                <div class="bg-white border rounded-2xl p-5">
+                    <div class="flex items-center gap-3 mb-3">
+                        <img src="@(string.IsNullOrWhiteSpace(review.ImageUrl) ? "/images/user-placeholder.jpg" : review.ImageUrl)"
+                             class="w-10 h-10 rounded-full object-cover"
+                             alt="@review.TenNguoiDanhGia" />
+                        <div>
+                            <div class="font-semibold">@review.TenNguoiDanhGia</div>
+                            <div class="text-xs text-gray-500">
+                                Đã mua: @(review.SanPham != null ? review.SanPham.TenSP : "Sản phẩm")
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        @for (int i = 0; i < review.DiemDanhGia; i++)
+                        {
+                            <span class="text-yellow-400">★</span>
+                        }
+                        @for (int i = review.DiemDanhGia; i < 5; i++)
+                        {
+                            <span class="text-gray-300">★</span>
+                        }
+                    </div>
+                    <p class="text-gray-600 mt-2">“@review.NoiDung”</p>
+                    <div class="text-xs text-right text-gray-400 mt-2">(@review.NgayDanhGia.ToString("dd/MM/yyyy"))</div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="text-center text-gray-500 p-8 border rounded-xl max-w-xl mx-auto">
+            Chưa có đánh giá nổi bật nào được Admin chọn.
+        </div>
+    }
+</section>
+<section class="bg-pink-50 py-10">
+    <div class="container mx-auto px-6 grid sm:grid-cols-2 md:grid-cols-4 gap-6 text-center">
+        <div>
+            <div class="mx-auto w-12 h-12 rounded-full bg-white border flex items-center justify-center mb-3">🚚</div>
+            <h4 class="font-semibold text-pink-700">Giao hàng toàn quốc</h4>
+            <p class="text-sm text-gray-600">Nhanh chóng – an toàn</p>
+        </div>
+        <div>
+            <div class="mx-auto w-12 h-12 rounded-full bg-white border flex items-center justify-center mb-3">🛡️</div>
+            <h4 class="font-semibold text-pink-700">Bảo hành chính hãng</h4>
+            <p class="text-sm text-gray-600">100% xe mới</p>
+        </div>
+        <div>
+            <div class="mx-auto w-12 h-12 rounded-full bg-white border flex items-center justify-center mb-3">💳</div>
+            <h4 class="font-semibold text-pink-700">Thanh toán linh hoạt</h4>
+            <p class="text-sm text-gray-600">Tiền mặt / chuyển khoản</p>
+        </div>
+        <div>
+            <div class="mx-auto w-12 h-12 rounded-full bg-white border flex items-center justify-center mb-3">📞</div>
+            <h4 class="font-semibold text-pink-700">Hỗ trợ 24/7</h4>
+            <p class="text-sm text-gray-600">Tư vấn miễn phí</p>
+        </div>
+    </div>
+</section>
+
+<section class="container mx-auto px-6 py-12 text-center">
+    <div class="bg-gradient-to-r from-pink-500 to-rose-500 text-white p-10 rounded-2xl shadow">
+        <h2 class="text-2xl font-bold mb-2">Cần tư vấn chọn xe?</h2>
+        <p class="mb-5">Gọi ngay hotline <span class="font-semibold">0976 555 223</span> hoặc chat ngay với shop</p>
+    </div>
+</section>

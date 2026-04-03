@@ -1,0 +1,498 @@
+﻿@{
+    ViewData["Title"] = "Dashboard";
+    Layout = "~/Areas/Admin/Views/Shared/_AdminLayout.cshtml";
+}
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+    /* 1. TONE-SUR-TONE: Dùng màu hồng của Brand làm chủ đạo */
+    :root {
+        --brand-color: #ff4d6d; /* Hồng đậm */
+        --brand-bg: #fff0f3; /* Hồng nhạt nền */
+        --text-dark: #2d3436;
+        --text-gray: #636e72;
+    }
+
+    body {
+        font-family: 'Nunito', sans-serif;
+        background-color: #f8f9fa;
+        color: var(--text-dark);
+    }
+
+    /* --- KPI CARDS --- */
+    .card-kpi {
+        border: none;
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.02);
+        transition: transform 0.2s;
+        height: 100%;
+        position: relative;
+        overflow: hidden;
+        padding: 1.5rem;
+    }
+
+        .card-kpi:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.05);
+        }
+
+        .card-kpi .icon-bg {
+            position: absolute;
+            right: -15px;
+            bottom: -15px;
+            font-size: 6rem;
+            opacity: 0.08;
+            transform: rotate(-10deg);
+            color: var(--brand-color);
+        }
+
+    .kpi-value {
+        font-size: 1.8rem;
+        font-weight: 800;
+        color: var(--text-dark);
+        margin-bottom: 5px;
+    }
+
+    .kpi-label {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: var(--text-gray);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    /* --- HEADER & FILTER --- */
+    .input-group-custom {
+        background: #fff;
+        border-radius: 12px;
+        padding: 6px 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+        display: flex;
+        align-items: center;
+    }
+
+        .input-group-custom select, .input-group-custom input {
+            border: none;
+            background: transparent;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #444;
+        }
+
+            .input-group-custom select:focus, .input-group-custom input:focus {
+                outline: none;
+            }
+
+    .btn-filter {
+        background-color: var(--brand-color);
+        color: white;
+        border-radius: 8px;
+        font-weight: 700;
+        padding: 8px 20px;
+        border: none;
+        transition: 0.2s;
+    }
+
+        .btn-filter:hover {
+            background-color: #d63353;
+            transform: scale(1.05);
+        }
+
+    /* --- ALERTS --- */
+    .alert-badge {
+        background-color: #fff;
+        border: 1px solid #f1f2f6;
+        border-left: 4px solid var(--brand-color);
+        border-radius: 10px;
+        padding: 12px 15px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #555;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+        .alert-badge.danger {
+            border-left-color: #ff4757;
+            background: #fff5f6;
+            color: #ff4757;
+        }
+
+        .alert-badge.warning {
+            border-left-color: #ffa502;
+            background: #fffbf0;
+            color: #ffa502;
+        }
+
+    .count-number {
+        font-weight: 800;
+        font-size: 1.2rem;
+        margin-right: 8px;
+    }
+
+    /* --- CHARTS & TABLES --- */
+    .card-section {
+        border: none;
+        border-radius: 16px;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.03);
+        background: #fff;
+        height: 100%;
+    }
+
+    .section-header {
+        padding: 20px 25px;
+        border-bottom: 1px solid #f1f2f6;
+        font-weight: 700;
+        color: var(--text-dark);
+        font-size: 1.1rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+        .section-header i {
+            color: var(--brand-color);
+        }
+
+    /* Table Design mới */
+    .table-modern {
+        width: 100%;
+        margin-bottom: 0;
+    }
+
+        .table-modern th {
+            background-color: #f8f9fa;
+            color: var(--text-gray);
+            font-weight: 700;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            padding: 15px 20px;
+            border: none;
+        }
+
+        .table-modern td {
+            padding: 15px 20px;
+            vertical-align: middle;
+            border-bottom: 1px solid #f1f2f6;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        .table-modern tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table-modern tr:hover {
+            background-color: #fff0f3;
+        }
+    /* Hover màu hồng nhạt */
+
+    /* Status Badge cho đơn hàng */
+    .status-pill {
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+
+        .status-pill.warning {
+            background: #fff7d6;
+            color: #ffa502;
+        }
+
+        .status-pill.success {
+            background: #def7ec;
+            color: #2ecc71;
+        }
+
+        .status-pill.danger {
+            background: #ffe5e7;
+            color: #ff4757;
+        }
+
+        .status-pill.info {
+            background: #e3f2fd;
+            color: #0984e3;
+        }
+
+    .alert-link {
+        text-decoration: none;
+        color: inherit;
+        display: block;
+    }
+
+        .alert-link:hover .alert-badge {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+            transform: translateY(-1px);
+        }
+</style>
+
+<div class="container-fluid mt-3 pb-5">
+
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 gap-3">
+        <div>
+            <h3 class="fw-bold mb-0">Dashboard</h3>
+            <small class="text-muted">Tổng quan dữ liệu kinh doanh</small>
+        </div>
+
+        <form method="get" class="input-group-custom">
+            <select name="range" class="form-select" style="width: auto;" onchange="this.form.submit()">
+                <option value="month" selected="@(ViewBag.Range=="month")">📅 Tháng này</option>
+                <option value="3m" selected="@(ViewBag.Range=="3m")">📅 3 tháng</option>
+                <option value="custom" selected="@(ViewBag.Range=="custom")">⚙️ Tùy chọn</option>
+            </select>
+            <div style="width: 1px; height: 20px; background: #eee; margin: 0 15px;"></div>
+            <input type="date" name="from" value="@ViewBag.FromDate" @(ViewBag.Range != "custom" ? "disabled" : "") />
+            <span class="mx-2 text-muted">-</span>
+            <input type="date" name="to" value="@ViewBag.ToDate" @(ViewBag.Range != "custom" ? "disabled" : "") />
+            <button class="btn-filter ms-3"><i class="fa fa-filter me-1"></i> Lọc</button>
+        </form>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-3">
+            <div class="card-kpi">
+                <p class="kpi-label">Tổng xe máy</p>
+                <h3 class="kpi-value">@ViewBag.TongXe</h3>
+                <i class="fa-solid fa-motorcycle icon-bg"></i>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card-kpi">
+                <p class="kpi-label">Doanh thu</p>
+                <h3 class="kpi-value text-danger">@String.Format("{0:N0} ₫", ViewBag.DoanhThu)</h3>
+                <i class="fa-solid fa-sack-dollar icon-bg"></i>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card-kpi">
+                <p class="kpi-label">Chờ xác nhận</p>
+                <h3 class="kpi-value text-warning">@ViewBag.DonHangCho</h3>
+                <i class="fa-solid fa-clock icon-bg" style="color: #ffa502;"></i>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card-kpi">
+                <p class="kpi-label">Khách hàng</p>
+                <h3 class="kpi-value text-info">@ViewBag.KhachHang</h3>
+                <i class="fa-solid fa-users icon-bg" style="color: #0dcaf0;"></i>
+            </div>
+        </div>
+    </div>
+    @if (ViewBag.LowStockProducts > 0 || ViewBag.OutOfStockButActive > 0 || ViewBag.OverdueConfirmOrders > 0)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-12">
+                <h6 class="text-muted fw-bold text-uppercase small">
+                    <i class="fa fa-bolt text-warning"></i> Cần xử lý gấp
+                </h6>
+            </div>
+
+            @if (ViewBag.LowStockProducts > 0)
+            {
+                <div class="col-md-4">
+                    <a href="@Url.Action("Index", "Products", new { area = "Admin", stock = 2 })"
+                       class="text-decoration-none">
+                        <div class="alert-badge danger">
+                            <div>
+                                <span class="count-number">@ViewBag.LowStockProducts</span> xe sắp hết hàng
+                            </div>
+                            <i class="fa-solid fa-arrow-trend-down"></i>
+                        </div>
+                    </a>
+                </div>
+            }
+
+            @if (ViewBag.OverdueConfirmOrders > 0)
+            {
+                <div class="col-md-4">
+                    <a href="@Url.Action("Index", "Orders", new { area = "Admin", status = nameof(TrangThaiDonHang.ChoXacNhan), overdue = 1 })"
+                       class="text-decoration-none">
+                        <div class="alert-badge warning">
+                            <div>
+                                <span class="count-number">@ViewBag.OverdueConfirmOrders</span> đơn chờ > 24h
+                            </div>
+                            <i class="fa-solid fa-hourglass-half"></i>
+                        </div>
+                    </a>
+                </div>
+            }
+
+            @if (ViewBag.OutOfStockButActive > 0)
+            {
+                <div class="col-md-4">
+                    <a href="@Url.Action("Index", "Products", new { area = "Admin", stock = 3 })"
+                       class="text-decoration-none">
+                        <div class="alert-badge" style="border-left-color: #333; background: #f8f9fa;">
+                            <div>
+                                <span class="count-number">@ViewBag.OutOfStockButActive</span> xe hết (đang hiện)
+                            </div>
+                            <i class="fa-solid fa-eye-slash text-dark"></i>
+                        </div>
+                    </a>
+                </div>
+            }
+        </div>
+    }
+    <div class="row g-4 mb-4">
+        <div class="col-lg-8">
+            <div class="card-section">
+                <div class="section-header"><i class="fa-solid fa-chart-simple"></i> Biểu đồ doanh thu</div>
+                <div class="p-4" style="height: 320px;">
+                    <canvas id="chartDoanhThu"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card-section">
+                <div class="section-header"><i class="fa-solid fa-chart-pie"></i> Trạng thái đơn</div>
+                <div class="p-4 d-flex justify-content-center align-items-center" style="height: 320px;">
+                    <canvas id="chartTrangThai"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-4">
+            <div class="card-section">
+                <div class="section-header justify-content-between">
+                    <span><i class="fa-solid fa-trophy text-warning"></i> Top 5 xe bán chạy</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-modern">
+                        <thead><tr><th>Tên xe</th><th class="text-end">Đã bán</th></tr></thead>
+                        <tbody>
+                            @foreach (var item in ViewBag.TopXe)
+                            {
+                                <tr>
+                                    <td>@item.TenSP</td>
+                                    <td class="text-end"><span class="badge bg-light text-dark border">@item.TongSoLuong</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div class="card-section">
+                <div class="section-header justify-content-between">
+                    <span><i class="fa-solid fa-receipt"></i> Đơn hàng mới nhất</span>             
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-modern">
+                        <thead>
+                            <tr>
+                                <th>Mã ĐH</th>
+                                <th>Khách hàng</th>
+                                <th>Ngày đặt</th>
+                                <th>Tổng tiền</th>
+                                <th>Trạng thái</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var dh in ViewBag.DonMoi)
+                            {
+                                <tr>
+                                    <td class="text-danger fw-bold">#@dh.MaDH</td>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="bg-light rounded-circle text-center text-muted" style="width:25px; height:25px; line-height:25px; font-size:12px;"><i class="fa fa-user"></i></div>
+                                            @dh.User?.TenHienThi
+                                        </div>
+                                    </td>
+                                    <td class="text-muted small">@dh.NgayDH.ToString("dd/MM/yyyy")</td>
+                                    <td class="fw-bold">@dh.TongTien.ToString("N0") ₫</td>
+                                    <td>
+                                        @{
+                                            string st = dh.TrangThai.ToString();
+                                            string sClass = "info";
+                                            string icon = "fa-truck";
+
+                                            if (st.Contains("Chờ") || st.Contains("Pending")) { sClass = "warning"; icon = "fa-clock"; }
+                                            else if (st.Contains("Hủy")) { sClass = "danger"; icon = "fa-xmark"; }
+                                            else if (st.Contains("Hoàn") || st.Contains("Thành")) { sClass = "success"; icon = "fa-check"; }
+                                        }
+                                        <span class="status-pill @sClass"><i class="fa @icon me-1"></i> @dh.TrangThai</span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script>
+        // Màu Brand
+        const brandColor = '#ff4d6d';
+
+        // 1. Chart Doanh Thu (Bar Chart)
+        const ctxDT = document.getElementById('chartDoanhThu').getContext('2d');
+        new Chart(ctxDT, {
+            type: 'bar',
+            data: {
+                labels: [@Html.Raw(ViewBag.Labels)],
+                datasets: [{
+                    label: 'Doanh thu',
+                    data: [@Html.Raw(ViewBag.Values)],
+                    backgroundColor: brandColor,
+                    borderRadius: 4,
+                    barThickness: 30,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { borderDash: [4, 4], color: '#f1f2f6' },
+                        ticks: { font: { family: 'Nunito' } }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { font: { family: 'Nunito' } }
+                    }
+                }
+            }
+        });
+
+        // 2. Chart Trạng Thái (Doughnut)
+        new Chart(document.getElementById('chartTrangThai'), {
+            type: 'doughnut',
+            data: {
+                labels: [@Html.Raw(ViewBag.TrangThaiLabel)],
+                datasets: [{
+                    data: [@Html.Raw(ViewBag.TrangThaiValue)],
+                    backgroundColor: ['#ff4d6d', '#ff9f43', '#00d2d3', '#54a0ff', '#5f27cd'],
+                    borderWidth: 0,
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '75%',
+                plugins: {
+                    legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: { family: 'Nunito', size: 11 } } }
+                }
+            }
+        });
+    </script>
+}

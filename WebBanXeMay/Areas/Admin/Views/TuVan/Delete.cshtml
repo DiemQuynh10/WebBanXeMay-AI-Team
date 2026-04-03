@@ -1,0 +1,9 @@
+﻿@model WebBanXeMay.Models.TuVan
+
+<h3>Bạn có chắc chắn muốn xóa yêu cầu tư vấn này?</h3>
+
+<form asp-action="DeleteConfirmed">
+    <input type="hidden" asp-for="Id" />
+    <button type="submit" class="btn btn-danger">Xóa</button>
+    <a asp-action="Index" class="btn btn-secondary">Hủy</a>
+</form>

@@ -1,0 +1,36 @@
+﻿@*
+  Footer này dành cho trang Admin.
+  Tôi đã thêm 1 chút style CSS để tạo bóng mờ (shadow-top)
+  giúp nó tách biệt khỏi nội dung, trông chuyên nghiệp hơn.
+*@
+<style>
+    /* Style này tạo hiệu ứng bóng mờ 'shadow' phía TRÊN footer,
+          giúp nó tách biệt rõ ràng khỏi nội dung trang.
+        */
+    .footer-admin-shadow {
+        box-shadow: 0 -0.25rem 0.75rem rgba(0, 0, 0, 0.05);
+        border-top: 1px solid #e3e6f0; /* Thêm một đường kẻ mỏng */
+    }
+</style>
+
+<footer class="sticky-footer bg-white footer-admin-shadow">
+    <div class="container-fluid my-auto py-3">
+        <div class="d-flex align-items-center justify-content-between small">
+
+            <!-- Bên trái: Copyright -->
+            <div class="text-muted">
+                <span>Copyright &copy; @DateTime.Now.Year <strong>Web Ban Xe May</strong>. All rights reserved.</span>
+            </div>
+
+            <!-- Bên phải: Links -->
+            <div class="text-muted">
+                <a asp-area="" asp-controller="Home" asp-action="Index" class="text-muted" target="_blank">Xem trang bán hàng</a>
+                &middot;
+                <a href="#" class="text-muted">Hỗ trợ</a>
+                &middot;
+                <a href="#" class="text-muted">Chính sách</a>
+            </div>
+
+        </div>
+    </div>
+</footer>

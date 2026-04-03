@@ -1,0 +1,257 @@
+﻿@model IEnumerable<WebBanXeMay.Models.Voucher>
+
+@{
+    ViewData["Title"] = "Danh sách Voucher";
+}
+
+<style>
+    .voucher-page-wrapper {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    .voucher-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center; /* GIỮ TRUNG TÂM THEO CHIỀU DỌC */
+        margin-bottom: 1.5rem;
+        gap: 1rem;
+    }
+    .voucher-header-title {
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: #ec4899;
+    }
+
+    .voucher-header-actions {
+        display: flex;
+        align-items: center; /* Căn giữa các nút theo chiều dọc */
+        gap: .75rem;
+    }
+    .voucher-search-form {
+        display: flex;
+        gap: .5rem;
+        max-width: 360px;
+        width: 100%;
+    }
+
+    .voucher-card-wrapper {
+        background: #ffffff;
+        border-radius: 16px;
+        padding: 20px 24px;
+        box-shadow: 0 8px 20px rgba(148, 163, 184, 0.25);
+        border: 1px solid #ffe4ef;
+    }
+
+    .voucher-table th,
+    .voucher-table td {
+        vertical-align: middle;
+        font-size: .95rem;
+        padding-top: .75rem !important;
+        padding-bottom: .75rem !important;
+    }
+
+    .voucher-table th {
+        white-space: nowrap;
+        font-weight: 600;
+    }
+
+    .voucher-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .35rem;
+        justify-content: center;
+    }
+
+    .voucher-status-badge {
+        font-size: .8rem;
+        padding: .3rem .6rem;
+        border-radius: 999px;
+    }
+
+    @@media (max-width: 992px) {
+        .voucher-header
+
+    {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .voucher-header-title {
+        text-align: center;
+    }
+
+        .voucher-search-form {
+            max-width: 380px;
+            width: 100%;
+        }
+
+    }
+
+    .voucher-search-form .input-group > .form-control,
+    .voucher-search-form .input-group > .btn,
+    .voucher-header-actions .btn-add-voucher {
+        height: 40px; /* CÙNG CHIỀU CAO */
+        font-size: .9rem;
+        padding: 0 .85rem;
+    }
+
+    @@media (max-width: 768px) {
+        .voucher-card-wrapper
+
+    {
+        padding: 16px;
+    }
+
+    .voucher-table {
+        font-size: .85rem;
+    }
+
+    }
+</style>
+
+<div class="container-fluid py-3">
+    <div class="voucher-page-wrapper">
+        <div class="voucher-header">
+            <div>
+                <h2 class="voucher-header-title mb-1">Danh sách Voucher</h2>
+                <p class="text-muted mb-0">Quản lý mã giảm giá cho khách hàng</p>
+            </div>
+
+            <div class="voucher-header-actions">
+                <form asp-action="Index" method="get" class="voucher-search-form">
+                    <div class="input-group">
+                        <input name="search" class="form-control" placeholder="Tìm mã / tên..." />
+                        <button class="btn btn-pink" type="submit"
+                                style="background:#ec4899;border:none;">
+                            <i class="fas fa-search me-1"></i>Tìm
+                        </button>
+                    </div>
+                </form>
+
+                <a asp-action="Create" class="btn btn-success btn-add-voucher">
+                    <i class="fas fa-plus-circle me-1"></i>Thêm voucher
+                </a>
+            </div>
+        </div>
+
+
+
+        <div class="voucher-card-wrapper">
+            <div class="table-responsive">
+                <table class="table table-hover voucher-table">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="min-width: 80px;">Mã</th>
+                            <th style="min-width: 150px;">Tên</th>
+                            <th>Kiểu</th>
+                            <th style="min-width: 110px;">Giá trị</th>
+                            <th style="min-width: 180px;">Thời gian</th>
+                            <th>Tối thiểu</th>
+                            <th>Số lượng</th>
+                            <th>Trạng thái</th>
+                            <th style="min-width: 180px;" class="text-center">Thao tác</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (Model != null && Model.Any())
+                        {
+                            var now = DateTime.Now;
+                            foreach (var v in Model)
+                            {
+                                var active = v.IsActive && v.NgayBatDau <= now && v.NgayKetThuc >= now;
+                                <tr>
+                                    <td>@v.MaVoucher</td>
+                                    <td>@v.TenVoucher</td>
+                                    <td>@(v.IsPercent ? "Giảm theo %" : "Trừ tiền")</td>
+
+                                    <td>
+                                        @if (v.IsPercent)
+                                        {
+                                            <span>@v.GiaTri %</span>
+                                            @if (v.GiaTriGiamToiDa.HasValue)
+                                            {
+                                                <div class="text-muted small">
+                                                    Tối đa: @v.GiaTriGiamToiDa.Value.ToString("N0") đ
+                                                </div>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span>@v.GiaTri.ToString("N0") đ</span>
+                                        }
+                                    </td>
+
+                                    <td>
+                                        @v.NgayBatDau.ToString("dd/MM/yyyy") - @v.NgayKetThuc.ToString("dd/MM/yyyy")
+                                    </td>
+
+                                    <td>
+                                        @(v.DonHangToiThieu.HasValue
+                                            ? v.DonHangToiThieu.Value.ToString("N0") + " đ"
+                                            : "-")
+                                    </td>
+
+                                    <td>
+                                        @v.SoLuongDaDung / @v.SoLuong
+                                    </td>
+
+                                    <td>
+                                        @if (active)
+                                        {
+                                            <span class="badge bg-success voucher-status-badge">Đang hoạt động</span>
+                                        }
+                                        else if (!v.IsActive)
+                                        {
+                                            <span class="badge bg-secondary voucher-status-badge">Tắt</span>
+                                        }
+                                        else if (v.NgayKetThuc < now)
+                                        {
+                                            <span class="badge bg-danger voucher-status-badge">Hết hạn</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-warning text-dark voucher-status-badge">Sắp hoạt động</span>
+                                        }
+                                    </td>
+
+                                    <td>
+                                        <div class="voucher-actions">
+                                            <a asp-action="Edit" asp-route-id="@v.Id"
+                                               class="btn btn-sm btn-outline-primary">
+                                                <i class="fas fa-pen me-1"></i>Sửa
+                                            </a>
+
+                                            <form method="post" asp-action="ToggleActive" asp-route-id="@v.Id">
+                                                <button class="btn btn-sm btn-outline-warning" type="submit">
+                                                    <i class="fas fa-power-off me-1"></i>
+                                                    @(v.IsActive ? "Tắt" : "Bật")
+                                                </button>
+                                            </form>
+
+                                            <form method="post" asp-action="Delete" asp-route-id="@v.Id"
+                                                  onsubmit="return confirm('Xóa voucher này?');">
+                                                <button class="btn btn-sm btn-outline-danger" type="submit">
+                                                    <i class="fas fa-trash-alt me-1"></i>Xóa
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr>
+                                <td colspan="9" class="text-center py-4 text-muted">
+                                    Chưa có voucher nào.
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+</div>

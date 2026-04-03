@@ -1,0 +1,86 @@
+﻿@model WebBanXeMay.Models.Voucher
+@{
+    ViewData["Title"] = "Thêm Voucher";
+}
+
+<div class="container py-4">
+    <h2 class="mb-4">Thêm Voucher</h2>
+
+    <form asp-action="Create" method="post" class="row g-3">
+
+        <div class="col-md-4">
+            <label asp-for="MaVoucher" class="form-label"></label>
+            <input asp-for="MaVoucher" class="form-control" />
+            <span asp-validation-for="MaVoucher" class="text-danger"></span>
+        </div>
+
+        <div class="col-md-8">
+            <label asp-for="TenVoucher" class="form-label"></label>
+            <input asp-for="TenVoucher" class="form-control" />
+        </div>
+
+        <div class="col-12">
+            <label asp-for="MoTa" class="form-label"></label>
+            <textarea asp-for="MoTa" class="form-control"></textarea>
+        </div>
+
+        <div class="col-md-4">
+            <label class="form-label">Kiểu giảm</label>
+            <select asp-for="IsPercent" class="form-control">
+                <option value="true">Giảm theo %</option>
+                <option value="false">Giảm số tiền</option>
+            </select>
+        </div>
+
+        <div class="col-md-4">
+            <label asp-for="GiaTri" class="form-label"></label>
+            <input asp-for="GiaTri" class="form-control" />
+            <span asp-validation-for="GiaTri" class="text-danger"></span>
+        </div>
+
+        <div class="col-md-4">
+            <label asp-for="GiaTriGiamToiDa" class="form-label"></label>
+            <input asp-for="GiaTriGiamToiDa" class="form-control" />
+        </div>
+
+        <div class="col-md-4">
+            <label asp-for="DonHangToiThieu" class="form-label"></label>
+            <input asp-for="DonHangToiThieu" class="form-control" />
+        </div>
+
+        <div class="col-md-4">
+            <label asp-for="NgayBatDau" class="form-label"></label>
+            <input asp-for="NgayBatDau" class="form-control" type="date" />
+        </div>
+
+        <div class="col-md-4">
+            <label asp-for="NgayKetThuc" class="form-label"></label>
+            <input asp-for="NgayKetThuc" class="form-control" type="date" />
+        </div>
+
+        <div class="col-md-4">
+            <label asp-for="SoLuong" class="form-label"></label>
+            <input asp-for="SoLuong" class="form-control" />
+            <span asp-validation-for="SoLuong" class="text-danger"></span>
+        </div>
+
+        <div class="col-md-4">
+            <label asp-for="SoLanDungToiDaMoiKhach" class="form-label"></label>
+            <input asp-for="SoLanDungToiDaMoiKhach" class="form-control" />
+        </div>
+
+        <div class="col-md-4 form-check mt-4">
+            <input asp-for="IsActive" class="form-check-input" />
+            <label asp-for="IsActive" class="form-check-label">Kích hoạt ngay</label>
+        </div>
+
+        <div class="col-12 mt-3">
+            <button class="btn btn-primary">Tạo mới</button>
+            <a asp-action="Index" class="btn btn-secondary">Quay lại</a>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

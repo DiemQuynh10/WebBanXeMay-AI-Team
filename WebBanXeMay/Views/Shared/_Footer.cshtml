@@ -1,0 +1,150 @@
+﻿@* Đây là file _Footer.cshtml đã được thiết kế lại.
+    - Đã bỏ phần "Nhận ưu đãi & xe mới về" theo yêu cầu.
+    - Đã chuyển tông màu từ xám/xanh (bg-gray-900, text-blue-600)
+      sang tông màu hồng (bg-pink-50, text-pink-700, bg-pink-600).
+*@
+<footer class="bg-pink-50 text-pink-700 pt-16 pb-8 mt-16 relative">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+
+        @* Phần CTA / Newsletter đã được BỎ ĐI theo yêu cầu *@
+
+        <!-- Middle: 4 columns -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
+
+            <!-- Brand -->
+            <div class="space-y-4">
+                <a asp-controller="Home" asp-action="Index" class="flex items-center gap-2">
+                    <div class="w-9 h-9 bg-pink-600 rounded-xl grid place-items-center shadow-lg">
+                        <i class="fas fa-motorcycle text-white text-base"></i>
+                    </div>
+                    <span class="font-bold text-lg text-pink-900 tracking-tight">Motorbike Store</span>
+                </a>
+                <p class="text-sm text-pink-600 leading-relaxed">
+                    Cửa hàng xe máy chính hãng. Giá tốt – dịch vụ tận tâm – trải nghiệm mượt.
+                </p>
+                <div class="flex items-center gap-4">
+                    <a href="#" class="text-pink-600 hover:text-pink-900" aria-label="Facebook"><i class="fab fa-facebook-f"></i></a>
+                    <a href="#" class="text-pink-600 hover:text-pink-900" aria-label="YouTube"><i class="fab fa-youtube"></i></a>
+                    <a href="#" class="text-pink-600 hover:text-pink-900" aria-label="TikTok"><i class="fab fa-tiktok"></i></a>
+                </div>
+                <div class="text-xs text-pink-400 pt-2">
+                    MST: 0101234567 – Sở KH&ĐT Hà Nội cấp
+                </div>
+            </div>
+
+            <!-- Support -->
+            <div>
+                <h3 class="text-sm font-semibold text-pink-900 tracking-wider uppercase mb-4">Hỗ trợ</h3>
+                <ul class="space-y-3 text-sm">
+                    <li><a href="#" class="hover:text-pink-900 flex items-center gap-2"><i class="fa-regular fa-circle-question w-4"></i> Câu hỏi thường gặp</a></li>
+                    <li><a href="#" class="hover:text-pink-900 flex items-center gap-2"><i class="fa-solid fa-shield-halved w-4"></i> Chính sách bảo hành</a></li>
+                    <li><a href="#" class="hover:text-pink-900 flex items-center gap-2"><i class="fa-solid fa-credit-card w-4"></i> Hướng dẫn trả góp</a></li>
+                    <li><a href="#" class="hover:text-pink-900 flex items-center gap-2"><i class="fa-solid fa-truck-fast w-4"></i> Vận chuyển & giao xe</a></li>
+                </ul>
+            </div>
+
+            <!-- Links -->
+            <div>
+                <h3 class="text-sm font-semibold text-pink-900 tracking-wider uppercase mb-4">Liên kết nhanh</h3>
+                <ul class="space-y-3 text-sm">
+                    <li><a asp-controller="Products" asp-action="Index" class="hover:text-pink-900 flex items-center gap-2"><i class="fa-solid fa-list w-4"></i> Tất cả sản phẩm</a></li>
+                    <li><a href="#" class="hover:text-pink-900 flex items-center gap-2"><i class="fa-solid fa-fire w-4"></i> Xe mới về</a></li>
+                    <li><a href="#" class="hover:text-pink-900 flex items-center gap-2"><i class="fa-solid fa-newspaper w-4"></i> Tin tức</a></li>
+                    <li><a href="#" class="hover:text-pink-900 flex items-center gap-2"><i class="fa-solid fa-users w-4"></i> Về chúng tôi</a></li>
+                </ul>
+            </div>
+
+            <!-- Contact + Bank -->
+            <div class="space-y-4">
+                <div>
+                    <h3 class="text-sm font-semibold text-pink-900 tracking-wider uppercase mb-4">Liên hệ</h3>
+                    <ul class="space-y-3 text-sm">
+                        <li class="flex items-start gap-2">
+                            <i class="fas fa-map-marker-alt w-4 mt-1 text-pink-600"></i>
+                            <span>123 ABC, Hoàn Kiếm, Hà Nội</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <i class="fas fa-phone-alt w-4 mt-1 text-pink-600"></i>
+                            <span>Hotline: <a href="tel:19001234" class="hover:text-pink-900">1900 1234</a></span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <i class="fas fa-envelope w-4 mt-1 text-pink-600"></i>
+                            <span>contact@motorshop.vn</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <i class="fas fa-clock w-4 mt-1 text-pink-600"></i>
+                            <span>Thứ 2 – CN: 8h30 – 20h30</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h3 class="text-sm font-semibold text-pink-900 tracking-wider uppercase mb-3">Thanh toán chuyển khoản</h3>
+                    <div class="bg-pink-100 border border-pink-200/60 rounded-xl p-3 text-xs space-y-2">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-pink-600">Ngân hàng</span>
+                            <span class="text-pink-800 font-semibold">Vietcombank</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-pink-600">Chủ TK</span>
+                            <span class="text-pink-800 font-semibold">CÔNG TY MOTOSHOP</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-pink-600">Số TK</span>
+                            <span class="text-pink-800 font-mono text-sm">0123 456 789</span>
+                        </div>
+                        <p class="text-[11px] text-pink-500 leading-relaxed">
+                            Nội dung: <span class="text-pink-700 font-medium">Thanh toan don #MOTO-xxxx</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Payment / Bank logos -->
+        <div class="border-t border-pink-200 mt-10 pt-6">
+            <div class="flex flex-col lg:flex-row gap-4 items-center justify-between">
+                <div class="flex items-center gap-3 text-sm text-pink-600">
+                    <i class="fa-solid fa-shield-halved text-pink-600"></i>
+                    <span>Thanh toán an toàn • Mã hóa SSL • Xuất hóa đơn VAT</span>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-3">
+                    <div class="flex gap-3 items-center">
+                        <span class="inline-flex items-center gap-2 bg-white border border-pink-200 rounded-lg px-3 py-1 text-xs text-pink-700 shadow-sm">
+                            <img src="~/images/payments/visa.svg" alt="Visa" class="h-4" loading="lazy" />
+                            VISA
+                        </span>
+                        <span class="inline-flex items-center gap-2 bg-white border border-pink-200 rounded-lg px-3 py-1 text-xs text-pink-700 shadow-sm">
+                            <img src="~/images/payments/mastercard.svg" alt="Mastercard" class="h-4" loading="lazy" />
+                            Mastercard
+                        </span>
+                        <span class="inline-flex items-center gap-2 bg-white border border-pink-200 rounded-lg px-3 py-1 text-xs text-pink-700 shadow-sm">
+                            <img src="~/images/payments/momo.svg" alt="MoMo" class="h-4" loading="lazy" />
+                            MoMo
+                        </span>
+                        <span class="inline-flex items-center gap-2 bg-white border border-pink-200 rounded-lg px-3 py-1 text-xs text-pink-700 shadow-sm">
+                            <img src="~/images/payments/vnpay.svg" alt="VNPay" class="h-4" loading="lazy" />
+                            VNPay
+                        </span>
+                        <span class="inline-flex items-center gap-2 bg-white border border-pink-200 rounded-lg px-3 py-1 text-xs text-pink-700 shadow-sm">
+                            <img src="~/images/payments/bidv.svg" alt="bidv" class="h-4" loading="lazy" />
+                            iBanking
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom -->
+        <div class="border-t border-pink-200 pt-6 mt-6 text-sm text-pink-500 flex flex-col md:flex-row items-center justify-between gap-4">
+            <p>&copy; @DateTime.Now.Year MotorBike Store. All Rights Reserved.</p>
+            <div class="flex gap-5 text-xs">
+                <a href="#" class="hover:text-pink-700">Điều khoản</a>
+                <a href="#" class="hover:text-pink-700">Chính sách bảo mật</a>
+                <a href="#" class="hover:text-pink-700">Sitemap</a>
+            </div>
+        </div>
+
+    </div>
+</footer>

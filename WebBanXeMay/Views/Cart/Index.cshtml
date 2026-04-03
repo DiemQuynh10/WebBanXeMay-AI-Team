@@ -1,0 +1,260 @@
+﻿@model List<WebBanXeMay.Models.ViewModels.CartItem>
+@{
+    ViewData["Title"] = "Giỏ hàng của bạn";
+}
+
+<section class="bg-gray-50 min-h-screen py-8">
+    <div class="max-w-4xl mx-auto px-4">
+        <div class="flex items-center justify-between mb-6">
+            <h1 class="text-2xl font-bold text-gray-800">Giỏ hàng <span class="text-gray-500 text-lg font-normal">(@(Model?.Count ?? 0) sản phẩm)</span></h1>
+        </div>
+
+        @if (Model == null || !Model.Any())
+        {
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
+                <div class="w-24 h-24 bg-pink-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <svg class="w-12 h-12 text-pink-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                    </svg>
+                </div>
+                <h2 class="text-xl font-bold text-gray-900 mb-2">Giỏ hàng của bạn đang trống</h2>
+                <p class="text-gray-500 mb-8">Hãy dạo một vòng và chọn cho mình chiếc xe ưng ý nhé!</p>
+                <a href="/" class="inline-flex items-center justify-center px-8 py-3 bg-rose-600 text-white font-semibold rounded-xl hover:bg-rose-700 transition-colors shadow-lg shadow-rose-200">
+                    Tiếp tục mua sắm
+                </a>
+            </div>
+        }
+        else
+        {
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-24 sm:mb-8">
+                <div class="flex items-center gap-4 p-5 border-b border-gray-100 bg-gray-50/50">
+                    <label class="flex items-center gap-3 cursor-pointer select-none group">
+                        <input id="check-all" type="checkbox" class="peer w-5 h-5 rounded border-gray-300 text-rose-600 focus:ring-rose-500 cursor-pointer transition" />
+                        <span class="font-semibold text-gray-700 group-hover:text-rose-600 transition-colors">Chọn tất cả</span>
+                    </label>
+                </div>
+
+                <div class="divide-y divide-gray-100">
+                    @foreach (var item in Model)
+                    {
+                        // Chỉ dùng slug, không fallback sang MaSP
+                        var detailUrl = string.IsNullOrEmpty(item.Slug)
+                        ? Url.Action("Index", "SanPham")
+                        : Url.Action("Details", "SanPham", new { slug = item.Slug });
+
+                        <div class="group p-5 hover:bg-rose-50/10 transition-colors duration-200" id="cart-row-@item.MaSP">
+                            <div class="flex items-start sm:items-center gap-4">
+                                <div class="pt-2 sm:pt-0">
+                                    <input type="checkbox"
+                                           class="row-check w-5 h-5 rounded border-gray-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                                           data-id="@item.MaSP"
+                                           data-price="@item.Gia"
+                                           data-qty="@item.SoLuong" />
+                                </div>
+
+                                <!-- ẢNH -->
+                                <a href="@detailUrl" class="block w-20 h-20 sm:w-24 sm:h-24 flex-shrink-0 bg-gray-100 rounded-xl overflow-hidden border border-gray-200">
+                                    <img src="@(string.IsNullOrWhiteSpace(item.ImageUrl) ? Url.Content("~/images/no-image.jpg") : Url.Content(item.ImageUrl))"
+                                         class="w-full h-full object-cover mix-blend-multiply group-hover:scale-110 transition-transform duration-500"
+                                         alt="@item.TenSP" />
+                                </a>
+
+                                <div class="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                                    <div>
+                                        <!-- TÊN -->
+                                        <a href="@detailUrl" class="text-base font-semibold text-gray-900 hover:text-rose-600 line-clamp-2 transition-colors mb-1">
+                                            @item.TenSP
+                                        </a>
+                                        <div class="text-rose-600 font-bold text-lg">@item.Gia.ToString("N0")₫</div>
+                                    </div>
+                                    <div class="flex items-center justify-between sm:justify-end gap-4 mt-2 sm:mt-0">
+                                        <div class="flex items-center border border-gray-200 rounded-lg bg-white h-9 shadow-sm">
+                                            <button type="button" class="qty-btn w-8 h-full flex items-center justify-center text-gray-500 hover:text-rose-600 hover:bg-gray-50 rounded-l-lg transition-colors" data-id="@item.MaSP" data-delta="-1">
+                                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M20 12H4" /></svg>
+                                            </button>
+                                            <input type="number" class="qty-input w-10 h-full text-center text-sm font-semibold text-gray-900 border-x border-gray-100 focus:outline-none p-0 appearance-none"
+                                                   value="@item.SoLuong" data-id="@item.MaSP" min="1" />
+                                            <button type="button" class="qty-btn w-8 h-full flex items-center justify-center text-gray-500 hover:text-rose-600 hover:bg-gray-50 rounded-r-lg transition-colors" data-id="@item.MaSP" data-delta="1">
+                                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 4v16m8-8H4" /></svg>
+                                            </button>
+                                        </div>
+
+                                        <button type="button" class="remove-btn group/del p-2 rounded-full hover:bg-red-50 text-gray-400 hover:text-red-600 transition-all" data-id="@item.MaSP" title="Xóa sản phẩm">
+                                            <svg class="w-5 h-5 transition-transform group-hover/del:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] z-40 p-4">
+                <div class="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+
+                    <div class="flex items-center gap-2 w-full sm:w-auto sm:hidden">
+                        <input id="check-all-bottom" type="checkbox" class="w-5 h-5 rounded border-gray-300 text-rose-600 focus:ring-rose-500" />
+                        <label for="check-all-bottom" class="text-sm font-medium text-gray-700">Tất cả</label>
+                    </div>
+
+                    <div class="flex items-center justify-between w-full sm:w-auto sm:justify-end gap-6 sm:ml-auto">
+                        <div class="text-right">
+                            <div class="text-xs text-gray-500">Tổng thanh toán (<span id="selected-count">0</span> sản phẩm)</div>
+                            <div class="text-xl sm:text-2xl font-bold text-rose-600" id="footer-total">0₫</div>
+                        </div>
+
+                        <button id="buy-btn"
+                                type="button"
+                                class="px-8 py-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 text-white font-bold shadow-lg shadow-rose-500/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none hover:brightness-110 active:scale-95 transition-all transform">
+                            Mua Hàng
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="h-24 sm:h-20"></div>
+        }
+    </div>
+</section>
+
+@section Scripts {
+    <script>
+        // === UTILS ===
+        const formatVND = (amount) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
+
+        // === LOGIC TÍNH TOÁN ===
+        function recalcSelected() {
+            const checks = [...document.querySelectorAll('.row-check')];
+            const selected = checks.filter(c => c.checked);
+
+            // Tính tổng tiền
+            const total = selected.reduce((sum, c) => {
+                const price = Number(c.dataset.price) || 0;
+                const qty = Number(c.dataset.qty) || 1;
+                return sum + (price * qty);
+            }, 0);
+
+            // Update UI
+            document.getElementById('selected-count').textContent = selected.length;
+            document.getElementById('footer-total').textContent = formatVND(total);
+
+            // Update Button
+            const btnBuy = document.getElementById('buy-btn');
+            if (btnBuy) {
+                btnBuy.disabled = selected.length === 0;
+                btnBuy.style.filter = selected.length === 0 ? 'grayscale(100%)' : 'none';
+            }
+
+            // Sync Checkbox All
+            syncCheckAll();
+        }
+
+        // === LOGIC UPDATE QTY ===
+        async function updateQty(id, qty) {
+            if (qty < 1) return;
+
+            // Optimistic UI Update (Cập nhật giao diện trước)
+            document.querySelectorAll(`.qty-input[data-id="${id}"]`).forEach(el => el.value = qty);
+            document.querySelectorAll(`.row-check[data-id="${id}"]`).forEach(el => el.dataset.qty = qty);
+            recalcSelected();
+
+            // Call Server
+            try {
+                const res = await window.postJsonAuth('/Cart/UpdateJson', { maSP: id, quantity: qty });
+                if (res && res.ok) {
+                    if (window.Cart?.refreshBadge) window.Cart.refreshBadge();
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        // === LOGIC XÓA ===
+        async function removeRow(id) {
+            if (!confirm('Bạn muốn xóa sản phẩm này?')) return;
+
+            try {
+                const res = await window.postJsonAuth('/Cart/RemoveJson', { maSP: id });
+                if (res && res.ok) {
+                    const row = document.getElementById(`cart-row-${id}`);
+                    if (row) {
+                        row.style.opacity = '0';
+                        row.style.transform = 'translateX(20px)';
+                        setTimeout(() => {
+                            row.remove();
+                            recalcSelected();
+                            if (window.Cart?.refreshBadge) window.Cart.refreshBadge();
+                            // Reload nếu hết sạch item để hiện empty state
+                            if(document.querySelectorAll('.row-check').length === 0) location.reload();
+                        }, 300);
+                    }
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        // === EVENTS ===
+
+        // 1. Check All
+        const handleCheckAll = (e) => {
+            const checked = e.target.checked;
+            document.querySelectorAll('.row-check').forEach(c => c.checked = checked);
+            recalcSelected();
+        };
+        document.getElementById('check-all')?.addEventListener('change', handleCheckAll);
+        document.getElementById('check-all-bottom')?.addEventListener('change', handleCheckAll);
+
+        // 2. Row Check
+        document.querySelectorAll('.row-check').forEach(c => c.addEventListener('change', recalcSelected));
+
+        // 3. Qty Buttons
+        document.querySelectorAll('.qty-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const id = this.dataset.id;
+                const delta = parseInt(this.dataset.delta);
+                const input = document.querySelector(`.qty-input[data-id="${id}"]`);
+                const currentVal = parseInt(input.value) || 1;
+                updateQty(id, currentVal + delta);
+            });
+        });
+
+        // 4. Qty Input (Nhập tay)
+        document.querySelectorAll('.qty-input').forEach(inp => {
+            inp.addEventListener('change', function() {
+                let val = parseInt(this.value);
+                if(val < 1) val = 1;
+                updateQty(this.dataset.id, val);
+            });
+        });
+
+        // 5. Remove Button
+        document.querySelectorAll('.remove-btn').forEach(btn => {
+            btn.addEventListener('click', () => removeRow(btn.dataset.id));
+        });
+
+        // 6. Buy Button
+        document.getElementById('buy-btn')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            const ids = [...document.querySelectorAll('.row-check:checked')].map(c => c.dataset.id).join(',');
+            if (!ids) return;
+            window.location.assign('/checkout?ids=' + encodeURIComponent(ids));
+        });
+
+        // Helper: Đồng bộ trạng thái CheckAll trên/dưới
+        function syncCheckAll() {
+            const checks = [...document.querySelectorAll('.row-check')];
+            if(checks.length === 0) return;
+            const checkedCount = checks.filter(c => c.checked).length;
+            const isAll = checkedCount === checks.length && checkedCount > 0;
+            const isSome = checkedCount > 0 && !isAll;
+
+            const tops = [document.getElementById('check-all'), document.getElementById('check-all-bottom')];
+            tops.forEach(el => {
+                if(el) {
+                    el.checked = isAll;
+                    el.indeterminate = isSome;
+                }
+            });
+        }
+
+        // Init
+        document.addEventListener('DOMContentLoaded', recalcSelected);
+    </script>
+}

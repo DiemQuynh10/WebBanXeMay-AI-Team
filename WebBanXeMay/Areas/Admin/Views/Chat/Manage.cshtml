@@ -1,0 +1,563 @@
+﻿@model List<WebBanXeMay.Areas.Admin.ViewModels.UserChatViewModel>
+
+@{
+    ViewData["Title"] = "CSKH - Chat Realtime";
+}
+
+<style>
+    .chat-layout {
+        display: flex;
+        height: 80vh;
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    /* CỘT TRÁI: DANH SÁCH USER */
+    .user-list-sidebar {
+        width: 300px;
+        border-right: 1px solid #eee;
+        display: flex;
+        flex-direction: column;
+        background: #fdfdfd;
+    }
+
+    .sidebar-header {
+        padding: 10px 12px;
+        border-bottom: 1px solid #eee;
+        font-weight: bold;
+        color: #333;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 4px;
+    }
+
+    .user-list {
+        flex: 1;
+        overflow-y: auto;
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .user-item {
+        padding: 10px 12px;
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        border-bottom: 1px solid #f5f5f5;
+        transition: 0.2s;
+        gap: 8px;
+    }
+
+        .user-item:hover {
+            background: #f0f0f0;
+        }
+
+        .user-item.active {
+            background: #e6f7ff;
+            border-left: 4px solid #1890ff;
+        }
+
+        /* NEW: khách còn tin chưa đọc */
+        .user-item.has-unread {
+            background: #fff7f7;
+        }
+
+            .user-item.has-unread .user-info h6 {
+                font-weight: 600;
+            }
+
+    .user-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 1px solid #ddd;
+    }
+
+    .user-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+        .user-info h6 {
+            margin: 0;
+            font-size: 14px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .user-info small {
+            color: #888;
+            font-size: 12px;
+            display: block;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 180px;
+        }
+
+    .user-time {
+        text-align: right;
+        font-size: 11px;
+        color: #999;
+        white-space: nowrap;
+    }
+
+    /* CỘT PHẢI: KHUNG CHAT */
+    .chat-main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        background: #f5f5f5;
+    }
+
+    .chat-header-user {
+        padding: 15px;
+        background: #fff;
+        border-bottom: 1px solid #ddd;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+    }
+
+    .chat-box {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .chat-input-area {
+        padding: 12px;
+        background: #fff;
+        border-top: 1px solid #ddd;
+        display: flex;
+        gap: 10px;
+    }
+
+    /* BUBBLE CHAT & PRODUCT CARD */
+    .bubble {
+        max-width: 70%;
+        padding: 10px 14px;
+        border-radius: 12px;
+        font-size: 14px;
+        line-height: 1.4;
+        position: relative;
+        word-wrap: break-word;
+    }
+
+        /* Admin là 'me' (màu xanh), Khách là 'other' (màu trắng) */
+        .bubble.me {
+            align-self: flex-end;
+            background: #d0ffc4;
+            border-bottom-right-radius: 2px;
+        }
+
+        .bubble.other {
+            align-self: flex-start;
+            background: #fff;
+            border-bottom-left-radius: 2px;
+            border: 1px solid #e5e5e5;
+        }
+
+    /* STYLE THẺ SẢN PHẨM */
+    .shopee-product-card {
+        background: #fff;
+        width: 280px;
+        border: 1px solid #e8e8e8;
+        border-left: 4px solid #ee4d2d;
+        border-radius: 4px;
+        cursor: pointer;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        overflow: hidden;
+    }
+
+    .shopee-body {
+        padding: 10px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .shopee-img {
+        width: 60px;
+        height: 60px;
+        object-fit: cover;
+        border: 1px solid #f0f0f0;
+    }
+
+    .shopee-info {
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .shopee-name {
+        font-size: 13px;
+        font-weight: 500;
+        color: #333;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .shopee-price {
+        color: #ee4d2d;
+        font-weight: bold;
+        font-size: 14px;
+        margin-top: 4px;
+    }
+
+    .shopee-footer {
+        background: #fffbf8;
+        padding: 8px;
+        font-size: 11px;
+        color: #757575;
+        text-align: center;
+        border-top: 1px solid #f5f5f5;
+    }
+
+    /* HIỂN THỊ GIỜ TRONG BUBBLE */
+    .msg-time {
+        display: block;
+        font-size: 10px;
+        margin-top: 4px;
+        opacity: 0.7;
+    }
+
+    .bubble.me .msg-time {
+        text-align: right;
+        color: #155724;
+    }
+
+    .bubble.other .msg-time {
+        text-align: left;
+        color: #666;
+    }
+</style>
+
+<div class="container-fluid mt-3">
+    <div class="chat-layout">
+
+        <!-- SIDEBAR DANH SÁCH KHÁCH -->
+        <div class="user-list-sidebar">
+            <div class="sidebar-header">
+                <div>
+                    <i class="fas fa-users text-primary"></i> Danh sách khách hàng
+                </div>
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-outline-secondary active"
+                            onclick="filterUsers(this, 'all')">
+                        Tất cả
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary"
+                            onclick="filterUsers(this, 'unread')">
+                        Chưa xử lý
+                    </button>
+                </div>
+            </div>
+
+            <ul class="user-list">
+                @foreach (var user in Model)
+                {
+                    var hasUnread = user.UnreadCount > 0;
+                    <li class="user-item @(hasUnread ? "has-unread" : "")"
+                        data-unread="@user.UnreadCount"
+                        onclick="selectUser('@user.UserId', '@user.UserName', this)">
+                        <img src="@user.Avatar" class="user-avatar" />
+                        <div class="user-info">
+                            <h6>
+                                @user.UserName
+                                @if (hasUnread)
+                                {
+                                    <span class="badge bg-danger">@user.UnreadCount</span>
+                                }
+                            </h6>
+                            <small>
+                                @if (!string.IsNullOrEmpty(user.LastMessage))
+                                {
+                                    @user.LastMessage
+                                }
+                                else
+                                {
+                                    @:Chưa có tin nhắn
+                                }
+                            </small>
+                        </div>
+                        @if (user.LastMessageTime != null)
+                        {
+                            <div class="user-time">
+                                @user.LastMessageTime.Value.ToString("HH:mm")<br />
+                                @user.LastMessageTime.Value.ToString("dd/MM")
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
+        </div>
+
+        <!-- KHUNG CHAT CHÍNH -->
+        <div class="chat-main">
+            <div class="chat-header-user">
+                <span id="chatWithName">Chưa chọn khách hàng nào</span>
+            </div>
+
+            <div id="adminChatBox" class="chat-box">
+                <div class="text-center text-muted mt-5">
+                    <i class="fas fa-comments fa-3x mb-3"></i><br>
+                    Vui lòng chọn một khách hàng để bắt đầu tư vấn.
+                </div>
+            </div>
+
+            <div class="chat-input-area flex-column flex-sm-row gap-2" style="display:none;" id="inputArea">
+                <div class="w-100 mb-2 mb-sm-0">
+                    <div class="btn-group btn-group-sm mb-1" role="group">
+                        <button type="button" class="btn btn-outline-secondary" onclick="insertQuickReply(1)">Chào khách</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="insertQuickReply(2)">Hỏi hàng/giá</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="insertQuickReply(3)">Xin SĐT</button>
+                    </div>
+                    <input type="text" id="msgInput" class="form-control" placeholder="Nhập tin nhắn trả lời...">
+                </div>
+                <button id="btnSend" class="btn btn-primary align-self-stretch">
+                    <i class="fas fa-paper-plane"></i> Gửi
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.js"></script>
+
+<script>
+    // --- CẤU HÌNH ---
+    const MY_ADMIN_ID = "@User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value";
+    let currentReceiverId = null;
+
+    // Helper format giờ
+    function formatTime(dateInput) {
+        if (!dateInput) return '';
+        const date = new Date(dateInput);
+        return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false }) +
+            ` (${date.getDate()}/${date.getMonth() + 1})`;
+    }
+
+    // Kết nối SignalR
+    const connection = new signalR.HubConnectionBuilder()
+        .withUrl("/chatHub")
+        .withAutomaticReconnect()
+        .build();
+
+    connection.start().then(() => {
+        console.log("✅ Admin Connected SignalR");
+    }).catch(err => console.error("❌ SignalR Error:", err));
+
+    // --- FILTER DANH SÁCH KHÁCH ---
+    function filterUsers(btn, mode) {
+        // set active cho nút
+        const buttons = btn.parentElement.querySelectorAll(".btn");
+        buttons.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+
+        const items = document.querySelectorAll(".user-list .user-item");
+        items.forEach(li => {
+            const unread = parseInt(li.getAttribute("data-unread") || "0");
+            if (mode === "all") {
+                li.style.display = "";
+            } else if (mode === "unread") {
+                li.style.display = unread > 0 ? "" : "none";
+            }
+        });
+    }
+
+    // Tin nhắn mẫu
+    function insertQuickReply(code) {
+        const input = document.getElementById("msgInput");
+        let text = "";
+
+        switch (code) {
+            case 1:
+                text = "Chào bạn, Shop có thể hỗ trợ gì cho bạn ạ?";
+                break;
+            case 2:
+                text = "Dạ sản phẩm này hiện còn hàng, Shop gửi bạn giá chi tiết: ";
+                break;
+            case 3:
+                text = "Bạn cho Shop xin số điện thoại để tư vấn nhanh hơn nhé ạ.";
+                break;
+        }
+
+        if (input.value && !input.value.endsWith(" ")) {
+            input.value += " ";
+        }
+        input.value += text;
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+    }
+
+    // --- CHỌN KHÁCH ---
+    function selectUser(userId, userName, liElement) {
+        currentReceiverId = userId;
+        document.getElementById("chatWithName").innerHTML =
+            `<i class="fas fa-user-circle text-success"></i> Đang chat với: <strong>${userName}</strong>`;
+        document.getElementById("inputArea").style.display = "flex";
+
+        document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
+        if (liElement) {
+            liElement.classList.add('active');
+            // Khi mở chat thì coi như đã xử lý -> bỏ nền has-unread & badge sẽ tự cập nhật lần sau load lại trang
+            liElement.classList.remove('has-unread');
+            liElement.setAttribute("data-unread", "0");
+            const badge = liElement.querySelector(".badge.bg-danger");
+            if (badge) badge.remove();
+        }
+
+        loadChatHistory(userId);
+    }
+
+        async function sendMessage() {
+        const input = document.getElementById("msgInput");
+        const msg = input.value;
+
+        if (!currentReceiverId) {
+            alert("Vui lòng chọn khách hàng!");
+            return;
+        }
+        if (!msg.trim()) return;
+
+        try {
+            await connection.invoke("SendText", currentReceiverId, msg);
+
+            // ✅ TỰ VẼ TIN NHẮN CỦA ADMIN LUÔN Ở ĐÂY
+            appendMessageToUI(msg, true, null, new Date().toISOString());
+            scrollToBottom();
+
+            input.value = "";
+            input.focus();
+        } catch (err) {
+            console.error(err);
+            alert("Lỗi gửi tin.");
+        }
+    }
+
+
+    document.getElementById("btnSend").addEventListener("click", sendMessage);
+    document.getElementById("msgInput").addEventListener("keypress", function (e) {
+        if (e.key === "Enter") sendMessage();
+    });
+
+        connection.off("ReceiveMessage");
+
+       // --- NHẬN TIN TỪ HUB ---
+    connection.on("ReceiveMessage", function (senderId, message, productData, timestamp) {
+        // ❌ Nếu là tin do chính admin gửi (echo từ server) thì bỏ qua,
+        // vì mình đã tự vẽ ở sendMessage()
+        if (senderId === MY_ADMIN_ID) {
+            return;
+        }
+
+        // ✅ Chỉ xử lý tin từ KHÁCH
+        if (currentReceiverId === senderId) {
+            const isMe = false; // luôn là phía khách
+            const timeToShow = timestamp || new Date().toISOString();
+            appendMessageToUI(message, isMe, productData, timeToShow);
+            scrollToBottom();
+        } else {
+            // Nếu đang chat với người khác mà KHÁCH khác gửi tin -> tăng badge bên sidebar (optional)
+            const item = document.querySelector(`.user-item[onclick*="${senderId}"]`);
+            if (item) {
+                let unread = parseInt(item.getAttribute("data-unread") || "0") + 1;
+                item.setAttribute("data-unread", unread);
+                item.classList.add("has-unread");
+
+                let badge = item.querySelector(".badge.bg-danger");
+                if (!badge) {
+                    const h6 = item.querySelector(".user-info h6");
+                    badge = document.createElement("span");
+                    badge.className = "badge bg-danger";
+                    h6.appendChild(badge);
+                }
+                badge.textContent = unread;
+            }
+        }
+    });
+    // --- TẢI LỊCH SỬ ---
+    async function loadChatHistory(userId) {
+        const chatBox = document.getElementById("adminChatBox");
+        chatBox.innerHTML = '<div class="text-center py-3 text-muted"><i class="fas fa-spinner fa-spin"></i> Đang tải...</div>';
+
+        try {
+            const response = await fetch(`/Admin/Chat/GetHistory?userId=${userId}`);
+            const messages = await response.json();
+
+            chatBox.innerHTML = '';
+
+            if (messages.length === 0) {
+                chatBox.innerHTML = '<div class="text-center text-muted mt-3">Chưa có tin nhắn nào.</div>';
+                return;
+            }
+
+            messages.forEach(msg => {
+                const isMe = (msg.senderId === MY_ADMIN_ID);
+                let productData = null;
+                if (msg.isProduct && msg.productJson) {
+                    productData = JSON.parse(msg.productJson);
+                }
+
+                appendMessageToUI(msg.content, isMe, productData, msg.timestamp);
+            });
+
+            scrollToBottom();
+
+        } catch (err) {
+            console.error(err);
+            chatBox.innerHTML = '<div class="text-danger text-center">Lỗi tải lịch sử chat.</div>';
+        }
+    }
+
+    // --- VẼ TIN NHẮN ---
+    function appendMessageToUI(content, isMe, productData, timestamp) {
+        const chatBox = document.getElementById("adminChatBox");
+        const alignClass = isMe ? 'me' : 'other';
+        const timeStr = formatTime(timestamp);
+
+        let html = '';
+
+        if (productData) {
+            const priceFmt = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(productData.price);
+            html = `
+            <div class="bubble ${alignClass} p-0 bg-transparent border-0">
+                <div class="shopee-product-card" onclick="window.open('/Admin/Products/Details/${productData.id}', '_blank')">
+                    <div class="shopee-body">
+                        <img src="${productData.image}" class="shopee-img">
+                        <div class="shopee-info">
+                            <div class="shopee-name">${productData.name}</div>
+                            <div class="shopee-price">${priceFmt}</div>
+                        </div>
+                    </div>
+                    <div class="shopee-footer">Khách đang hỏi về sản phẩm này</div>
+                </div>
+                <span class="msg-time">${timeStr}</span>
+            </div>`;
+        } else {
+            html = `
+            <div class="bubble ${alignClass}">
+                ${content}
+                <span class="msg-time">${timeStr}</span>
+            </div>`;
+        }
+
+        chatBox.insertAdjacentHTML('beforeend', html);
+    }
+
+    function scrollToBottom() {
+        const chatBox = document.getElementById("adminChatBox");
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+</script>

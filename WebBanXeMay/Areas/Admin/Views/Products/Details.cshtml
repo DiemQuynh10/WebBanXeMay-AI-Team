@@ -1,0 +1,52 @@
+﻿<div>
+    <input id="quantity-input" type="number" value="1" min="1" class="border" />
+</div>
+
+<button id="add-to-cart-btn"
+        type="button"
+        class="bg-gray-200 p-2"
+        data-id="@Model.MaSP">
+    Thêm vào giỏ
+</button>
+
+<button id="buy-now-btn"
+        type="button"
+        class="bg-red-600 text-white p-2"
+        data-id="@Model.MaSP">
+    Mua ngay
+</button>
+
+@section Scripts {
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+
+            // 1. Nút "Thêm vào giỏ"
+            const btnAdd = document.getElementById('add-to-cart-btn');
+            btnAdd?.addEventListener('click', function () {
+                const maSP = parseInt(this.dataset.id, 10);
+                const qtyInput = document.getElementById('quantity-input');
+                const quantity = parseInt(qtyInput?.value || '1', 10);
+
+                // Gọi hàm 'add' từ file cart.js
+                window.Cart.add(maSP, quantity);
+            });
+
+            // 2. Nút "Mua ngay"
+            const btnBuy = document.getElementById('buy-now-btn');
+            btnBuy?.addEventListener('click', function () {
+                const maSP = parseInt(this.dataset.id, 10);
+                const qtyInput = document.getElementById('quantity-input');
+                const quantity = parseInt(qtyInput?.value || '1', 10);
+
+                // Gọi hàm 'add' và CÓ callback
+                window.Cart.add(maSP, quantity, function(data) {
+                    // Sau khi thêm thành công (onSuccess), chuyển ngay đến trang giỏ hàng
+                    if (data.ok) {
+                        window.location.href = '/Cart'; // Chuyển đến trang giỏ hàng
+                    }
+                });
+            });
+
+        });
+    </script>
+}

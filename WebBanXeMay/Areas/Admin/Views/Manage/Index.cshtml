@@ -1,0 +1,60 @@
+﻿@model WebBanXeMay.Models.AdminViewModels.QuickActionViewModel
+@{
+    Layout = "~/Areas/Admin/Views/Shared/_AdminLayout.cshtml";
+    ViewBag.Title = "Quản lý & Hành động nhanh";
+}
+
+<div class="container-fluid p-4">
+    <h3>Quản lý & Hành động nhanh</h3>
+
+    <div class="mb-3">
+        <div class="btn-group" role="group">
+            <a class="btn btn-primary" href="@Url.Action("AddOrder", "Manage", new { area = "Admin" })">➕ Thêm đơn hàng mới</a>
+            <a class="btn btn-success" href="@Url.Action("AddProduct", "Manage", new { area = "Admin" })">➕ Thêm xe mới vào kho</a>
+            <a class="btn btn-info" href="@Url.Action("Index", "Users", new { area = "Admin" })">👤 Xem chi tiết khách hàng</a>
+            <button id="btnContactCustomer" class="btn btn-outline-secondary">☎️ Liên hệ khách hàng</button>
+            <a class="btn btn-outline-dark" href="@Url.Action("ExportOrdersExcel", "Manage", new { area = "Admin" })">📁 Xuất Excel</a>
+            <a class="btn btn-outline-dark" href="@Url.Action("ExportOrdersPdf", "Manage", new { area = "Admin" })">📄 Xuất PDF</a>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card p-3">
+                <h5>Cảnh báo hệ thống</h5>
+                <ul id="alertsList" class="list-group">
+                    <li class="list-group-item">Xe tồn kho: <span id="xeTonKho">@Model?.XeTonKho ?? 0</span></li>
+                    <li class="list-group-item">Đơn hàng chậm: <span id="donHangCham">@Model?.DonHangCham ?? 0</span></li>
+                    <li class="list-group-item">Xe tồn kho quá lâu: <span id="xeQuaNgay">@Model?.XeTonKhoQuaNgay ?? 0</span></li>
+                    <li class="list-group-item">Xe không bán trong 60 ngày: <span id="xeKhongBan">@Model?.XeKhongBan ?? 0</span></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card p-3">
+                <h5>Hành động nhanh</h5>
+                <p>Chọn hành động nhanh để chuyển trang hoặc thực hiện thao tác.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.getElementById('btnContactCustomer').addEventListener('click', function(){
+            alert('Mở modal gửi email hoặc gọi điện thoại ở đây (cần implement).');
+        });
+
+        // load stats via ajax
+        fetch('@Url.Action("QuickStats", "Manage", new { area = "Admin" })')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('xeTonKho').textContent = data.xeTonKho ?? 0;
+                document.getElementById('donHangCham').textContent = data.donHangCham ?? 0;
+                document.getElementById('xeQuaNgay').textContent = data.xeTonKhoQuaNgay ?? 0;
+                document.getElementById('xeKhongBan').textContent = data.xeKhongBan ?? 0;
+            })
+            .catch(err => console.error(err));
+    </script>
+}
