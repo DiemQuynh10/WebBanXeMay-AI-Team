@@ -8,6 +8,7 @@ namespace Chatbot.API.Services.Interfaces
         List<ProductSummaryDto> RankProducts(
             IEnumerable<ProductSummaryDto> products,
             ParsedIntent intent,
+            CustomerPreferenceProfile profile,
             string normalizedMessage,
             int take = 5);
     }

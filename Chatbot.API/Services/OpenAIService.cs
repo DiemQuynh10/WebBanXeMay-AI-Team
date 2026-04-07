@@ -166,6 +166,32 @@ namespace Chatbot.API.Services
                     ConversationId = conversationId
                 };
             }
+            catch (TaskCanceledException ex)
+            {
+                _logger.LogWarning(ex, "OpenAI request timeout. ConversationId: {ConversationId}", conversationId);
+
+                return new ChatResponse
+                {
+                    Success = false,
+                    Reply = "Xin lỗi, hệ thống đang phản hồi chậm hơn bình thường. Bạn vui lòng thử lại sau ít phút nhé.",
+                    UsedAI = true,
+                    ErrorMessage = "OpenAI timeout",
+                    ConversationId = conversationId
+                };
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning(ex, "OpenAI HTTP error. ConversationId: {ConversationId}", conversationId);
+
+                return new ChatResponse
+                {
+                    Success = false,
+                    Reply = "Xin lỗi, hiện tại dịch vụ AI đang tạm thời không ổn định. Bạn vui lòng thử lại sau nhé.",
+                    UsedAI = true,
+                    ErrorMessage = "OpenAI http error",
+                    ConversationId = conversationId
+                };
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unhandled error in AskAsync. ConversationId: {ConversationId}", conversationId);
@@ -175,7 +201,7 @@ namespace Chatbot.API.Services
                     Success = false,
                     Reply = "Xin lỗi, chatbot đang gặp lỗi tạm thời. Bạn vui lòng thử lại sau.",
                     UsedAI = true,
-                    ErrorMessage = ex.Message,
+                    ErrorMessage = "Unhandled AI error",
                     ConversationId = conversationId
                 };
             }
@@ -306,7 +332,7 @@ namespace Chatbot.API.Services
             var response = await _httpClient.SendAsync(httpRequest);
             var rawJson = await response.Content.ReadAsStringAsync();
 
-            _logger.LogInformation("{LogLabel}: {RawJson}", logLabel, rawJson);
+            _logger.LogInformation("{LogLabel} completed. ResponseLength: {Length}", logLabel, rawJson?.Length ?? 0);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -314,7 +340,7 @@ namespace Chatbot.API.Services
                     $"OpenAI API error. StatusCode={(int)response.StatusCode}, Body={rawJson}");
             }
 
-            return rawJson;
+            return rawJson ?? string.Empty;
         }
     }
 }

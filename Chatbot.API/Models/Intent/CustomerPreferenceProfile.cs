@@ -1,15 +1,17 @@
 ﻿namespace Chatbot.API.Models.Intent
 {
-    public class ParsedIntent
+    public class CustomerPreferenceProfile
     {
-        public string? Category { get; set; }
+        public string ConversationId { get; set; } = string.Empty;
+
         public decimal? PriceMin { get; set; }
         public decimal? PriceMax { get; set; }
-        public string? Brand { get; set; }
-        public string? Target { get; set; }
-        public string? RawMessage { get; set; }
-        public PriceFilterType FilterType { get; set; } = PriceFilterType.None;
         public decimal? TargetPrice { get; set; }
+        public PriceFilterType FilterType { get; set; } = PriceFilterType.None;
+
+        public string? PreferredCategory { get; set; }
+        public string? PreferredBrand { get; set; }
+        public string? Target { get; set; }
 
         public HashSet<string> ExcludedCategories { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> ExcludedBrands { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -30,5 +32,7 @@
         public bool PrefersFemaleStyle { get; set; }
 
         public HashSet<string> RequestedStyles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
     }
 }

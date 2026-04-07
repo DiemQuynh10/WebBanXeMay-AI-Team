@@ -3,58 +3,43 @@
     const toggleBtn = document.getElementById("aiChatToggle");
     const panel = document.getElementById("aiChatPanel");
     const closeBtn = document.getElementById("aiChatClose");
-    const resetBtn = document.getElementById("aiChatReset");
     const sendBtn = document.getElementById("aiChatSend");
     const input = document.getElementById("aiChatInput");
     const messages = document.getElementById("aiChatMessages");
+    const conversationList = document.getElementById("aiChatConversationList");
+    const newChatBtn = document.getElementById("aiChatNewConversation");
+    const deleteBtn = document.getElementById("aiChatDeleteConversation");
+    const emptyState = document.getElementById("aiChatEmptyState");
 
-    if (!widget || !toggleBtn || !panel || !sendBtn || !input || !messages) return;
+    if (!widget || !toggleBtn || !panel || !sendBtn || !input || !messages || !conversationList) return;
 
-    const STORAGE_KEY = "ai_chat_conversation_id";
-    const HISTORY_KEY = "ai_chat_local_history";
-    const MAX_HISTORY = 50;
+    const USER_STORAGE_KEY = "ai_chat_user_id";
+    const CURRENT_CONVERSATION_KEY = "ai_chat_current_conversation_id";
+    const CHANNEL = "web";
 
-    let isSending = false;
+    const state = {
+        isSending: false,
+        currentConversationId: localStorage.getItem(CURRENT_CONVERSATION_KEY) || null,
+        conversations: []
+    };
 
-    function getConversationId() {
-        return localStorage.getItem(STORAGE_KEY);
-    }
-
-    function setConversationId(id) {
-        if (id) {
-            localStorage.setItem(STORAGE_KEY, id);
+    function getUserId() {
+        let userId = localStorage.getItem(USER_STORAGE_KEY);
+        if (!userId) {
+            userId = "web_" + crypto.randomUUID();
+            localStorage.setItem(USER_STORAGE_KEY, userId);
         }
+        return userId;
     }
 
-    function clearConversationId() {
-        localStorage.removeItem(STORAGE_KEY);
-    }
+    function setCurrentConversationId(id) {
+        state.currentConversationId = id || null;
 
-    function getHistory() {
-        const raw = localStorage.getItem(HISTORY_KEY);
-        if (!raw) return [];
-
-        try {
-            const parsed = JSON.parse(raw);
-            return Array.isArray(parsed) ? parsed : [];
-        } catch {
-            return [];
+        if (state.currentConversationId) {
+            localStorage.setItem(CURRENT_CONVERSATION_KEY, state.currentConversationId);
+        } else {
+            localStorage.removeItem(CURRENT_CONVERSATION_KEY);
         }
-    }
-
-    function saveHistory(history) {
-        const normalized = Array.isArray(history) ? history.slice(-MAX_HISTORY) : [];
-        localStorage.setItem(HISTORY_KEY, JSON.stringify(normalized));
-    }
-
-    function appendHistory(role, content) {
-        const history = getHistory();
-        history.push({ role, content });
-        saveHistory(history);
-    }
-
-    function clearHistory() {
-        localStorage.removeItem(HISTORY_KEY);
     }
 
     function scrollBottom() {
@@ -62,19 +47,14 @@
     }
 
     function focusInput() {
-        setTimeout(() => input.focus(), 50);
+        setTimeout(() => input.focus(), 60);
     }
 
     function setSendingState(sending) {
-        isSending = sending;
+        state.isSending = sending;
         input.disabled = sending;
         sendBtn.disabled = sending;
-
-        if (sending) {
-            sendBtn.classList.add("disabled");
-        } else {
-            sendBtn.classList.remove("disabled");
-        }
+        sendBtn.classList.toggle("disabled", sending);
     }
 
     function escapeHtml(text) {
@@ -127,31 +107,37 @@
         let safeText = escapeHtml(textOnly).replace(/\n/g, "<br>");
         safeText = formatLinks(safeText);
 
-        return `
-            <div class="ai-msg-text">${safeText}</div>
-            ${imageHtml}
-        `;
+        return `<div class="ai-msg-text">${safeText}</div>${imageHtml}`;
     }
 
-    function createWelcomeMessage() {
-        return `
-            <div class="ai-msg bot ai-msg-welcome">
-                <div class="ai-msg-text">
-                    Xin chào 👋 Tôi có thể hỗ trợ bạn:
-                    <br>- Tra cứu giá xe
-                    <br>- Kiểm tra tồn kho
-                    <br>- Tư vấn mẫu xe phù hợp
-                </div>
-            </div>
-        `;
+    function toggleEmptyState(show) {
+        if (!emptyState) return;
+        emptyState.classList.toggle("d-none", !show);
+    }
+
+    function clearMessages() {
+        messages.innerHTML = "";
     }
 
     function renderWelcomeMessage() {
-        messages.innerHTML = createWelcomeMessage();
+        clearMessages();
+        toggleEmptyState(true);
+
+        const welcome = document.createElement("div");
+        welcome.className = "ai-msg bot ai-msg-welcome";
+        welcome.innerHTML = `
+            <div class="ai-msg-text">
+                Xin chào 👋 Mình có thể hỗ trợ bạn:
+                <br>- Tra cứu giá xe
+                <br>- Kiểm tra tồn kho
+                <br>- Tư vấn mẫu xe phù hợp
+            </div>
+        `;
+        messages.appendChild(welcome);
         scrollBottom();
     }
 
-    function addMessage(role, content, save = true) {
+    function addMessage(role, content) {
         const div = document.createElement("div");
         div.className = `ai-msg ${role}`;
 
@@ -162,11 +148,8 @@
         }
 
         messages.appendChild(div);
+        toggleEmptyState(false);
         scrollBottom();
-
-        if (save) {
-            appendHistory(role, content);
-        }
     }
 
     function addTyping() {
@@ -177,6 +160,7 @@
         div.id = "aiTyping";
         div.innerHTML = `<div class="ai-msg-text">Bot đang trả lời...</div>`;
         messages.appendChild(div);
+        toggleEmptyState(false);
         scrollBottom();
     }
 
@@ -196,8 +180,135 @@
         return await response.json();
     }
 
+    function formatTime(isoString) {
+        if (!isoString) return "";
+        const date = new Date(isoString);
+
+        return date.toLocaleString("vi-VN", {
+            hour: "2-digit",
+            minute: "2-digit",
+            day: "2-digit",
+            month: "2-digit"
+        });
+    }
+
+    function renderConversationList() {
+        if (!state.conversations.length) {
+            conversationList.innerHTML = `
+                <div class="ai-chat-no-history">Chưa có cuộc trò chuyện nào.</div>
+            `;
+            return;
+        }
+
+        conversationList.innerHTML = state.conversations.map(item => {
+            const activeClass = item.conversationId === state.currentConversationId ? "active" : "";
+            const title = escapeHtml(item.title || "Đoạn chat mới");
+            const preview = escapeHtml(item.lastMessagePreview || "Chưa có nội dung xem trước.");
+            const updatedAt = formatTime(item.updatedAtUtc);
+
+            return `
+                <button type="button"
+                        class="ai-chat-conversation-item ${activeClass}"
+                        data-conversation-id="${escapeAttribute(item.conversationId)}">
+                    <div class="ai-chat-conversation-title">${title}</div>
+                    <div class="ai-chat-conversation-preview">${preview}</div>
+                    <div class="ai-chat-conversation-time">${updatedAt}</div>
+                </button>
+            `;
+        }).join("");
+
+        conversationList.querySelectorAll(".ai-chat-conversation-item").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                const id = btn.dataset.conversationId;
+                if (!id) return;
+
+                setCurrentConversationId(id);
+                renderConversationList();
+                await loadMessages(id);
+            });
+        });
+    }
+
+    async function fetchConversations() {
+        const userId = getUserId();
+        const response = await fetch(`/ai-chat/conversations?userId=${encodeURIComponent(userId)}&channel=${encodeURIComponent(CHANNEL)}`);
+        return await safeReadJson(response);
+    }
+
+    async function fetchMessages(conversationId) {
+        const response = await fetch(`/ai-chat/conversations/${encodeURIComponent(conversationId)}/messages`);
+        return await safeReadJson(response);
+    }
+
+    async function sendChatMessage(payload) {
+        const response = await fetch("/ai-chat/send", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        return await safeReadJson(response);
+    }
+
+    async function deleteConversationRequest(conversationId) {
+        const response = await fetch(`/ai-chat/conversations/${encodeURIComponent(conversationId)}`, {
+            method: "DELETE"
+        });
+
+        return await safeReadJson(response);
+    }
+
+    async function loadConversations() {
+        try {
+            const result = await fetchConversations();
+
+            if (!result?.success) {
+                conversationList.innerHTML = `<div class="ai-chat-no-history">Không thể tải lịch sử chat.</div>`;
+                return;
+            }
+
+            state.conversations = Array.isArray(result.items) ? result.items : [];
+            renderConversationList();
+        } catch (error) {
+            console.error("Load conversations error:", error);
+            conversationList.innerHTML = `<div class="ai-chat-no-history">Không thể tải lịch sử chat.</div>`;
+        }
+    }
+
+    async function loadMessages(conversationId) {
+        try {
+            const result = await fetchMessages(conversationId);
+
+            if (!result?.success) {
+                renderWelcomeMessage();
+                return;
+            }
+
+            const items = Array.isArray(result.items) ? result.items : [];
+
+            clearMessages();
+
+            if (!items.length) {
+                renderWelcomeMessage();
+                return;
+            }
+
+            toggleEmptyState(false);
+
+            items.forEach(item => {
+                const role = item.role === "user" ? "user" : "bot";
+                addMessage(role, item.content || "");
+            });
+        } catch (error) {
+            console.error("Load messages error:", error);
+            renderWelcomeMessage();
+        }
+    }
+
     async function sendMessage(customMessage) {
-        if (isSending) return;
+        if (state.isSending) return;
 
         const message = (customMessage ?? input.value).trim();
         if (!message) return;
@@ -208,34 +319,27 @@
         addTyping();
 
         try {
-            const response = await fetch("/ai-chat/send", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    message: message,
-                    conversationId: getConversationId()
-                })
+            const result = await sendChatMessage({
+                message: message,
+                conversationId: state.currentConversationId,
+                userId: getUserId(),
+                channel: CHANNEL
             });
 
-            const result = await safeReadJson(response);
             removeTyping();
 
-            if (!response.ok || !result.success) {
-                addMessage("bot", result?.errorMessage || "Đã có lỗi xảy ra khi xử lý yêu cầu.");
-                return;
+            if (result?.conversationId) {
+                setCurrentConversationId(result.conversationId);
             }
 
-            if (result.conversationId) {
-                setConversationId(result.conversationId);
-            }
+            const replyText = result?.reply?.trim()
+                || "Xin lỗi, hiện tại mình chưa thể phản hồi. Bạn thử lại giúp mình nhé.";
 
-            const replyText = result.reply || "Bot chưa có phản hồi.";
             addMessage("bot", replyText);
+            await loadConversations();
         } catch (error) {
             removeTyping();
-            console.error("AI Chatbot error:", error);
+            console.error("Send message error:", error);
             addMessage("bot", "Không thể kết nối tới chatbot. Vui lòng thử lại sau.");
         } finally {
             setSendingState(false);
@@ -243,22 +347,34 @@
         }
     }
 
-    function loadLocalHistory() {
-        const history = getHistory();
+    function startNewConversation() {
+        setCurrentConversationId(null);
+        renderConversationList();
+        renderWelcomeMessage();
+        focusInput();
+    }
 
-        if (!history.length) {
+    async function deleteCurrentConversation() {
+        if (!state.currentConversationId) return;
+
+        const confirmed = window.confirm("Bạn có chắc muốn xóa đoạn chat này không?");
+        if (!confirmed) return;
+
+        try {
+            const result = await deleteConversationRequest(state.currentConversationId);
+
+            if (!result?.success) {
+                alert(result?.errorMessage || "Không thể xóa đoạn chat.");
+                return;
+            }
+
+            setCurrentConversationId(null);
             renderWelcomeMessage();
-            return;
+            await loadConversations();
+        } catch (error) {
+            console.error("Delete conversation error:", error);
+            alert("Không thể xóa đoạn chat.");
         }
-
-        messages.innerHTML = "";
-
-        history.forEach(item => {
-            if (!item || !item.role || typeof item.content !== "string") return;
-            addMessage(item.role, item.content, false);
-        });
-
-        scrollBottom();
     }
 
     function openPanel() {
@@ -270,40 +386,16 @@
         panel.classList.add("d-none");
     }
 
-    async function resetConversation() {
-        const currentConversationId = getConversationId();
-
-        try {
-            if (currentConversationId) {
-                const response = await fetch("/ai-chat/reset", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        conversationId: currentConversationId
-                    })
-                });
-
-                const result = await safeReadJson(response);
-
-                if (!response.ok || !result.success) {
-                    console.error("Reset conversation failed:", result?.errorMessage);
-                }
-            }
-        } catch (error) {
-            console.error("Reset conversation error:", error);
-        } finally {
-            clearConversationId();
-            clearHistory();
-            renderWelcomeMessage();
-            focusInput();
-        }
-    }
-
-    toggleBtn.addEventListener("click", () => {
+    toggleBtn.addEventListener("click", async () => {
         if (panel.classList.contains("d-none")) {
             openPanel();
+            await loadConversations();
+
+            if (state.currentConversationId) {
+                await loadMessages(state.currentConversationId);
+            } else {
+                renderWelcomeMessage();
+            }
         } else {
             closePanel();
         }
@@ -313,8 +405,12 @@
         closeBtn.addEventListener("click", closePanel);
     }
 
-    if (resetBtn) {
-        resetBtn.addEventListener("click", resetConversation);
+    if (newChatBtn) {
+        newChatBtn.addEventListener("click", startNewConversation);
+    }
+
+    if (deleteBtn) {
+        deleteBtn.addEventListener("click", deleteCurrentConversation);
     }
 
     sendBtn.addEventListener("click", () => sendMessage());
@@ -335,5 +431,5 @@
         });
     });
 
-    loadLocalHistory();
+    renderWelcomeMessage();
 })();

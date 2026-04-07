@@ -31,6 +31,8 @@ builder.Services.AddOptions<ToolApiOptions>()
     .Validate(x => !string.IsNullOrWhiteSpace(x.ApiKey), "ToolApi:ApiKey is required.")
     .Validate(x => !string.IsNullOrWhiteSpace(x.BaseUrl), "ToolApi:BaseUrl is required.")
     .ValidateOnStart();
+builder.Services.Configure<TelegramSettings>(
+    builder.Configuration.GetSection("Telegram"));
 builder.Services.AddOptions<RagApiOptions>()
     .Bind(builder.Configuration.GetSection("RagApi"))
     .ValidateDataAnnotations()
@@ -38,8 +40,10 @@ builder.Services.AddOptions<RagApiOptions>()
     .ValidateOnStart();
 // Memory
 builder.Services.AddScoped<IConversationMemoryService, ConversationMemoryService>();
+builder.Services.AddScoped<IConversationHistoryService, ConversationHistoryService>();
 builder.Services.AddScoped<IQueryNormalizationService, QueryNormalizationService>();
 builder.Services.AddSingleton<IClarificationStateService, ClarificationStateService>();
+builder.Services.AddSingleton<IConversationPreferenceService, ConversationPreferenceService>();
 // Tool-related services
 builder.Services.AddScoped<IToolDispatcher, ToolDispatcher>();
 builder.Services.AddScoped<IToolDefinitionProvider, ToolDefinitionProvider>();
@@ -52,13 +56,14 @@ builder.Services.AddScoped<IChatService, ChatService>();
 
 builder.Services.AddHttpClient<IOpenAIService, OpenAIService>(client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(90);
+    client.Timeout = TimeSpan.FromSeconds(45);
 });
 
 builder.Services.AddHttpClient<IWebBanXeMayToolClient, WebBanXeMayToolClient>(client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(30);
+    client.Timeout = TimeSpan.FromSeconds(15);
 });
+builder.Services.AddHttpClient<ITelegramService, TelegramService>();
 builder.Services.AddHttpClient<IRagService, PythonRagService>((sp, client) =>
 {
     var options = sp.GetRequiredService<

@@ -11,13 +11,20 @@ namespace Chatbot.API.Controllers
         private readonly IChatService _chatService;
         private readonly IConversationMemoryService _memoryService;
         private readonly IClarificationStateService _clarificationStateService;
+        private readonly IConversationHistoryService _historyService;
         private readonly ILogger<ChatController> _logger;
 
-        public ChatController(IChatService chatService, IConversationMemoryService memoryService, IClarificationStateService clarificationStateService, ILogger<ChatController> logger)
+        public ChatController(
+            IChatService chatService,
+            IConversationMemoryService memoryService,
+            IClarificationStateService clarificationStateService,
+            IConversationHistoryService historyService,
+            ILogger<ChatController> logger)
         {
             _chatService = chatService;
             _memoryService = memoryService;
             _clarificationStateService = clarificationStateService;
+            _historyService = historyService;
             _logger = logger;
         }
 
@@ -26,7 +33,30 @@ namespace Chatbot.API.Controllers
         {
             try
             {
+                if (request == null)
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        errorMessage = "Request không hợp lệ."
+                    });
+                }
+
                 var result = await _chatService.ProcessMessageAsync(request);
+
+                if (result.Success
+                    && !string.IsNullOrWhiteSpace(request.Message)
+                    && !string.IsNullOrWhiteSpace(result.Reply)
+                    && !string.IsNullOrWhiteSpace(result.ConversationId))
+                {
+                    await _historyService.SaveExchangeAsync(
+                        result.ConversationId!,
+                        request.Channel,
+                        request.UserId,
+                        request.Message.Trim(),
+                        result.Reply.Trim());
+                }
+
                 return Ok(result);
             }
             catch (Exception ex)
@@ -37,8 +67,110 @@ namespace Chatbot.API.Controllers
                 {
                     success = false,
                     reply = "Xin lỗi, chatbot đang gặp lỗi tạm thời.",
-                    errorMessage = ex.Message,
+                    errorMessage = "Internal server error",
                     conversationId = request?.ConversationId
+                });
+            }
+        }
+
+        [HttpGet("conversations")]
+        public async Task<IActionResult> GetConversations([FromQuery] string userId, [FromQuery] string channel = "web")
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(userId))
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        errorMessage = "userId không được để trống."
+                    });
+                }
+
+                var normalizedChannel = string.IsNullOrWhiteSpace(channel) ? "web" : channel.Trim();
+                var result = await _historyService.GetConversationsAsync(userId.Trim(), normalizedChannel);
+                return Ok(new
+                {
+                    success = true,
+                    items = result
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error while getting conversations. UserId: {UserId}, Channel: {Channel}", userId, channel);
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    errorMessage = "Không thể tải danh sách hội thoại."
+                });
+            }
+        }
+
+        [HttpGet("conversations/{conversationId}/messages")]
+        public async Task<IActionResult> GetMessages(string conversationId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(conversationId))
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        errorMessage = "conversationId không được để trống."
+                    });
+                }
+
+                var items = await _historyService.GetMessagesAsync(conversationId.Trim());
+
+                return Ok(new
+                {
+                    success = true,
+                    items = items
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error while getting messages. ConversationId: {ConversationId}", conversationId);
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    errorMessage = "Không thể tải lịch sử hội thoại."
+                });
+            }
+        }
+
+        [HttpDelete("conversations/{conversationId}")]
+        public async Task<IActionResult> DeleteConversation(string conversationId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(conversationId))
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        errorMessage = "conversationId không được để trống."
+                    });
+                }
+
+                await _historyService.DeleteConversationAsync(conversationId.Trim());
+                _clarificationStateService.Clear(conversationId.Trim());
+
+                return Ok(new
+                {
+                    success = true
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error while deleting conversation. ConversationId: {ConversationId}", conversationId);
+
+                return StatusCode(500, new
+                {
+                    success = false,
+                    errorMessage = "Không thể xóa hội thoại."
                 });
             }
         }

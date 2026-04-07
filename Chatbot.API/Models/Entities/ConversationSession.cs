@@ -16,6 +16,12 @@ namespace Chatbot.API.Models.Entities
         [MaxLength(100)]
         public string? UserId { get; set; }
 
+        [MaxLength(200)]
+        public string? Title { get; set; }
+
+        [MaxLength(500)]
+        public string? LastMessagePreview { get; set; }
+
         public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
         public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;

@@ -29,13 +29,37 @@ namespace Chatbot.API.Services
                 ["yamahaa"] = "yamaha",
                 ["sv"] = "sinh viên",
                 ["tu van"] = "tư vấn",
-                ["phu hop"] = "phù hợp"
+                ["phu hop"] = "phù hợp",
+                ["gaaa"] = "ga",
+                ["hondaa"] = "honda",
+                ["honđa"] = "honda",
+                ["duii"] = "dưới",
+                ["triu"] = "triệu",
+                ["snh"] = "sinh",
+                ["vin"] = "viên",
+                ["cu"] = "triệu",
+                ["củ"] = "triệu",
+                ["chai"] = "triệu",
+                ["ghet"] = "ghét",
+                ["ne"] = "né",
+                ["khong khoai"] = "không thích",
+                ["nho con"] = "nhỏ con",
+                ["de chong chan"] = "dễ chống chân",
+                ["yen thap"] = "yên thấp",
+                ["khonagr"] = "khoảng",
+                ["khoangr"] = "khoảng",
+                ["khoarng"] = "khoảng",
+                ["khoanrg"] = "khoảng",
+                ["trieuj"] = "triệu",
+                ["trieeuj"] = "triệu",
+                ["honad"] = "honda",
+                ["yahama"] = "yamaha"
             };
 
         private static readonly HashSet<string> HighRiskTokens =
             new(StringComparer.OrdinalIgnoreCase)
             {
-                "rer", "re", "vison", "visionn", "air blaed", "ab", "ko", "k", "bn", "sv"
+                "rer", "re", "vison", "visionn", "air blaed", "ab", "ko", "k", "bn", "sv","gaaa", "duii", "triu", "snh"
             };
 
         public NormalizationResult Analyze(string input)
@@ -54,7 +78,19 @@ namespace Chatbot.API.Services
             var original = input.Trim();
             var normalized = original.ToLowerInvariant();
             normalized = Regex.Replace(normalized, @"\s+", " ");
+ 
+            normalized = Regex.Replace(
+                normalized,
+                @"(?<!\d)m(\d{2})(?!\d)",
+                "1m$1",
+                RegexOptions.IgnoreCase);
 
+
+            normalized = Regex.Replace(
+                normalized,
+                @"\b1m(\d)\b",
+                "1m$10",
+                RegexOptions.IgnoreCase);
             foreach (var kvp in ReplacementMap
                          .Where(x => x.Key.Contains(' '))
                          .OrderByDescending(x => x.Key.Length))

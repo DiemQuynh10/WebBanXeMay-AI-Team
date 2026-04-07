@@ -193,17 +193,7 @@ namespace Chatbot.API.Clients
 
             var url = $"{_options.BaseUrl}/api/tools/products/by-filters?{string.Join("&", query)}";
 
-            _logger.LogInformation("Calling Tool API. Operation: GetProductsByFiltersAsync, Url: {Url}", url);
-
-            var response = await _httpClient.GetAsync(url);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync();
-
-            return JsonSerializer.Deserialize<ProductSearchResponseDto>(json, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            return await GetAsync<ProductSearchResponseDto>(url, nameof(GetProductsByFiltersAsync));
         }
     }
 }
