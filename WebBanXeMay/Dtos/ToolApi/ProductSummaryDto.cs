@@ -12,5 +12,6 @@
         public string? ImageUrl { get; set; }
         public string ThuongHieu { get; set; } = "";
         public string Loai { get; set; } = "";
+        public string? Tags { get; set; }
     }
 }

@@ -95,7 +95,10 @@ namespace WebBanXeMay.Controllers.Api.Tools
                     (x.Loai != null && x.Loai.TenLoai.ToLower().Contains(k)) ||
                     (!string.IsNullOrEmpty(x.MoTa) && x.MoTa.ToLower().Contains(k)));
             }
-            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            var publicBaseUrl = _config["PublicBaseUrl"];
+            var baseUrl = !string.IsNullOrWhiteSpace(publicBaseUrl)
+                ? publicBaseUrl.TrimEnd('/')
+                : $"{Request.Scheme}://{Request.Host}";
             var items = await query
                 .OrderBy(x => x.TenSP)
                 .Take(take)
@@ -109,7 +112,8 @@ namespace WebBanXeMay.Controllers.Api.Tools
                     CC = x.CC,
                     ImageUrl = string.IsNullOrEmpty(x.ImageUrl) ? null : baseUrl + x.ImageUrl,
                     ThuongHieu = x.ThuongHieu != null ? x.ThuongHieu.TenTH : "",
-                    Loai = x.Loai != null ? x.Loai.TenLoai : ""
+                    Loai = x.Loai != null ? x.Loai.TenLoai : "",
+                    Tags = x.Tags
                 })
                 .ToListAsync();
 
@@ -156,7 +160,8 @@ namespace WebBanXeMay.Controllers.Api.Tools
                     CC = x.CC,
                     ImageUrl = string.IsNullOrEmpty(x.ImageUrl) ? null : baseUrl + x.ImageUrl,
                     ThuongHieu = x.ThuongHieu != null ? x.ThuongHieu.TenTH : "",
-                    Loai = x.Loai != null ? x.Loai.TenLoai : ""
+                    Loai = x.Loai != null ? x.Loai.TenLoai : "",
+                    Tags = x.Tags
                 })
                 .ToListAsync();
 
@@ -241,7 +246,8 @@ namespace WebBanXeMay.Controllers.Api.Tools
                     CC = x.CC,
                     ImageUrl = string.IsNullOrEmpty(x.ImageUrl) ? null : baseUrl + x.ImageUrl,
                     ThuongHieu = x.ThuongHieu != null ? x.ThuongHieu.TenTH : "",
-                    Loai = x.Loai != null ? x.Loai.TenLoai : ""
+                    Loai = x.Loai != null ? x.Loai.TenLoai : "",
+                    Tags = x.Tags
                 })
                 .ToListAsync();
 
@@ -305,7 +311,8 @@ namespace WebBanXeMay.Controllers.Api.Tools
                     CC = x.CC,
                     ImageUrl = string.IsNullOrEmpty(x.ImageUrl) ? null : baseUrl + x.ImageUrl,
                     ThuongHieu = x.ThuongHieu != null ? x.ThuongHieu.TenTH : "",
-                    Loai = x.Loai != null ? x.Loai.TenLoai : ""
+                    Loai = x.Loai != null ? x.Loai.TenLoai : "",
+                    Tags= x.Tags
                 })
                 .ToListAsync();
 

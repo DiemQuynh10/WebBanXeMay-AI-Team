@@ -36,6 +36,7 @@ namespace WebBanXeMay.Models
 
         [Timestamp]
         public byte[]? RowVersion { get; set; }
+        public string? Tags { get; set; }
 
         // ĐÃ XÓA KHỐI OPERATOR GÂY LỖI TẠI ĐÂY
     }

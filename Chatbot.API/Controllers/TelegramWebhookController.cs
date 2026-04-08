@@ -4,8 +4,10 @@ using Chatbot.API.Models.Requests;
 using Chatbot.API.Models.Telegram;
 using Chatbot.API.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
+using Chatbot.API.Models.Responses;
 using System.Text.Json;
+using Chatbot.API.Services;
+using Microsoft.Extensions.Options;
 
 namespace Chatbot.API.Controllers
 {
@@ -13,17 +15,17 @@ namespace Chatbot.API.Controllers
     [Route("api/telegram")]
     public class TelegramWebhookController : ControllerBase
     {
-        private readonly IOpenAIService _openAIService;
+        private readonly IChatService _chatService;
         private readonly ITelegramService _telegramService;
         private readonly TelegramSettings _telegramSettings;
         private static readonly HashSet<long> ProcessedUpdateIds = new();
 
         public TelegramWebhookController(
-            IOpenAIService openAIService,
-            ITelegramService telegramService,
-            IOptions<TelegramSettings> telegramSettings)
+    IChatService chatService,
+    ITelegramService telegramService,
+    IOptions<TelegramSettings> telegramSettings)
         {
-            _openAIService = openAIService;
+            _chatService = chatService;
             _telegramService = telegramService;
             _telegramSettings = telegramSettings.Value;
         }
@@ -128,22 +130,54 @@ Gõ /menu để hiện lại menu nhanh.
 
                 var conversationId = $"telegram_{chatId}";
 
-                var context = new AIRequestContext
+                var chatRequest = new ChatRequest
                 {
                     ConversationId = conversationId,
                     Channel = "telegram",
                     UserId = chatId.ToString(),
-                    OriginalUserMessage = messageText,
-                    EffectivePrompt = messageText
+                    Message = messageText
                 };
 
-                var aiResult = await _openAIService.AskAsync(context);
+                var chatResult = await _chatService.ProcessMessageAsync(chatRequest);
 
-                var reply = string.IsNullOrWhiteSpace(aiResult?.Reply)
+                var reply = string.IsNullOrWhiteSpace(chatResult?.Reply)
                     ? "Mình chưa có câu trả lời phù hợp. Bạn thử nói rõ hơn nhu cầu như ngân sách, giới tính hoặc loại xe nhé."
-                    : FormatTelegramReply(aiResult.Reply);
+                    : FormatTelegramReply(chatResult.Reply);
 
-                await _telegramService.SendMessageAsync(chatId, reply, TelegramKeyboardFactory.MainMenu());
+                if (!string.IsNullOrWhiteSpace(reply))
+                {
+                    await _telegramService.SendMessageAsync(
+                        chatId,
+                        reply,
+                        TelegramKeyboardFactory.MainMenu());
+                }
+
+                if (chatResult?.Products != null && chatResult.Products.Any())
+                {
+                    foreach (var product in chatResult.Products)
+                    {
+                        var finalImageUrl = NormalizeImageUrl(product.ImageUrl);
+                        var caption = BuildProductCaption(product);
+
+                        if (!string.IsNullOrWhiteSpace(finalImageUrl))
+                        {
+                            await _telegramService.SendPhotoAsync(
+                                chatId,
+                                finalImageUrl,
+                                caption,
+                                null,
+                                "HTML");
+                        }
+                        else
+                        {
+                            await _telegramService.SendMessageAsync(
+                                chatId,
+                                caption,
+                                null,
+                                "HTML");
+                        }
+                    }
+                }
 
                 return Ok(new { success = true });
             }
@@ -191,6 +225,40 @@ Gõ /menu để hiện lại menu nhanh.
                 return "Mình chưa có câu trả lời phù hợp.";
 
             return text.Replace("\r\n", "\n").Trim();
+        }
+        private static string NormalizeImageUrl(string? imageUrl)
+        {
+            if (string.IsNullOrWhiteSpace(imageUrl))
+                return string.Empty;
+
+            return imageUrl.Trim();
+        }
+
+        private static string BuildProductCaption(ChatProductCard product)
+        {
+            var lines = new List<string>
+    {
+        $"<b>{product.Ten}</b>",
+        $"💰 Giá: {product.Gia:N0} VNĐ",
+        $"📦 Còn hàng: {product.SoLuong}"
+    };
+
+            if (!string.IsNullOrWhiteSpace(product.ThuongHieu))
+            {
+                lines.Add($"🏷️ Hãng: {product.ThuongHieu}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(product.Loai))
+            {
+                lines.Add($"🛵 Loại: {product.Loai}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(product.CC))
+            {
+                lines.Add($"⚙️ Phân khối: {product.CC}");
+            }
+
+            return string.Join("\n", lines);
         }
     }
 }
