@@ -1,6 +1,6 @@
 import pyodbc
 
-server = r"LAPTOP-IUA333SC\TESTDB"
+server = r"HUYENPEA"
 database = "WebBanXeMay"
 
 conn_str = (

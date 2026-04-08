@@ -86,7 +86,7 @@ def _infer_section(block: str) -> str:
 # -------------------------------------------------------
 # CHUNKING THÔNG MINH
 # -------------------------------------------------------
-def _split_into_chunks(text: str, chunk_size: int = 900) -> List[Dict[str, Any]]:
+def _split_into_chunks(text: str, chunk_size: int = 650) -> List[Dict[str, Any]]:
     """
     Chia chunk theo block lớn:
     - Mỗi sản phẩm [Tên xe] là 1 chunk riêng
@@ -111,49 +111,58 @@ def _split_into_chunks(text: str, chunk_size: int = 900) -> List[Dict[str, Any]]
         section = _infer_section(block)
         product_name = _extract_product_name(block)
 
-        if len(block) <= chunk_size:
+        def add_chunk(chunk_text: str):
+            nonlocal chunk_id
+            if not chunk_text.strip():
+                return
             chunks.append({
                 "id": f"chunk_{chunk_id}",
-                "text": block,
+                "text": chunk_text.strip(),
                 "section": section,
                 "product_name": product_name or ""
             })
             chunk_id += 1
+
+        if len(block) <= chunk_size:
+            add_chunk(block)
             return
 
-        # Nếu block dài quá thì tách tiếp theo đoạn trống
-        paragraphs = re.split(r"\n{2,}", block)
+        # Nếu block dài quá thì ưu tiên tách theo tiêu đề phụ, sau đó theo đoạn trống
+        sub_blocks: List[str] = []
+        current: List[str] = []
+        for line in block.splitlines():
+            is_sub_heading = bool(re.match(r"^\s*[A-ZÁÀẢÃẠÂĂĐÊÔƠƯÍÌỈĨỊÓÒỎÕỌÚÙỦŨỤÝỲỶỸỴa-z].+:\s*$", line))
+            if is_sub_heading and current:
+                sub_blocks.append("\n".join(current).strip())
+                current = [line]
+            else:
+                current.append(line)
+        if current:
+            sub_blocks.append("\n".join(current).strip())
+
+        paragraphs: List[str] = []
+        for sub in sub_blocks:
+            paragraphs.extend([p for p in re.split(r"\n{2,}", sub) if p.strip()])
+
         buffer = ""
         for para in paragraphs:
             if len(buffer) + len(para) + 2 <= chunk_size:
                 buffer += ("\n\n" if buffer else "") + para
             else:
                 if buffer.strip():
-                    chunks.append({
-                        "id": f"chunk_{chunk_id}",
-                        "text": buffer.strip(),
-                        "section": section,
-                        "product_name": product_name or ""
-                    })
-                    chunk_id += 1
+                    add_chunk(buffer)
                 buffer = para
 
         if buffer.strip():
-            chunks.append({
-                "id": f"chunk_{chunk_id}",
-                "text": buffer.strip(),
-                "section": section,
-                "product_name": product_name or ""
-            })
-            chunk_id += 1
+            add_chunk(buffer)
 
     for line in lines:
         stripped = line.strip()
 
-        # Bắt đầu block mới khi gặp [Tên xe] hoặc --- TRI THỨC ... hoặc == section ==
+        # Bắt đầu block mới khi gặp [Tên xe], bất kỳ tiêu đề '---', hoặc == section ==
         is_new_block = (
             stripped.startswith("[")
-            or stripped.startswith("--- TRI THỨC")
+            or stripped.startswith("---")
             or stripped.startswith("== ")
         )
 
