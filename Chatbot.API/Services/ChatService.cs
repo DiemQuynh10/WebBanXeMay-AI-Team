@@ -102,10 +102,20 @@ namespace Chatbot.API.Services
                             ElapsedMs = stopwatch.ElapsedMilliseconds
                         };
                     }
-                    else if (LooksLikeNewQuery(originalMessage))
+                    else if (ShouldMergeWithPendingClarification(originalMessage, pendingClarification))
+                    {
+                        originalMessage = MergeClarificationIntoPending(pendingClarification, originalMessage);
+                        _clarificationStateService.Clear(conversationId);
+
+                        _logger.LogInformation(
+                            "Merged clarification fragment into pending query. ConversationId: {ConversationId}, MergedMessage: {Message}",
+                            conversationId,
+                            originalMessage);
+                    }
+                    else if (LooksLikeNewStandaloneQuery(originalMessage))
                     {
                         _logger.LogInformation(
-                            "Pending clarification cleared because user sent a new query. ConversationId: {ConversationId}, NewMessage: {Message}",
+                            "Pending clarification cleared because user sent a new standalone query. ConversationId: {ConversationId}, NewMessage: {Message}",
                             conversationId,
                             originalMessage);
 
@@ -124,7 +134,13 @@ namespace Chatbot.API.Services
                     }
                     else
                     {
+                        originalMessage = MergeClarificationIntoPending(pendingClarification, originalMessage);
                         _clarificationStateService.Clear(conversationId);
+
+                        _logger.LogInformation(
+                            "Fallback merged user reply into pending query. ConversationId: {ConversationId}, MergedMessage: {Message}",
+                            conversationId,
+                            originalMessage);
                     }
                 }
 
@@ -737,27 +753,41 @@ namespace Chatbot.API.Services
             return text is "không" or "ko" or "k" or "không phải" or "sai" or "no" or "n";
         }
 
-        private static bool LooksLikeNewQuery(string message)
+        private static bool LooksLikeNewStandaloneQuery(string message)
         {
             if (string.IsNullOrWhiteSpace(message))
                 return false;
 
             var text = message.Trim().ToLowerInvariant();
 
-            if (text.Length >= 8)
+            // Những mảnh bổ sung thì KHÔNG tính là query mới
+            if (IsFollowUpPreferenceFragment(text))
+                return false;
+
+            // Mẫu query mới rõ ràng
+            if (Regex.IsMatch(text, @"^(xe|tư vấn|tu van|mình muốn|toi muon|tôi muốn|cho mình|giá|bao nhiêu|còn hàng|so sánh|tra đơn|kiểm tra đơn|đơn hàng)\b",
+                RegexOptions.IgnoreCase))
+            {
                 return true;
+            }
 
             string[] strongKeywords =
             {
-                "xe", "honda", "yamaha", "suzuki", "sym", "piaggio",
-                "vision", "air blade", "ab", "vario", "janus", "sirius",
-                "giá", "bao nhiêu", "còn hàng", "tồn kho",
-                "tư vấn", "phù hợp", "nên mua", "đơn hàng", "mã đơn"
-            };
+        "xe", "honda", "yamaha", "suzuki", "sym", "piaggio",
+        "vision", "air blade", "ab", "vario", "janus", "sirius",
+        "giá", "bao nhiêu", "còn hàng", "tồn kho",
+        "tư vấn", "phù hợp", "nên mua", "đơn hàng", "mã đơn"
+    };
 
-            return strongKeywords.Any(k => text.Contains(k));
+            var matched = strongKeywords.Count(k => text.Contains(k));
+            if (matched >= 2)
+                return true;
+
+            if (text.EndsWith("?") && text.Length >= 10)
+                return true;
+
+            return false;
         }
-
         private static bool IsWeakAmbiguousReply(string message)
         {
             if (string.IsNullOrWhiteSpace(message))
@@ -784,6 +814,13 @@ namespace Chatbot.API.Services
                 || text.Contains("đi học nên mua")
                 || text.Contains("đi làm nên mua")
                 || text.Contains("xe nào rẻ")
+                || text.Contains("tu van")
+|| text.Contains("phu hop")
+|| text.Contains("di lam")
+|| text.Contains("di hoc")
+|| text.Contains("tiet kiem xang")
+|| text.Contains("cop rong")
+|| text.Contains("de chong chan")
                 || text.Contains("cho nữ")
                 || text.Contains("cho nam")
                 || text.Contains("sinh viên")
@@ -799,7 +836,10 @@ namespace Chatbot.API.Services
                 || text.Contains("thanh lịch")
                 || text.Contains("xe ga")
                 || text.Contains("xe số")
-                || text.Contains("côn tay");
+                || text.Contains("côn tay")
+            || text.Contains("thanh lich")
+|| text.Contains("nu tinh")
+|| text.Contains("mem mai");
         }
 
         private static bool NeedsClarificationForConsultation(
@@ -822,7 +862,10 @@ namespace Chatbot.API.Services
     || profile?.PriceMin.HasValue == true
     || profile?.PriceMax.HasValue == true
     || profile?.TargetPrice.HasValue == true
+    || LooksLikeBudgetFragment(text)
     || text.Contains("triệu")
+    || text.Contains("triêu")
+    || text.Contains("trieu")
     || text.Contains("tầm")
     || text.Contains("khoảng")
     || text.Contains("quanh");
@@ -899,7 +942,10 @@ namespace Chatbot.API.Services
     profile?.PriceMin.HasValue == true ||
     profile?.PriceMax.HasValue == true ||
     profile?.TargetPrice.HasValue == true ||
+    LooksLikeBudgetFragment(text) ||
     text.Contains("triệu") ||
+    text.Contains("triêu") ||
+    text.Contains("trieu") ||
     text.Contains("tầm") ||
     text.Contains("khoảng") ||
     text.Contains("quanh");
@@ -941,40 +987,41 @@ namespace Chatbot.API.Services
             var text = safeMessage.ToLowerInvariant();
 
             bool currentMessageLooksLikeConsultation =
-                IsConsultationIntent(safeMessage)
-                || text.Contains("không thích")
-                || text.Contains("khong thich")
-                || text.Contains("không muốn")
-                || text.Contains("khong muon")
-                || text.Contains("ghét")
-                || text.Contains("ghet")
-                || text.Contains("né")
-                || text.Contains("ne ")
-                || text.Contains("cốp rộng")
-                || text.Contains("cop rong")
-                || text.Contains("dễ đi")
-                || text.Contains("de di")
-                || text.Contains("dễ chống chân")
-                || text.Contains("de chong chan")
-                || text.Contains("yên thấp")
-                || text.Contains("yen thap")
-                || Regex.IsMatch(text, @"\b1m\d{1,2}\b", RegexOptions.IgnoreCase)
-                || Regex.IsMatch(text, @"\bm\d{2}\b", RegexOptions.IgnoreCase)
-                || Regex.IsMatch(text, @"\b\d{3}\s*cm\b", RegexOptions.IgnoreCase)
-                || text.Contains("người thấp")
-                || text.Contains("nguoi thap")
-                || text.Contains("nhỏ con")
-                || text.Contains("nho con")
-                || text.Contains("còn honda thì sao")
-                || text.Contains("còn yamaha thì sao")
-                || text.Contains("còn suzuki thì sao")
-                || text.Contains("còn piaggio thì sao")
-                || text.StartsWith("còn ")
-                || text.Contains("ưu tiên")
-                || text.Contains("đi làm")
-                || text.Contains("di lam")
-                || text.Contains("đi học")
-                || text.Contains("di hoc");
+    IsConsultationIntent(safeMessage)
+    || IsFollowUpPreferenceFragment(text)
+    || text.Contains("không thích")
+    || text.Contains("khong thich")
+    || text.Contains("không muốn")
+    || text.Contains("khong muon")
+    || text.Contains("ghét")
+    || text.Contains("ghet")
+    || text.Contains("né")
+    || text.Contains("ne ")
+    || text.Contains("cốp rộng")
+    || text.Contains("cop rong")
+    || text.Contains("dễ đi")
+    || text.Contains("de di")
+    || text.Contains("dễ chống chân")
+    || text.Contains("de chong chan")
+    || text.Contains("yên thấp")
+    || text.Contains("yen thap")
+    || Regex.IsMatch(text, @"\b1m\d{1,2}\b", RegexOptions.IgnoreCase)
+    || Regex.IsMatch(text, @"\bm\d{2}\b", RegexOptions.IgnoreCase)
+    || Regex.IsMatch(text, @"\b\d{3}\s*cm\b", RegexOptions.IgnoreCase)
+    || text.Contains("người thấp")
+    || text.Contains("nguoi thap")
+    || text.Contains("nhỏ con")
+    || text.Contains("nho con")
+    || text.Contains("còn honda thì sao")
+    || text.Contains("còn yamaha thì sao")
+    || text.Contains("còn suzuki thì sao")
+    || text.Contains("còn piaggio thì sao")
+    || text.StartsWith("còn ")
+    || text.Contains("ưu tiên")
+    || text.Contains("đi làm")
+    || text.Contains("di lam")
+    || text.Contains("đi học")
+    || text.Contains("di hoc");
 
             bool hasCurrentSignals =
                 !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
@@ -1031,7 +1078,7 @@ namespace Chatbot.API.Services
             if (!string.IsNullOrWhiteSpace(parsedIntent.Target) && string.IsNullOrWhiteSpace(parsedIntent.Category))
                 return 36;
 
-            if (text.Contains("tư vấn") || text.Contains("khoảng") || text.Contains("tầm") || text.Contains("quanh"))
+            if (text.Contains("tư vấn") || LooksLikeBudgetFragment(text) || text.Contains("khoảng") || text.Contains("tầm") || text.Contains("quanh"))
                 return 32;
 
             if (text.Contains("cá tính") || text.Contains("thể thao") || text.Contains("đi phố") || text.Contains("tiết kiệm xăng"))
@@ -1045,18 +1092,19 @@ namespace Chatbot.API.Services
             var text = message.ToLowerInvariant();
 
             bool openConsultation =
-                text.Contains("khoảng") ||
-                text.Contains("tầm") ||
-                text.Contains("quanh") ||
-                text.Contains("tư vấn") ||
-                text.Contains("phù hợp") ||
-                text.Contains("nên mua") ||
-                text.Contains("gợi ý") ||
-                text.Contains("xe nào") ||
-                text.Contains("cá tính") ||
-                text.Contains("thể thao") ||
-                text.Contains("đi phố") ||
-                text.Contains("tiết kiệm xăng");
+    LooksLikeBudgetFragment(text) ||
+    text.Contains("khoảng") ||
+    text.Contains("tầm") ||
+    text.Contains("quanh") ||
+    text.Contains("tư vấn") ||
+    text.Contains("phù hợp") ||
+    text.Contains("nên mua") ||
+    text.Contains("gợi ý") ||
+    text.Contains("xe nào") ||
+    text.Contains("cá tính") ||
+    text.Contains("thể thao") ||
+    text.Contains("đi phố") ||
+    text.Contains("tiết kiệm xăng");
 
             return openConsultation ? 4 : 3;
         }
@@ -1084,13 +1132,14 @@ namespace Chatbot.API.Services
             }
 
             bool openConsultation =
-                text.Contains("khoảng") ||
-                text.Contains("tầm") ||
-                text.Contains("quanh") ||
-                text.Contains("tư vấn") ||
-                text.Contains("gợi ý") ||
-                text.Contains("phù hợp") ||
-                text.Contains("nên mua");
+    LooksLikeBudgetFragment(text) ||
+    text.Contains("khoảng") ||
+    text.Contains("tầm") ||
+    text.Contains("quanh") ||
+    text.Contains("tư vấn") ||
+    text.Contains("gợi ý") ||
+    text.Contains("phù hợp") ||
+    text.Contains("nên mua");
 
             if (openConsultation)
             {
@@ -1168,7 +1217,120 @@ namespace Chatbot.API.Services
             sb.AppendLine("Không được mô tả sai số lượng sản phẩm, sai giá, sai loại xe so với dữ liệu.");
             return sb.ToString().Trim();
         }
+        private static bool ShouldMergeWithPendingClarification(string message, string pendingClarification)
+        {
+            if (string.IsNullOrWhiteSpace(message) || string.IsNullOrWhiteSpace(pendingClarification))
+                return false;
 
+            var text = message.Trim().ToLowerInvariant();
+
+            if (IsAffirmative(text) || IsNegative(text) || IsWeakAmbiguousReply(text))
+                return false;
+
+            if (IsOrderLookupIntent(text) || ExtractOrderId(text).HasValue || !string.IsNullOrWhiteSpace(ExtractPhone(text)))
+                return false;
+
+            if (IsFollowUpPreferenceFragment(text))
+                return true;
+
+            // Các mảnh rất ngắn sau câu hỏi làm rõ thường là câu bổ sung, không phải câu mới
+            if (text.Length <= 40 && !LooksLikeNewStandaloneQuery(text))
+                return true;
+
+            return false;
+        }
+
+        private static string MergeClarificationIntoPending(string pendingClarification, string fragment)
+        {
+            var pending = (pendingClarification ?? string.Empty).Trim().TrimEnd('.', '?', '!', ',');
+            var extra = (fragment ?? string.Empty).Trim().TrimStart(',', '.', ' ');
+
+            if (string.IsNullOrWhiteSpace(pending))
+                return extra;
+
+            if (string.IsNullOrWhiteSpace(extra))
+                return pending;
+
+            return $"{pending}, {extra}";
+        }
+
+        private static bool IsFollowUpPreferenceFragment(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return false;
+
+            var text = message.Trim().ToLowerInvariant();
+
+            if (Regex.IsMatch(
+    text,
+    @"\b(tầm|khoảng|quanh)\s*\d+([.,]\d+)?\s*(triệu|triêu|trieu|tr|củ|cu|chai)\b",
+    RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+
+            if (Regex.IsMatch(
+                text,
+                @"^\d+([.,]\d+)?\s*(triệu|triêu|trieu|tr|củ|cu|chai)\b",
+                RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+
+            // category fragment
+            if (text is "xe ga" or "ga" or "xe số" or "xe so" or "số" or "so" or "côn tay" or "xe côn" or "xe con")
+                return true;
+
+            // brand fragment
+            if (text is "honda" or "yamaha" or "suzuki" or "sym" or "piaggio")
+                return true;
+
+            // need fragment
+            if (text.Contains("cốp rộng") ||
+                text.Contains("cop rong") ||
+                text.Contains("dễ chống chân") ||
+                text.Contains("de chong chan") ||
+                text.Contains("yên thấp") ||
+                text.Contains("yen thap") ||
+                text.Contains("tiết kiệm xăng") ||
+                text.Contains("tiet kiem xang") ||
+                text.Contains("đi làm") ||
+                text.Contains("di lam") ||
+                text.Contains("đi học") ||
+                text.Contains("di hoc") ||
+                text.Contains("nữ") ||
+                text.Contains("nam"))
+            {
+                return true;
+            }
+
+            // follow-up brand / preference
+            if (text.StartsWith("còn ") ||
+                text.StartsWith("ưu tiên ") ||
+                text.StartsWith("thích ") ||
+                text.StartsWith("không thích ") ||
+                text.StartsWith("không muốn ") ||
+                text.StartsWith("né "))
+            {
+                return true;
+            }
+
+            return false;
+        }
+        private static bool LooksLikeBudgetFragment(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            return Regex.IsMatch(
+                       text,
+                       @"\b(tầm|khoảng|quanh)\s*\d+([.,]\d+)?\s*(triệu|triêu|trieu|tr|củ|cu|chai)\b",
+                       RegexOptions.IgnoreCase)
+                   || Regex.IsMatch(
+                       text,
+                       @"^\d+([.,]\d+)?\s*(triệu|triêu|trieu|tr|củ|cu|chai)\b",
+                       RegexOptions.IgnoreCase);
+        }
         private static string BuildFallbackPrompt(
     string normalizedMessage,
     ParsedIntent parsedIntent,
@@ -1275,11 +1437,14 @@ namespace Chatbot.API.Services
                 text.Contains("rẻ");
 
             bool hasBudget =
-                text.Contains("triệu") ||
-                text.Contains("giá") ||
-                text.Contains("tầm") ||
-                text.Contains("khoảng") ||
-                text.Contains("quanh");
+    LooksLikeBudgetFragment(text) ||
+    text.Contains("triệu") ||
+    text.Contains("triêu") ||
+    text.Contains("trieu") ||
+    text.Contains("giá") ||
+    text.Contains("tầm") ||
+    text.Contains("khoảng") ||
+    text.Contains("quanh");
 
             bool hasProductHint =
                 text.Contains("honda") ||
@@ -1299,11 +1464,11 @@ namespace Chatbot.API.Services
         }
 
         private static string BuildDeterministicConsultationReply(
-     IReadOnlyList<ProductSummaryDto> items,
-     string normalizedMessage,
-     ParsedIntent parsedIntent,
-     CustomerPreferenceProfile? profile = null,
-     Dictionary<string, string>? ragReasonHints = null)
+    IReadOnlyList<ProductSummaryDto> items,
+    string normalizedMessage,
+    ParsedIntent parsedIntent,
+    CustomerPreferenceProfile? profile = null,
+    Dictionary<string, string>? ragReasonHints = null)
         {
             if (items == null || items.Count == 0)
             {
@@ -1316,74 +1481,48 @@ namespace Chatbot.API.Services
             var maxItems = isOpenQuery ? 4 : 3;
             var selectedItems = items.Take(Math.Min(maxItems, items.Count)).ToList();
 
-            string intro;
-            var hasProfileContext = profile != null &&
-                (
-                    profile.TargetPrice.HasValue ||
-                    profile.PriceMax.HasValue ||
-                    profile.HeightCm.HasValue ||
-                    profile.WantsLargeStorage ||
-                    profile.WantsEasyControl ||
-                    profile.ForWork ||
-                    profile.ForSchool ||
-                    profile.ExcludedCategories.Count > 0
-                );
-
-            if (selectedItems.Count == 1)
-            {
-                intro = hasProfileContext
-                    ? "Dựa trên các tiêu chí bạn đã nói từ trước, mình thấy hiện tại có 1 lựa chọn khá phù hợp:"
-                    : "Mình thấy hiện tại có 1 lựa chọn khá phù hợp với nhu cầu bạn đang hỏi:";
-            }
-            else
-            {
-                intro = hasProfileContext
-                    ? $"Dựa trên các tiêu chí bạn đang quan tâm, mình gợi ý {selectedItems.Count} mẫu khá phù hợp để bạn tham khảo:"
-                    : $"Mình gợi ý {selectedItems.Count} mẫu khá phù hợp để bạn tham khảo:";
-            }
+            var intro = BuildNaturalIntro(text, selectedItems.Count);
 
             var lines = new List<string>();
 
-            for (int i = 0; i < selectedItems.Count; i++)
+            foreach (var item in selectedItems)
             {
-                var item = selectedItems[i];
-
                 var baseReason = BuildProductReason(item, text, parsedIntent, profile);
-                var ragHint = string.Empty;
 
-                if (ragReasonHints != null && ragReasonHints.TryGetValue(item.Ten, out var hint))
-                {
-                    ragHint = hint;
-                }
-
-                var finalReason = baseReason;
-
-                if (!string.IsNullOrWhiteSpace(ragHint))
+                string finalReason = baseReason;
+                if (ragReasonHints != null &&
+                    ragReasonHints.TryGetValue(item.Ten ?? string.Empty, out var ragHint) &&
+                    !string.IsNullOrWhiteSpace(ragHint))
                 {
                     finalReason = MergeReason(baseReason, ragHint);
                 }
 
-                lines.Add($"{i + 1}. **{item.Ten}** - Giá: {item.Gia:N0} VNĐ - Còn hàng: {item.SoLuong} - {finalReason}");
+                lines.Add($"- **{item.Ten}** ({item.Gia:N0} VNĐ): {finalReason}");
             }
 
-            var conclusion = BuildConsultationConclusion(selectedItems, text, parsedIntent, profile);
+            var suggestion = BuildSoftSuggestion(selectedItems, text, parsedIntent, profile);
             var followUp = BuildFollowUpQuestion(text, parsedIntent, profile);
-            var content = string.Join("\n", lines);
 
-            var parts = new List<string> { intro, content };
+            var result = new StringBuilder();
+            result.AppendLine(intro);
+            result.AppendLine();
+            result.AppendLine(string.Join("\n", lines));
 
-            if (!string.IsNullOrWhiteSpace(conclusion))
+            if (!string.IsNullOrWhiteSpace(suggestion))
             {
-                parts.Add(conclusion);
+                result.AppendLine();
+                result.AppendLine(suggestion);
             }
 
             if (!string.IsNullOrWhiteSpace(followUp))
             {
-                parts.Add(followUp);
+                result.AppendLine();
+                result.AppendLine(followUp);
             }
 
-            return string.Join("\n\n", parts);
+            return result.ToString().Trim();
         }
+
 
         private static string BuildRagAdvisoryQuery(
     string normalizedMessage,
@@ -1470,10 +1609,10 @@ namespace Chatbot.API.Services
 
                 if (lowerName.Contains("vision"))
                 {
-                    if (normalizedContext.Contains("dễ làm quen") || normalizedContext.Contains("dễ đi"))
-                        hints.Add("dễ làm quen và hợp đi hằng ngày");
                     if (normalizedContext.Contains("dễ chống chân") || normalizedContext.Contains("yên thấp") || normalizedContext.Contains("gọn"))
-                        hints.Add("đáng chú ý hơn nếu bạn ưu tiên dáng gọn và dễ chống chân");
+                        hints.Add("hợp nếu bạn ưu tiên dáng gọn và dễ chống chân");
+                    else if (normalizedContext.Contains("dễ làm quen") || normalizedContext.Contains("dễ đi"))
+                        hints.Add("dễ làm quen và hợp đi hằng ngày");
                 }
 
                 if (lowerName.Contains("freego"))
@@ -1488,7 +1627,7 @@ namespace Chatbot.API.Services
                 {
                     if (normalizedContext.Contains("nữ") || normalizedContext.Contains("dáng mềm"))
                         hints.Add("dáng xe mềm và hợp hơn với nhu cầu nữ");
-                    if (normalizedContext.Contains("tiện ích") || normalizedContext.Contains("cốp rộng"))
+                    else if (normalizedContext.Contains("tiện ích") || normalizedContext.Contains("cốp rộng"))
                         hints.Add("cân bằng khá tốt giữa dáng đẹp và tiện ích");
                 }
 
@@ -1496,7 +1635,7 @@ namespace Chatbot.API.Services
                 {
                     if (normalizedContext.Contains("yên thấp") || normalizedContext.Contains("dễ chống chân") || normalizedContext.Contains("thấp"))
                         hints.Add("rất đáng cân nhắc nếu bạn ưu tiên yên thấp và dễ chống chân");
-                    if (normalizedContext.Contains("gọn") || normalizedContext.Contains("nhỏ con"))
+                    else if (normalizedContext.Contains("gọn") || normalizedContext.Contains("nhỏ con"))
                         hints.Add("dáng xe nhỏ gọn, hợp người có vóc dáng nhỏ");
                 }
 
@@ -1504,7 +1643,7 @@ namespace Chatbot.API.Services
                 {
                     if (normalizedContext.Contains("đầm") || normalizedContext.Contains("mạnh"))
                         hints.Add("hợp hơn nếu bạn muốn cảm giác xe đầm và khỏe hơn");
-                    if (normalizedContext.Contains("đi làm"))
+                    else if (normalizedContext.Contains("đi làm"))
                         hints.Add("khá hợp cho nhu cầu đi làm hằng ngày");
                 }
 
@@ -1554,18 +1693,48 @@ namespace Chatbot.API.Services
         }
         private static string MergeReason(string baseReason, string ragHint)
         {
-            var parts = new List<string>();
+            var finalParts = new List<string>();
 
             if (!string.IsNullOrWhiteSpace(baseReason))
-                parts.Add(baseReason.Trim());
+            {
+                finalParts.AddRange(
+                    baseReason.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            }
 
             if (!string.IsNullOrWhiteSpace(ragHint))
-                parts.Add(ragHint.Trim());
+            {
+                var ragParts = ragHint.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-            return string.Join(", ", parts
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct()
-                .Take(2));
+                foreach (var part in ragParts)
+                {
+                    var lowerPart = part.ToLowerInvariant();
+
+                    bool duplicated = finalParts.Any(existing =>
+                    {
+                        var lowerExisting = existing.ToLowerInvariant();
+
+                        return lowerExisting == lowerPart
+                            || (lowerExisting.Contains("nữ") && lowerPart.Contains("nữ"))
+                            || (lowerExisting.Contains("yên thấp") && lowerPart.Contains("dễ chống chân"))
+                            || (lowerExisting.Contains("dễ chống chân") && lowerPart.Contains("yên thấp"))
+                            || (lowerExisting.Contains("cốp rộng") && lowerPart.Contains("mang đồ"))
+                            || (lowerExisting.Contains("đi làm") && lowerPart.Contains("đi làm"))
+                            || (lowerExisting.Contains("đi học") && lowerPart.Contains("sinh viên"))
+                            || (lowerExisting.Contains("nhỏ gọn") && lowerPart.Contains("gọn"))
+                            || (lowerExisting.Contains("dễ đi") && lowerPart.Contains("dễ làm quen"));
+                    });
+
+                    if (!duplicated)
+                    {
+                        finalParts.Add(part);
+                    }
+
+                    if (finalParts.Count >= 2)
+                        break;
+                }
+            }
+
+            return string.Join(", ", finalParts.Take(2));
         }
         private static bool IsOpenConsultationQuery(string text)
         {
@@ -1600,163 +1769,306 @@ namespace Chatbot.API.Services
     ParsedIntent parsedIntent,
     CustomerPreferenceProfile? profile = null)
         {
-            var primaryReasons = new List<string>();
-            var secondaryReasons = new List<string>();
-
             var name = item.Ten ?? string.Empty;
             var category = item.Loai?.Trim() ?? string.Empty;
 
-            // 1. Giá / ngân sách
-            if (parsedIntent.TargetPrice.HasValue)
+            string? budgetReason = null;
+            string? signatureReason = null;
+
+            bool asksForFemale = text.Contains("nữ");
+            bool asksForMale = text.Contains("nam");
+            bool asksForSchool = text.Contains("sinh viên") || text.Contains("đi học");
+            bool asksForWork = text.Contains("đi làm");
+            bool asksForLowSeat = text.Contains("dễ chống chân") || text.Contains("yên thấp") || text.Contains("người thấp") || text.Contains("nhỏ con");
+            bool asksForLargeStorage = text.Contains("cốp rộng") || text.Contains("mang đồ");
+            bool asksForFuelSaving = text.Contains("tiết kiệm xăng") || text.Contains("tiet kiem xang");
+            bool asksForSporty = text.Contains("cá tính") || text.Contains("ca tinh") || text.Contains("thể thao") || text.Contains("the thao");
+
+            var targetPrice = parsedIntent.TargetPrice ?? profile?.TargetPrice;
+
+            if (targetPrice.HasValue)
             {
-                var diff = Math.Abs(item.Gia - parsedIntent.TargetPrice.Value);
+                var diff = Math.Abs(item.Gia - targetPrice.Value);
 
                 if (diff <= 2_000_000m)
-                    primaryReasons.Add("giá khá sát ngân sách");
+                {
+                    budgetReason = "giá khá sát ngân sách";
+                }
                 else if (diff <= 4_000_000m)
-                    primaryReasons.Add(item.Gia <= parsedIntent.TargetPrice.Value
+                {
+                    budgetReason = item.Gia <= targetPrice.Value
                         ? "giá vẫn khá gần ngân sách"
-                        : "giá nhỉnh hơn ngân sách một chút");
+                        : "giá nhỉnh hơn ngân sách một chút";
+                }
+                else if (diff <= 8_000_000m)
+                {
+                    budgetReason = item.Gia < targetPrice.Value
+                        ? "giá mềm hơn khá nhiều so với mức bạn đang cân nhắc"
+                        : "giá cao hơn ngân sách khá rõ";
+                }
             }
             else if (parsedIntent.PriceMax.HasValue && item.Gia <= parsedIntent.PriceMax.Value)
             {
-                primaryReasons.Add("nằm trong tầm giá bạn đang cân nhắc");
+                budgetReason = "nằm trong tầm giá bạn đang cân nhắc";
             }
 
-            // 2. Loại xe / loại trừ
-            if (profile?.ExcludedCategories.Contains("côn tay") == true)
+            if (name.Contains("Latte", StringComparison.OrdinalIgnoreCase))
             {
-                if (!category.Contains("côn", StringComparison.OrdinalIgnoreCase) &&
-                    !category.Contains("con", StringComparison.OrdinalIgnoreCase))
+                if (asksForFemale)
+                    signatureReason = "dáng xe mềm và khá hợp nhu cầu nữ";
+                else if (asksForLargeStorage)
+                    signatureReason = "cân bằng khá tốt giữa tiện ích và kiểu dáng";
+                else if (asksForLowSeat)
+                    signatureReason = "dễ làm quen và khá hợp đi phố";
+                else
+                    signatureReason = "là mẫu khá dễ đi và thiên về sự thanh lịch";
+            }
+            else if (name.Contains("Zip", StringComparison.OrdinalIgnoreCase))
+            {
+                if (asksForLowSeat)
+                    signatureReason = "rất đáng cân nhắc nếu bạn ưu tiên yên thấp và dễ chống chân";
+                else if (text.Contains("thanh lịch") || text.Contains("thanh lich"))
+                    signatureReason = "dáng xe nhỏ gọn và khá hợp nếu bạn thích phong cách thanh lịch";
+                else if (asksForFemale)
+                    signatureReason = "dáng nhỏ gọn, hợp với người thích xe gọn nhẹ";
+                else
+                    signatureReason = "dáng xe nhỏ gọn, khá hợp người có vóc dáng nhỏ";
+            }
+            else if (name.Contains("Attila", StringComparison.OrdinalIgnoreCase) ||
+         name.Contains("Venus", StringComparison.OrdinalIgnoreCase))
+            {
+                if (asksForFemale)
+                    signatureReason = "hợp nếu bạn thích kiểu dáng nữ tính và thanh lịch";
+                else if (asksForWork)
+                    signatureReason = "khá hợp đi phố hằng ngày theo hướng nhẹ nhàng và dễ đi";
+                else
+                    signatureReason = "là mẫu xe ga thiên về sự thanh lịch và dễ đi";
+            }
+            else if (name.Contains("Shark", StringComparison.OrdinalIgnoreCase))
+            {
+                if (asksForFemale)
+                    signatureReason = "dáng xe gọn và khá hợp nhu cầu nữ đi phố";
+                else if (asksForSchool)
+                    signatureReason = "khá dễ đi và hợp đi lại hằng ngày";
+                else
+                    signatureReason = "là mẫu xe ga gọn khá dễ làm quen";
+            }
+            else if (name.Contains("Grande", StringComparison.OrdinalIgnoreCase))
+            {
+                if (asksForFemale)
+                    signatureReason = "hợp nếu bạn thích kiểu dáng nữ tính và mềm mại hơn";
+                else
+                    signatureReason = "thiên về cảm giác đi êm và phong cách thanh lịch";
+            }
+            else if (name.Contains("Vision", StringComparison.OrdinalIgnoreCase))
+            {
+                if (asksForLowSeat)
+                    signatureReason = "đáng chú ý hơn nếu bạn ưu tiên dáng gọn và dễ chống chân";
+                else if (asksForSchool)
+                    signatureReason = "dễ đi, gọn và khá hợp đi học hằng ngày";
+                else
+                    signatureReason = "dễ làm quen và hợp đi hằng ngày";
+            }
+            else if (name.Contains("Freego", StringComparison.OrdinalIgnoreCase))
+            {
+                if (asksForLargeStorage)
+                    signatureReason = "thiên về nhóm cốp rộng, tiện mang đồ";
+                else if (asksForWork)
+                    signatureReason = "khá hợp với nhu cầu đi làm thực dụng hằng ngày";
+                else
+                    signatureReason = "là lựa chọn thực dụng khá dễ cân nhắc";
+            }
+            else if (name.Contains("Air Blade", StringComparison.OrdinalIgnoreCase))
+            {
+                if (asksForSporty)
+                    signatureReason = "hợp hơn nếu bạn thích kiểu dáng nổi bật và cá tính";
+                else if (asksForWork || asksForMale)
+                    signatureReason = "khá hợp cho nhu cầu đi làm hằng ngày";
+                else
+                    signatureReason = "hợp hơn nếu bạn muốn cảm giác xe đầm và khỏe hơn";
+            }
+            else if (name.Contains("Future", StringComparison.OrdinalIgnoreCase))
+            {
+                if (asksForWork)
+                    signatureReason = "thiên về hướng xe số thực dụng và ổn định";
+                else if (asksForFuelSaving)
+                    signatureReason = "khá hợp nếu bạn ưu tiên xe số bền và tiết kiệm";
+                else
+                    signatureReason = "là mẫu xe số thực dụng, dễ dùng lâu dài";
+            }
+            else if (name.Contains("Wave", StringComparison.OrdinalIgnoreCase))
+            {
+                if (asksForSchool || asksForFuelSaving)
+                    signatureReason = "hợp nếu bạn ưu tiên chi phí sử dụng thấp và dễ đi hằng ngày";
+                else
+                    signatureReason = "hợp nếu bạn ưu tiên chi phí sử dụng thấp";
+            }
+            else if (name.Contains("Sirius", StringComparison.OrdinalIgnoreCase))
+            {
+                if (asksForSchool)
+                    signatureReason = "khá hợp cho nhu cầu đi học hằng ngày";
+                else if (asksForFuelSaving)
+                    signatureReason = "thiên về nhóm xe số tiết kiệm và dễ bảo dưỡng";
+                else
+                    signatureReason = "là mẫu xe số khá dễ cân nhắc trong tầm phổ thông";
+            }
+            else if (name.Contains("GD110", StringComparison.OrdinalIgnoreCase))
+            {
+                if (asksForSchool || asksForFuelSaving)
+                    signatureReason = "khá hợp nếu bạn ưu tiên xe số tiết kiệm và dễ dùng hằng ngày";
+                else if (asksForWork)
+                    signatureReason = "thiên về hướng xe số thực dụng và bền bỉ";
+                else
+                    signatureReason = "là mẫu xe số thực dụng khá dễ cân nhắc";
+            }
+            else if (name.Contains("Address", StringComparison.OrdinalIgnoreCase))
+            {
+                if (asksForLargeStorage)
+                    signatureReason = "có lợi thế ở nhóm xe ga gọn và khá tiện mang đồ";
+                else
+                    signatureReason = "là mẫu xe ga gọn nhẹ khá thực dụng";
+            }
+            else if (name.Contains("Impulse", StringComparison.OrdinalIgnoreCase))
+            {
+                if (asksForBudgetFriendly(text: text))
+                    signatureReason = "là phương án ga chi phí mềm khá dễ cân nhắc";
+                else
+                    signatureReason = "giá mềm và khá dễ tiếp cận trong nhóm xe ga";
+            }
+
+            if (string.IsNullOrWhiteSpace(signatureReason))
+            {
+                if (!string.IsNullOrWhiteSpace(parsedIntent.Category) &&
+                    category.Contains(parsedIntent.Category, StringComparison.OrdinalIgnoreCase))
                 {
-                    secondaryReasons.Add("không thuộc nhóm xe côn tay");
+                    signatureReason = $"đúng hướng {category.ToLowerInvariant()} bạn đang tìm";
+                }
+                else if (!string.IsNullOrWhiteSpace(profile?.PreferredBrand) &&
+                         string.Equals(item.ThuongHieu, profile.PreferredBrand, StringComparison.OrdinalIgnoreCase))
+                {
+                    signatureReason = $"đúng hãng {profile.PreferredBrand} bạn đang muốn xem";
                 }
             }
 
-            if (!string.IsNullOrWhiteSpace(parsedIntent.Category) &&
-                category.Contains(parsedIntent.Category, StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(signatureReason))
             {
-                secondaryReasons.Add($"đúng hướng {category.ToLowerInvariant()}");
-            }
-
-            // 3. Nữ / nam
-            if ((text.Contains("nữ") || text.Contains("nu") || profile?.PrefersFemaleStyle == true) &&
-                (name.Contains("Vision", StringComparison.OrdinalIgnoreCase)
-                 || name.Contains("Latte", StringComparison.OrdinalIgnoreCase)
-                 || name.Contains("Grande", StringComparison.OrdinalIgnoreCase)
-                 || name.Contains("Zip", StringComparison.OrdinalIgnoreCase)))
-            {
-                primaryReasons.Add("dáng xe khá gọn và hợp nhu cầu nữ");
-            }
-
-            if ((text.Contains("nam") || profile?.PrefersMaleStyle == true) &&
-                (name.Contains("Air Blade", StringComparison.OrdinalIgnoreCase)
-                 || name.Contains("Vario", StringComparison.OrdinalIgnoreCase)
-                 || name.Contains("Winner", StringComparison.OrdinalIgnoreCase)
-                 || name.Contains("Exciter", StringComparison.OrdinalIgnoreCase)))
-            {
-                primaryReasons.Add("kiểu dáng khá hợp nhu cầu nam");
-            }
-
-            // 4. Dễ chống chân / vóc dáng nhỏ
-            if (profile?.NeedsLowSeat == true || profile?.HeightCm.HasValue == true)
-            {
-                if (name.Contains("Zip", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Vision", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Latte", StringComparison.OrdinalIgnoreCase))
+                if (!asksForWork && profile?.ForWork == true && name.Contains("Air Blade", StringComparison.OrdinalIgnoreCase))
                 {
-                    primaryReasons.Add("hợp hơn nếu bạn ưu tiên dễ chống chân");
+                    signatureReason = "là lựa chọn khá cân bằng cho nhu cầu đi lại hằng ngày";
+                }
+                else if (!asksForLowSeat && profile?.NeedsLowSeat == true &&
+                         (name.Contains("Vision", StringComparison.OrdinalIgnoreCase) || name.Contains("Zip", StringComparison.OrdinalIgnoreCase)))
+                {
+                    signatureReason = "khá dễ làm quen và hợp đi phố";
+                }
+                else if (!asksForLargeStorage && profile?.WantsLargeStorage == true &&
+                         (name.Contains("Freego", StringComparison.OrdinalIgnoreCase) || name.Contains("Latte", StringComparison.OrdinalIgnoreCase)))
+                {
+                    signatureReason = "khá tiện nếu bạn cần chở thêm đồ hằng ngày";
                 }
             }
 
-            // 5. Cốp rộng
-            if (profile?.WantsLargeStorage == true)
+            var reasons = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(budgetReason) &&
+                !budgetReason.Contains("cao hơn ngân sách khá rõ", StringComparison.OrdinalIgnoreCase))
             {
-                if (name.Contains("Freego", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Latte", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Lead", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Vision", StringComparison.OrdinalIgnoreCase))
-                {
-                    primaryReasons.Add("phù hợp hơn với nhu cầu ưu tiên cốp rộng");
-                }
+                reasons.Add(budgetReason);
             }
 
-            // 6. Đi làm
-            if (profile?.ForWork == true)
+            if (!string.IsNullOrWhiteSpace(signatureReason))
             {
-                if (name.Contains("Vision", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Air Blade", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Freego", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Future", StringComparison.OrdinalIgnoreCase))
-                {
-                    primaryReasons.Add("hợp cho nhu cầu đi làm hằng ngày");
-                }
+                reasons.Add(signatureReason);
             }
 
-            // 7. Hãng ưu tiên
-            if (!string.IsNullOrWhiteSpace(profile?.PreferredBrand) &&
-                item.ThuongHieu.Equals(profile.PreferredBrand, StringComparison.OrdinalIgnoreCase))
+            if (reasons.Count == 0 && !string.IsNullOrWhiteSpace(budgetReason))
             {
-                secondaryReasons.Add($"đúng hãng {profile.PreferredBrand} bạn đang muốn xem");
+                reasons.Add(budgetReason);
             }
 
-            // 8. Cá tính / thể thao
-            if ((text.Contains("cá tính") || text.Contains("ca tinh") ||
-                 text.Contains("thể thao") || text.Contains("the thao")) &&
-                (name.Contains("Air Blade", StringComparison.OrdinalIgnoreCase)
-                 || name.Contains("Vario", StringComparison.OrdinalIgnoreCase)
-                 || name.Contains("Exciter", StringComparison.OrdinalIgnoreCase)))
-            {
-                primaryReasons.Add("kiểu dáng nổi bật hơn");
-            }
-
-            // Gộp lý do: ưu tiên lý do “nghe như tư vấn”, tránh lặp máy móc
-            var finalReasons = primaryReasons
-                .Concat(secondaryReasons)
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct()
-                .Take(2)
-                .ToList();
-            if (profile?.TargetPrice.HasValue == true)
-            {
-                var diff = item.Gia - profile.TargetPrice.Value;
-                if (diff > 10_000_000m)
-                {
-                    finalReasons.RemoveAll(x => x.Contains("đúng hãng", StringComparison.OrdinalIgnoreCase));
-                }
-            }
-            if (finalReasons.Count == 0)
-            {
+            if (reasons.Count == 0)
                 return "là lựa chọn khá đáng cân nhắc trong nhóm đang lọc";
+
+            return string.Join(", ", reasons.Take(2));
+
+            static bool asksForBudgetFriendly(string text)
+            {
+                return text.Contains("rẻ") || text.Contains("giá mềm") || text.Contains("tiết kiệm");
+            }
+        }
+        private static string BuildFollowUpQuestion(
+     string text,
+     ParsedIntent parsedIntent,
+     CustomerPreferenceProfile? profile = null)
+        {
+            bool asksForFemale = text.Contains("nữ");
+            bool asksForMale = text.Contains("nam");
+            bool asksForSchool = text.Contains("sinh viên") || text.Contains("đi học");
+            bool asksForWork = text.Contains("đi làm");
+            bool asksForLowSeat = text.Contains("dễ chống chân") || text.Contains("yên thấp") || text.Contains("người thấp") || text.Contains("nhỏ con");
+            bool asksForLargeStorage = text.Contains("cốp rộng") || text.Contains("mang đồ");
+            bool asksForFuelSaving = text.Contains("tiết kiệm xăng") || text.Contains("tiet kiem xang");
+            bool asksForSporty = text.Contains("cá tính") || text.Contains("ca tinh") || text.Contains("thể thao") || text.Contains("the thao");
+            bool hasBudget =
+    parsedIntent.TargetPrice.HasValue ||
+    parsedIntent.PriceMin.HasValue ||
+    parsedIntent.PriceMax.HasValue ||
+    LooksLikeBudgetFragment(text) ||
+    text.Contains("tầm") ||
+    text.Contains("khoảng") ||
+    text.Contains("quanh") ||
+    text.Contains("triệu") ||
+    text.Contains("triêu") ||
+    text.Contains("trieu");
+
+            if (asksForSchool)
+            {
+                return "Bạn muốn mình lọc kỹ hơn theo hướng tiết kiệm xăng, cốp rộng hay kiểu dáng gọn nhẹ cho dễ đi học?";
             }
 
-            return string.Join(", ", finalReasons);
-        }
-
-        private static string BuildFollowUpQuestion(
-    string text,
-    ParsedIntent parsedIntent,
-    CustomerPreferenceProfile? profile = null)
-        {
-            // Nếu đã loại côn tay rồi thì đừng hỏi lại côn tay nữa
-            if (profile?.ExcludedCategories.Contains("côn tay") == true)
+            if (asksForWork)
             {
-                if (profile.WantsLargeStorage && profile.NeedsLowSeat)
-                {
-                    return "Nếu muốn mình chốt sát hơn, mình có thể lọc tiếp theo hướng ưu tiên cốp rộng hơn hay ưu tiên dễ chống chân hơn.";
-                }
+                return "Bạn muốn mình lọc tiếp theo hướng thực dụng tiết kiệm xăng hay ưu tiên dáng đẹp và đi đầm hơn?";
+            }
 
-                if (profile.WantsLargeStorage)
-                {
-                    return "Bạn muốn mình lọc tiếp theo hướng cốp rộng tối đa hay ưu tiên mẫu cân bằng hơn giữa cốp rộng và giá?";
-                }
+            if (asksForLowSeat)
+            {
+                return "Bạn muốn mình nghiêng hơn về nhóm dễ chống chân nhất hay nhóm cân bằng hơn giữa dễ đi và kiểu dáng?";
+            }
 
-                if (profile.NeedsLowSeat)
-                {
-                    return "Bạn muốn mình nghiêng hơn về nhóm dễ chống chân hay nhóm đi làm thực dụng hơn?";
-                }
+            if (asksForLargeStorage)
+            {
+                return "Bạn muốn mình ưu tiên cốp rộng tối đa hay cân bằng hơn giữa cốp rộng và kiểu dáng đẹp?";
+            }
 
-                return "Nếu muốn mình lọc sát hơn, mình có thể chốt tiếp theo hướng xe ga dễ đi hoặc xe số thực dụng hơn.";
+            if (asksForFuelSaving)
+            {
+                return "Bạn muốn mình lọc tiếp theo hướng tiết kiệm xăng nhất hay cân bằng hơn giữa tiết kiệm và tiện ích?";
+            }
+
+            if (asksForSporty)
+            {
+                return "Bạn muốn kiểu cá tính rõ hơn hay vẫn giữ tiêu chí dễ đi hằng ngày để mình lọc sát hơn?";
+            }
+
+            if (asksForFemale)
+            {
+                return "Bạn muốn mình nghiêng hơn về dáng gọn dễ đi hay kiểu mềm mại đẹp dáng hơn?";
+            }
+
+            if (asksForMale)
+            {
+                return "Bạn muốn mình lọc tiếp theo hướng đầm chắc hơn hay ưu tiên linh hoạt đi phố hằng ngày?";
+            }
+
+            if (!hasBudget)
+            {
+                return "Bạn nói thêm giúp mình tầm giá mong muốn là mình lọc sát hơn ngay.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(parsedIntent.Brand))
+            {
+                return $"Nếu muốn, mình có thể lọc tiếp sâu hơn riêng trong nhóm {parsedIntent.Brand} để chọn ra mẫu hợp nhất.";
             }
 
             if (!string.IsNullOrWhiteSpace(profile?.PreferredBrand))
@@ -1764,45 +2076,23 @@ namespace Chatbot.API.Services
                 return $"Nếu muốn, mình có thể lọc sâu hơn riêng trong nhóm {profile.PreferredBrand} để chọn ra mẫu hợp nhất với nhu cầu hiện tại.";
             }
 
-            if (profile?.ForWork == true && profile?.WantsLargeStorage == true)
+            if (profile?.ExcludedCategories.Contains("côn tay") == true)
             {
-                return "Bạn muốn mình ưu tiên hơn về cốp rộng hay ưu tiên cảm giác gọn nhẹ khi đi làm hằng ngày?";
-            }
-
-            if (profile?.ForWork == true)
-            {
-                return "Nếu muốn mình lọc sát hơn, mình có thể nghiêng tiếp theo hướng thực dụng tiết kiệm xăng hoặc kiểu dáng đẹp hơn để đi làm.";
-            }
-
-            if (profile?.NeedsLowSeat == true)
-            {
-                return "Bạn muốn mình lọc tiếp theo hướng dễ chống chân nhất hay cân bằng hơn giữa dáng đẹp và dễ đi?";
+                return "Nếu muốn mình lọc sát hơn nữa, mình có thể chốt tiếp theo hướng xe ga dễ đi hoặc xe số thực dụng hơn.";
             }
 
             if (profile?.WantsLargeStorage == true)
             {
-                return "Bạn muốn mình lọc thêm theo hướng cốp rộng nhất hay ưu tiên mẫu nhìn gọn và nữ tính hơn?";
+                return "Nếu muốn mình lọc sát hơn nữa, mình có thể nghiêng tiếp theo hướng cốp rộng hơn hoặc dáng gọn dễ đi hơn.";
             }
 
-            if (text.Contains("tiết kiệm xăng") || text.Contains("tiet kiem xang"))
+            if (profile?.NeedsLowSeat == true)
             {
-                return "Bạn muốn mình lọc tiếp theo hướng tiết kiệm xăng nhất hay cân bằng hơn giữa giá và tiện ích?";
-            }
-
-            if (text.Contains("cá tính") || text.Contains("ca tinh") ||
-                text.Contains("thể thao") || text.Contains("the thao"))
-            {
-                return "Nếu muốn mình lọc sát hơn, bạn có thể nói thêm muốn thiên về dáng thể thao mạnh hơn hay vẫn ưu tiên dễ đi hằng ngày.";
-            }
-
-            if (!parsedIntent.TargetPrice.HasValue && !parsedIntent.PriceMin.HasValue && !parsedIntent.PriceMax.HasValue)
-            {
-                return "Bạn nói thêm giúp mình tầm giá mong muốn là mình lọc sát hơn ngay.";
+                return "Nếu muốn mình lọc sát hơn nữa, mình có thể nghiêng tiếp theo hướng dễ chống chân nhất hoặc cân bằng hơn giữa dáng đẹp và dễ đi.";
             }
 
             return "Nếu muốn mình lọc sát hơn nữa, bạn cứ nói thêm 1 tiêu chí quan trọng nhất như cốp rộng, dễ chống chân, tiết kiệm xăng hoặc hãng muốn ưu tiên.";
         }
-
         private static string BuildProductSuggestionContext(IEnumerable<ProductSummaryDto> items)
         {
             var sb = new StringBuilder();
@@ -1825,53 +2115,176 @@ namespace Chatbot.API.Services
             public string EffectivePrompt { get; set; } = string.Empty;
             public string? Reply { get; set; }
         }
-        private static string? BuildConsultationConclusion(
+    //    private static string? BuildConsultationConclusion(
+    //IReadOnlyList<ProductSummaryDto> items,
+    //string text,
+    //ParsedIntent parsedIntent,
+    //CustomerPreferenceProfile? profile = null)
+    //    {
+    //        if (items == null || items.Count == 0)
+    //            return null;
+
+    //        var top = items.First();
+
+    //        if (profile?.NeedsLowSeat == true)
+    //        {
+    //            var lowSeatCandidate = items.FirstOrDefault(x =>
+    //                x.Ten.Contains("Vision", StringComparison.OrdinalIgnoreCase) ||
+    //                x.Ten.Contains("Zip", StringComparison.OrdinalIgnoreCase) ||
+    //                x.Ten.Contains("Latte", StringComparison.OrdinalIgnoreCase));
+
+    //            if (lowSeatCandidate != null)
+    //            {
+    //                top = lowSeatCandidate;
+    //            }
+    //        }
+
+    //        if (profile?.WantsLargeStorage == true)
+    //        {
+    //            if (top.Ten.Contains("Freego", StringComparison.OrdinalIgnoreCase) ||
+    //                top.Ten.Contains("Latte", StringComparison.OrdinalIgnoreCase) ||
+    //                top.Ten.Contains("Lead", StringComparison.OrdinalIgnoreCase))
+    //            {
+    //                return $"Nếu ưu tiên cốp rộng để đi làm hoặc mang đồ hằng ngày, mình thấy **{top.Ten}** là lựa chọn nổi bật hơn.";
+    //            }
+    //        }
+
+    //        if (profile?.ForWork == true)
+    //        {
+    //            return $"Nếu xét riêng nhu cầu đi làm hằng ngày, mình thấy **{top.Ten}** đang là mẫu nổi bật nhất trong nhóm này.";
+    //        }
+
+    //        if (!string.IsNullOrWhiteSpace(profile?.PreferredBrand))
+    //        {
+    //            return $"Trong nhóm {profile.PreferredBrand}, mình đang nghiêng hơn về **{top.Ten}** ở thời điểm hiện tại.";
+    //        }
+
+    //        if (parsedIntent.TargetPrice.HasValue)
+    //        {
+    //            return $"Nếu cần mình chốt nhanh 1 mẫu nổi bật nhất trong tầm này, mình đang nghiêng về **{top.Ten}**.";
+    //        }
+
+    //        return null;
+    //    }
+        private static string BuildNaturalIntro(string text, int count)
+        {
+            if (count == 1)
+                return "Mình thấy hiện tại có 1 mẫu khá hợp với nhu cầu bạn đang hỏi:";
+
+            if (text.Contains("sinh viên"))
+                return $"Với nhu cầu này, mình thấy có {count} mẫu khá dễ cân nhắc:";
+
+            if (text.Contains("nữ"))
+                return $"Mình lọc ra {count} mẫu khá hợp với nhu cầu của bạn:";
+
+            if (LooksLikeBudgetFragment(text) || text.Contains("tầm") || text.Contains("khoảng") || text.Contains("quanh"))
+                return $"Trong tầm giá này, mình thấy có {count} mẫu khá ổn để bạn cân nhắc:";
+
+            return $"Mình gợi ý bạn {count} mẫu để tham khảo:";
+        }
+        private static string? BuildSoftSuggestion(
     IReadOnlyList<ProductSummaryDto> items,
     string text,
     ParsedIntent parsedIntent,
-    CustomerPreferenceProfile? profile = null)
+    CustomerPreferenceProfile? profile)
         {
             if (items == null || items.Count == 0)
                 return null;
 
-            var top = items.First();
+            ProductSummaryDto top = items.First();
 
-            if (profile?.NeedsLowSeat == true)
+            bool asksForLowSeat = text.Contains("dễ chống chân") || text.Contains("yên thấp") || text.Contains("người thấp") || text.Contains("nhỏ con");
+            bool asksForSchool = text.Contains("sinh viên") || text.Contains("đi học");
+            bool asksForWork = text.Contains("đi làm");
+            bool asksForSporty = text.Contains("cá tính") || text.Contains("ca tinh") || text.Contains("thể thao") || text.Contains("the thao");
+            bool asksForLargeStorage = text.Contains("cốp rộng") || text.Contains("mang đồ");
+            bool asksForElegant =
+    text.Contains("thanh lịch") ||
+    text.Contains("thanh lich") ||
+    text.Contains("nữ tính") ||
+    text.Contains("nu tinh") ||
+    text.Contains("mềm mại") ||
+    text.Contains("mem mai");
+
+            if (asksForLowSeat)
             {
                 var lowSeatCandidate = items.FirstOrDefault(x =>
-                    x.Ten.Contains("Vision", StringComparison.OrdinalIgnoreCase) ||
-                    x.Ten.Contains("Zip", StringComparison.OrdinalIgnoreCase) ||
-                    x.Ten.Contains("Latte", StringComparison.OrdinalIgnoreCase));
+                    (x.Ten ?? "").Contains("Vision", StringComparison.OrdinalIgnoreCase) ||
+                    (x.Ten ?? "").Contains("Zip", StringComparison.OrdinalIgnoreCase) ||
+                    (x.Ten ?? "").Contains("Latte", StringComparison.OrdinalIgnoreCase));
 
                 if (lowSeatCandidate != null)
-                {
                     top = lowSeatCandidate;
-                }
+
+                return $"Nếu bạn ưu tiên dễ chống chân thì mình nghiêng hơn về **{top.Ten}**.";
             }
 
-            if (profile?.WantsLargeStorage == true)
+            if (asksForLargeStorage)
             {
-                if (top.Ten.Contains("Freego", StringComparison.OrdinalIgnoreCase) ||
-                    top.Ten.Contains("Latte", StringComparison.OrdinalIgnoreCase) ||
-                    top.Ten.Contains("Lead", StringComparison.OrdinalIgnoreCase))
-                {
-                    return $"Nếu ưu tiên cốp rộng để đi làm hoặc mang đồ hằng ngày, mình thấy **{top.Ten}** là lựa chọn nổi bật hơn.";
-                }
+                var storageCandidate = items.FirstOrDefault(x =>
+    (x.Ten ?? "").Contains("Freego", StringComparison.OrdinalIgnoreCase) ||
+    (x.Ten ?? "").Contains("Lead", StringComparison.OrdinalIgnoreCase) ||
+    (x.Ten ?? "").Contains("Address", StringComparison.OrdinalIgnoreCase));
+
+                if (storageCandidate != null)
+                    top = storageCandidate;
+
+                return $"Nếu bạn ưu tiên cốp rộng và sự tiện dụng thì **{top.Ten}** là mẫu đáng để cân nhắc hơn.";
+            }
+            if (asksForElegant)
+            {
+                var elegantCandidate = items.FirstOrDefault(x =>
+                    (x.Ten ?? "").Contains("Attila", StringComparison.OrdinalIgnoreCase) ||
+                    (x.Ten ?? "").Contains("Latte", StringComparison.OrdinalIgnoreCase) ||
+                    (x.Ten ?? "").Contains("Grande", StringComparison.OrdinalIgnoreCase) ||
+                    (x.Ten ?? "").Contains("Zip", StringComparison.OrdinalIgnoreCase));
+
+                if (elegantCandidate != null)
+                    top = elegantCandidate;
+
+                return $"Nếu bạn ưu tiên kiểu thanh lịch và dễ đi thì **{top.Ten}** là mẫu đáng để cân nhắc hơn.";
+            }
+            if (asksForSchool)
+            {
+                var schoolCandidate = items.FirstOrDefault(x =>
+                    (x.Ten ?? "").Contains("Vision", StringComparison.OrdinalIgnoreCase) ||
+                    (x.Ten ?? "").Contains("Sirius", StringComparison.OrdinalIgnoreCase) ||
+                    (x.Ten ?? "").Contains("Wave", StringComparison.OrdinalIgnoreCase));
+
+                if (schoolCandidate != null)
+                    top = schoolCandidate;
+
+                return $"Nếu chọn theo hướng dễ đi, dễ dùng hằng ngày thì **{top.Ten}** là lựa chọn khá ổn.";
             }
 
-            if (profile?.ForWork == true)
+            if (asksForWork)
             {
-                return $"Nếu xét riêng nhu cầu đi làm hằng ngày, mình thấy **{top.Ten}** đang là mẫu nổi bật nhất trong nhóm này.";
+                var workCandidate = items.FirstOrDefault(x =>
+                    (x.Ten ?? "").Contains("Air Blade", StringComparison.OrdinalIgnoreCase) ||
+                    (x.Ten ?? "").Contains("Freego", StringComparison.OrdinalIgnoreCase) ||
+                    (x.Ten ?? "").Contains("Future", StringComparison.OrdinalIgnoreCase));
+
+                if (workCandidate != null)
+                    top = workCandidate;
+
+                return $"Nếu dùng đi làm hằng ngày thì **{top.Ten}** sẽ hợp hơn.";
             }
 
-            if (!string.IsNullOrWhiteSpace(profile?.PreferredBrand))
+            if (asksForSporty)
             {
-                return $"Trong nhóm {profile.PreferredBrand}, mình đang nghiêng hơn về **{top.Ten}** ở thời điểm hiện tại.";
+                var sportyCandidate = items.FirstOrDefault(x =>
+                    (x.Ten ?? "").Contains("Air Blade", StringComparison.OrdinalIgnoreCase) ||
+                    (x.Ten ?? "").Contains("Vario", StringComparison.OrdinalIgnoreCase));
+
+                if (sportyCandidate != null)
+                    top = sportyCandidate;
+
+                return $"Nếu bạn thích kiểu nổi bật hơn thì **{top.Ten}** sẽ hợp gu hơn.";
             }
 
             if (parsedIntent.TargetPrice.HasValue)
             {
-                return $"Nếu cần mình chốt nhanh 1 mẫu nổi bật nhất trong tầm này, mình đang nghiêng về **{top.Ten}**.";
+                return $"Nếu cần chốt nhanh một mẫu nổi bật trong tầm này thì mình đang nghiêng về **{top.Ten}**.";
             }
 
             return null;

@@ -11,5 +11,6 @@
         public string? ImageUrl { get; set; }
         public string ThuongHieu { get; set; } = string.Empty;
         public string Loai { get; set; }=string.Empty;
+        public string? Tags { get; set; }
     }
 }
