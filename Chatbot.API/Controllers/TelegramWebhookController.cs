@@ -6,7 +6,6 @@ using Chatbot.API.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Chatbot.API.Models.Responses;
 using System.Text.Json;
-using Chatbot.API.Services;
 using Microsoft.Extensions.Options;
 
 namespace Chatbot.API.Controllers
