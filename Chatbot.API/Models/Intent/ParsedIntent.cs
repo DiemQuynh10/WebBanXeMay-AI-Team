@@ -30,5 +30,16 @@
         public bool PrefersFemaleStyle { get; set; }
 
         public HashSet<string> RequestedStyles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public string IntentType { get; set; } = "unknown";
+        
+        public bool IsFollowUp { get; set; }
+
+        public string? FollowUpType { get; set; }
+       
+        public List<string> MentionedProducts { get; set; } = new();
+
+        public string? ComparisonFeature { get; set; }
+      
     }
 }

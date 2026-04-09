@@ -19,7 +19,7 @@
 
     const state = {
         isSending: false,
-        currentConversationId: localStorage.getItem(CURRENT_CONVERSATION_KEY) || null,
+        currentConversationId: sessionStorage.getItem(CURRENT_CONVERSATION_KEY) || null,
         conversations: []
     };
 
@@ -36,10 +36,21 @@
         state.currentConversationId = id || null;
 
         if (state.currentConversationId) {
-            localStorage.setItem(CURRENT_CONVERSATION_KEY, state.currentConversationId);
+            sessionStorage.setItem(CURRENT_CONVERSATION_KEY, state.currentConversationId);
         } else {
-            localStorage.removeItem(CURRENT_CONVERSATION_KEY);
+            sessionStorage.removeItem(CURRENT_CONVERSATION_KEY);
         }
+    }
+    async function resetConversationRequest(conversationId) {
+        const response = await fetch("/ai-chat/reset", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ conversationId })
+        });
+
+        return await safeReadJson(response);
     }
 
     function scrollBottom() {
@@ -347,8 +358,20 @@
         }
     }
 
-    function startNewConversation() {
+    async function startNewConversation() {
+        const oldConversationId = state.currentConversationId;
+
+        try {
+            if (oldConversationId) {
+                await resetConversationRequest(oldConversationId);
+            }
+        } catch (error) {
+            console.error("Reset conversation error:", error);
+        }
+
         setCurrentConversationId(null);
+        input.value = "";
+        removeTyping();
         renderConversationList();
         renderWelcomeMessage();
         focusInput();
@@ -406,7 +429,9 @@
     }
 
     if (newChatBtn) {
-        newChatBtn.addEventListener("click", startNewConversation);
+        newChatBtn.addEventListener("click", async () => {
+            await startNewConversation();
+        });
     }
 
     if (deleteBtn) {

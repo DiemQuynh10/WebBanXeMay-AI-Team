@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Text;
 using Chatbot.API.Models.Intent;
+using Chatbot.API.Models.ToolApi;
 using Chatbot.API.Services.Interfaces;
 
 namespace Chatbot.API.Services
@@ -74,9 +75,172 @@ namespace Chatbot.API.Services
             foreach (var style in intent.RequestedStyles)
                 profile.RequestedStyles.Add(style);
 
+            if (intent.MentionedProducts.Any())
+            {
+                profile.LastMentionedProducts = intent.MentionedProducts
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            if (!string.IsNullOrWhiteSpace(intent.ComparisonFeature))
+            {
+                profile.LastComparisonFeature = intent.ComparisonFeature;
+            }
+            if (!string.IsNullOrWhiteSpace(intent.IntentType))
+            {
+                profile.LastIntentType = intent.IntentType;
+            }
+            profile.TurnCount++;
+            profile.LastUserMessage = intent.RawMessage;
             profile.UpdatedAtUtc = DateTime.UtcNow;
 
             return Task.FromResult(profile);
+        }
+
+        public Task SetRecommendedProductsAsync(
+    string conversationId,
+    IEnumerable<ProductSummaryDto> products,
+    string answerMode = "fresh_consultation")
+        {
+            var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
+            {
+                ConversationId = id
+            });
+
+            var items = products?
+                .Where(x => x != null)
+                .GroupBy(x => x.Id)
+                .Select(g => g.First())
+                .ToList() ?? new List<ProductSummaryDto>();
+
+            profile.LastRecommendedProductIds = items
+                .Select(x => x.Id)
+                .Distinct()
+                .ToList();
+
+            profile.LastRecommendedProducts = items
+                .Select(x => x.Ten)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            profile.HasActiveRecommendationContext = items.Count > 0;
+            profile.LastAnswerMode = answerMode;
+            profile.UpdatedAtUtc = DateTime.UtcNow;
+
+            return Task.CompletedTask;
+        }
+        public Task ClearRecommendationContextAsync(string conversationId)
+        {
+            var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
+            {
+                ConversationId = id
+            });
+
+            profile.LastRecommendedProducts.Clear();
+            profile.LastRecommendedProductIds.Clear();
+            profile.HasActiveRecommendationContext = false;
+            profile.LastAnswerMode = null;
+            profile.LastComparisonFeature = null;
+            profile.UpdatedAtUtc = DateTime.UtcNow;
+
+            return Task.CompletedTask;
+        }
+        public Task ResetForFreshConsultationAsync(string conversationId)
+        {
+            var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
+            {
+                ConversationId = id
+            });
+
+            profile.PriceMin = null;
+            profile.PriceMax = null;
+            profile.TargetPrice = null;
+            profile.FilterType = PriceFilterType.None;
+
+            profile.PreferredCategory = null;
+            profile.PreferredBrand = null;
+            profile.Target = null;
+
+            profile.ExcludedCategories.Clear();
+            profile.ExcludedBrands.Clear();
+
+            profile.HeightCm = null;
+            profile.NeedsLowSeat = false;
+
+            profile.ForSchool = false;
+            profile.ForWork = false;
+            profile.ForCity = false;
+            profile.ForTour = false;
+
+            profile.WantsEasyControl = false;
+            profile.WantsFuelSaving = false;
+            profile.WantsLargeStorage = false;
+
+            profile.PrefersMaleStyle = false;
+            profile.PrefersFemaleStyle = false;
+
+            profile.RequestedStyles.Clear();
+
+            profile.LastRecommendedProducts.Clear();
+            profile.LastRecommendedProductIds.Clear();
+            profile.LastMentionedProducts.Clear();
+            profile.LastComparedProducts.Clear();
+
+            profile.HasActiveRecommendationContext = false;
+            profile.LastAnswerMode = null;
+            profile.LastComparisonFeature = null;
+            profile.LastIntentType = null;
+            profile.LastUserMessage = null;
+
+            profile.UpdatedAtUtc = DateTime.UtcNow;
+
+            return Task.CompletedTask;
+        }
+
+        public Task SetMentionedProductsAsync(string conversationId, IEnumerable<string> productNames)
+        {
+            var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
+            {
+                ConversationId = id
+            });
+
+            profile.LastMentionedProducts = productNames
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            profile.UpdatedAtUtc = DateTime.UtcNow;
+            return Task.CompletedTask;
+        }
+
+        public Task SetComparedProductsAsync(string conversationId, IEnumerable<string> productNames)
+        {
+            var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
+            {
+                ConversationId = id
+            });
+
+            profile.LastComparedProducts = productNames
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(2)
+                .ToList();
+
+            profile.UpdatedAtUtc = DateTime.UtcNow;
+            return Task.CompletedTask;
+        }
+
+        public Task SetLastIntentTypeAsync(string conversationId, string intentType)
+        {
+            var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
+            {
+                ConversationId = id
+            });
+
+            profile.LastIntentType = intentType;
+            profile.UpdatedAtUtc = DateTime.UtcNow;
+            return Task.CompletedTask;
         }
 
         public Task ClearAsync(string conversationId)
@@ -134,6 +298,28 @@ namespace Chatbot.API.Services
             if (profile.RequestedStyles.Count > 0)
                 parts.Add($"phong cách: {string.Join(", ", profile.RequestedStyles)}");
 
+            if (profile.LastRecommendedProducts.Count > 0)
+                parts.Add($"các mẫu vừa gợi ý: {string.Join(", ", profile.LastRecommendedProducts)}");
+
+            if (profile.LastMentionedProducts.Count > 0)
+                parts.Add($"các mẫu đang nhắc tới: {string.Join(", ", profile.LastMentionedProducts)}");
+
+            if (profile.LastComparedProducts.Count > 0)
+                parts.Add($"cặp vừa so sánh: {string.Join(" vs ", profile.LastComparedProducts)}");
+
+            if (!string.IsNullOrWhiteSpace(profile.LastIntentType))
+                parts.Add($"intent gần nhất: {profile.LastIntentType}");
+            if (profile.HasActiveRecommendationContext)
+                parts.Add("đang có ngữ cảnh gợi ý trước đó");
+
+            if (!string.IsNullOrWhiteSpace(profile.LastAnswerMode))
+                parts.Add($"kiểu trả lời gần nhất: {profile.LastAnswerMode}");
+
+            if (profile.LastRecommendedProductIds.Count > 0)
+                parts.Add($"ids vừa gợi ý: {string.Join(", ", profile.LastRecommendedProductIds)}");
+
+            if (profile.TurnCount > 0)
+                parts.Add($"số lượt hội thoại: {profile.TurnCount}");
             if (parts.Count == 0)
                 return "Chưa có hồ sơ nhu cầu rõ ràng.";
 
