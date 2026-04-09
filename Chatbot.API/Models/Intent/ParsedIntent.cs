@@ -8,6 +8,7 @@
         public string? Brand { get; set; }
         public string? Target { get; set; }
         public string? RawMessage { get; set; }
+
         public PriceFilterType FilterType { get; set; } = PriceFilterType.None;
         public decimal? TargetPrice { get; set; }
 
@@ -32,14 +33,36 @@
         public HashSet<string> RequestedStyles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
         public string IntentType { get; set; } = "unknown";
-        
         public bool IsFollowUp { get; set; }
-
         public string? FollowUpType { get; set; }
-       
-        public List<string> MentionedProducts { get; set; } = new();
 
+        public List<string> MentionedProducts { get; set; } = new();
         public string? ComparisonFeature { get; set; }
-      
+
+        public string RouteFlow { get; set; } = "unknown";
+
+        public bool IsGreeting { get; set; }
+        public bool IsOutOfScope { get; set; }
+
+        public bool IsOrderLookup { get; set; }
+
+        public bool IsDirectProductLookup { get; set; }
+        public bool IsProductSearch { get; set; }
+        public bool IsOpenRecommendation { get; set; }
+        public bool IsDirectCompare { get; set; }
+        public bool IsBrandSwitch { get; set; }
+
+
+        public string? LookupTargetType { get; set; }
+
+        /// <summary>
+        /// price, stock, cc, detail
+        /// </summary>
+        public string? LookupField { get; set; }
+
+        /// <summary>
+        /// Cho phép ChatService biết đây là câu phải ưu tiên deterministic trước AI.
+        /// </summary>
+        public bool HasDeterministicProductIntent { get; set; }
     }
 }
