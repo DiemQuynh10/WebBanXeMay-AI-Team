@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using Chatbot.API.Helpers;
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.Responses;
 using Chatbot.API.Models.ToolApi;
@@ -77,8 +78,14 @@ namespace Chatbot.API.Services
                 Success = true,
                 ConversationId = conversationId,
                 UsedAI = false,
-                Reply = reply
+                Reply = reply,
+                Products = new List<ChatProductCard>
+    {
+        ChatProductCardMapper.Map(first),
+        ChatProductCardMapper.Map(second)
+    }
             };
+
         }
 
         private async Task<ProductSummaryDto?> FindBestMatchAsync(string productName)

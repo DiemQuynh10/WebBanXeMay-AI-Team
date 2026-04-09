@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
+using Chatbot.API.Helpers;
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.Requests;
 using Chatbot.API.Models.Responses;
@@ -683,7 +684,8 @@ IProductSearchFlowService productSearchFlowService)
                                 ConversationId = conversationId,
                                 UsedAI = false,
                                 UsedTool = consultationResponse.ToolName,
-                                ElapsedMs = stopwatch.ElapsedMilliseconds
+                                ElapsedMs = stopwatch.ElapsedMilliseconds,
+                                Products = consultationResponse.Products
                             };
                         }
 
@@ -1021,7 +1023,8 @@ IProductSearchFlowService productSearchFlowService)
                 {
                     ToolName = ToolNames.GetProductsByFilters,
                     EffectivePrompt = effectivePrompt,
-                    Reply = deterministicReply
+                    Reply = deterministicReply,
+                    Products = ChatProductCardMapper.MapMany(rankedItems, 4)
                 };
             }
             catch (Exception ex)
@@ -2731,58 +2734,59 @@ IProductSearchFlowService productSearchFlowService)
             public string ToolName { get; set; } = ToolNames.GetProductsByFilters;
             public string EffectivePrompt { get; set; } = string.Empty;
             public string? Reply { get; set; }
+            public List<ChatProductCard>? Products { get; set; }
         }
-    //    private static string? BuildConsultationConclusion(
-    //IReadOnlyList<ProductSummaryDto> items,
-    //string text,
-    //ParsedIntent parsedIntent,
-    //CustomerPreferenceProfile? profile = null)
-    //    {
-    //        if (items == null || items.Count == 0)
-    //            return null;
+        //    private static string? BuildConsultationConclusion(
+        //IReadOnlyList<ProductSummaryDto> items,
+        //string text,
+        //ParsedIntent parsedIntent,
+        //CustomerPreferenceProfile? profile = null)
+        //    {
+        //        if (items == null || items.Count == 0)
+        //            return null;
 
-    //        var top = items.First();
+        //        var top = items.First();
 
-    //        if (profile?.NeedsLowSeat == true)
-    //        {
-    //            var lowSeatCandidate = items.FirstOrDefault(x =>
-    //                x.Ten.Contains("Vision", StringComparison.OrdinalIgnoreCase) ||
-    //                x.Ten.Contains("Zip", StringComparison.OrdinalIgnoreCase) ||
-    //                x.Ten.Contains("Latte", StringComparison.OrdinalIgnoreCase));
+        //        if (profile?.NeedsLowSeat == true)
+        //        {
+        //            var lowSeatCandidate = items.FirstOrDefault(x =>
+        //                x.Ten.Contains("Vision", StringComparison.OrdinalIgnoreCase) ||
+        //                x.Ten.Contains("Zip", StringComparison.OrdinalIgnoreCase) ||
+        //                x.Ten.Contains("Latte", StringComparison.OrdinalIgnoreCase));
 
-    //            if (lowSeatCandidate != null)
-    //            {
-    //                top = lowSeatCandidate;
-    //            }
-    //        }
+        //            if (lowSeatCandidate != null)
+        //            {
+        //                top = lowSeatCandidate;
+        //            }
+        //        }
 
-    //        if (profile?.WantsLargeStorage == true)
-    //        {
-    //            if (top.Ten.Contains("Freego", StringComparison.OrdinalIgnoreCase) ||
-    //                top.Ten.Contains("Latte", StringComparison.OrdinalIgnoreCase) ||
-    //                top.Ten.Contains("Lead", StringComparison.OrdinalIgnoreCase))
-    //            {
-    //                return $"Nếu ưu tiên cốp rộng để đi làm hoặc mang đồ hằng ngày, mình thấy **{top.Ten}** là lựa chọn nổi bật hơn.";
-    //            }
-    //        }
+        //        if (profile?.WantsLargeStorage == true)
+        //        {
+        //            if (top.Ten.Contains("Freego", StringComparison.OrdinalIgnoreCase) ||
+        //                top.Ten.Contains("Latte", StringComparison.OrdinalIgnoreCase) ||
+        //                top.Ten.Contains("Lead", StringComparison.OrdinalIgnoreCase))
+        //            {
+        //                return $"Nếu ưu tiên cốp rộng để đi làm hoặc mang đồ hằng ngày, mình thấy **{top.Ten}** là lựa chọn nổi bật hơn.";
+        //            }
+        //        }
 
-    //        if (profile?.ForWork == true)
-    //        {
-    //            return $"Nếu xét riêng nhu cầu đi làm hằng ngày, mình thấy **{top.Ten}** đang là mẫu nổi bật nhất trong nhóm này.";
-    //        }
+        //        if (profile?.ForWork == true)
+        //        {
+        //            return $"Nếu xét riêng nhu cầu đi làm hằng ngày, mình thấy **{top.Ten}** đang là mẫu nổi bật nhất trong nhóm này.";
+        //        }
 
-    //        if (!string.IsNullOrWhiteSpace(profile?.PreferredBrand))
-    //        {
-    //            return $"Trong nhóm {profile.PreferredBrand}, mình đang nghiêng hơn về **{top.Ten}** ở thời điểm hiện tại.";
-    //        }
+        //        if (!string.IsNullOrWhiteSpace(profile?.PreferredBrand))
+        //        {
+        //            return $"Trong nhóm {profile.PreferredBrand}, mình đang nghiêng hơn về **{top.Ten}** ở thời điểm hiện tại.";
+        //        }
 
-    //        if (parsedIntent.TargetPrice.HasValue)
-    //        {
-    //            return $"Nếu cần mình chốt nhanh 1 mẫu nổi bật nhất trong tầm này, mình đang nghiêng về **{top.Ten}**.";
-    //        }
+        //        if (parsedIntent.TargetPrice.HasValue)
+        //        {
+        //            return $"Nếu cần mình chốt nhanh 1 mẫu nổi bật nhất trong tầm này, mình đang nghiêng về **{top.Ten}**.";
+        //        }
 
-    //        return null;
-    //    }
+        //        return null;
+        //    }
         private static string BuildNaturalIntro(string text, int count)
         {
             if (count == 1)

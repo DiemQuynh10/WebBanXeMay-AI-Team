@@ -26,12 +26,23 @@ namespace WebBanXeMay.Controllers.Api.Tools
                 error = ToolApiKeyValidator.UnauthorizedResult();
                 return false;
             }
+
             error = null;
             return true;
         }
+
         private static string NormalizeText(string? input)
         {
             return (input ?? string.Empty).Trim().ToLowerInvariant();
+        }
+
+        private IQueryable<SanPham> BuildBaseQuery()
+        {
+            return _db.SanPhams
+                .AsNoTracking()
+                .Include(x => x.ThuongHieu)
+                .Include(x => x.Loai)
+                .Where(x => x.IsActive);
         }
 
         private static IQueryable<SanPham> ApplyCategoryFilter(IQueryable<SanPham> query, string? category)
@@ -41,7 +52,9 @@ namespace WebBanXeMay.Controllers.Api.Tools
             if (string.IsNullOrWhiteSpace(requestedCategory))
                 return query;
 
-            if (requestedCategory.Contains("xe ga") || requestedCategory.Contains("tay ga") || requestedCategory.Contains("scooter"))
+            if (requestedCategory.Contains("xe ga") ||
+                requestedCategory.Contains("tay ga") ||
+                requestedCategory.Contains("scooter"))
             {
                 return query.Where(x =>
                     x.Loai != null &&
@@ -52,23 +65,74 @@ namespace WebBanXeMay.Controllers.Api.Tools
                     ));
             }
 
-            if (requestedCategory.Contains("xe số") || requestedCategory == "số")
+            if (requestedCategory.Contains("xe số") ||
+                requestedCategory == "số" ||
+                requestedCategory == "xe so" ||
+                requestedCategory == "so")
             {
                 return query.Where(x =>
                     x.Loai != null &&
-                    x.Loai.TenLoai.ToLower().Contains("số"));
+                    (
+                        x.Loai.TenLoai.ToLower().Contains("số") ||
+                        x.Loai.TenLoai.ToLower().Contains("so")
+                    ));
             }
 
-            if (requestedCategory.Contains("côn") || requestedCategory.Contains("côn tay"))
+            if (requestedCategory.Contains("côn") ||
+                requestedCategory.Contains("côn tay") ||
+                requestedCategory.Contains("con") ||
+                requestedCategory.Contains("con tay"))
             {
                 return query.Where(x =>
                     x.Loai != null &&
-                    x.Loai.TenLoai.ToLower().Contains("côn"));
+                    (
+                        x.Loai.TenLoai.ToLower().Contains("côn") ||
+                        x.Loai.TenLoai.ToLower().Contains("con")
+                    ));
             }
 
             return query.Where(x =>
                 x.Loai != null &&
                 x.Loai.TenLoai.ToLower().Contains(requestedCategory));
+        }
+
+        private string BuildAbsoluteImageUrl(string? imageUrl)
+        {
+            if (string.IsNullOrWhiteSpace(imageUrl))
+                return string.Empty;
+
+            if (imageUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                imageUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return imageUrl;
+            }
+
+            var publicBaseUrl = _config["PublicBaseUrl"];
+            var baseUrl = !string.IsNullOrWhiteSpace(publicBaseUrl)
+                ? publicBaseUrl.TrimEnd('/')
+                : $"{Request.Scheme}://{Request.Host}";
+
+            if (!imageUrl.StartsWith("/"))
+                imageUrl = "/" + imageUrl;
+
+            return baseUrl + imageUrl;
+        }
+
+        private ProductSummaryDto MapToSummaryDto(SanPham x)
+        {
+            return new ProductSummaryDto
+            {
+                Id = x.MaSP,
+                Ten = x.TenSP,
+                Slug = x.Slug,
+                Gia = x.Gia,
+                SoLuong = x.SoLuong,
+                CC = x.CC,
+                ImageUrl = BuildAbsoluteImageUrl(x.ImageUrl),
+                ThuongHieu = x.ThuongHieu != null ? x.ThuongHieu.TenTH : string.Empty,
+                Loai = x.Loai != null ? x.Loai.TenLoai : string.Empty,
+                Tags = x.Tags
+            };
         }
 
         // GET: /api/tools/products/search?keyword=vision&take=10
@@ -80,10 +144,7 @@ namespace WebBanXeMay.Controllers.Api.Tools
             if (!CheckKey(out var err)) return err!;
             take = Math.Clamp(take, 1, 50);
 
-            var query = _db.SanPhams
-                .Include(x => x.ThuongHieu)
-                .Include(x => x.Loai)
-                .Where(x => x.IsActive);
+            var query = BuildBaseQuery();
 
             if (!string.IsNullOrWhiteSpace(keyword))
             {
@@ -95,30 +156,23 @@ namespace WebBanXeMay.Controllers.Api.Tools
                     (x.Loai != null && x.Loai.TenLoai.ToLower().Contains(k)) ||
                     (!string.IsNullOrEmpty(x.MoTa) && x.MoTa.ToLower().Contains(k)));
             }
-            var publicBaseUrl = _config["PublicBaseUrl"];
-            var baseUrl = !string.IsNullOrWhiteSpace(publicBaseUrl)
-                ? publicBaseUrl.TrimEnd('/')
-                : $"{Request.Scheme}://{Request.Host}";
-            var items = await query
+
+            var rawItems = await query
                 .OrderBy(x => x.TenSP)
                 .Take(take)
-                .Select(x => new ProductSummaryDto
-                {
-                    Id = x.MaSP,
-                    Ten = x.TenSP,
-                    Slug = x.Slug,
-                    Gia = x.Gia,
-                    SoLuong = x.SoLuong,
-                    CC = x.CC,
-                    ImageUrl = string.IsNullOrEmpty(x.ImageUrl) ? null : baseUrl + x.ImageUrl,
-                    ThuongHieu = x.ThuongHieu != null ? x.ThuongHieu.TenTH : "",
-                    Loai = x.Loai != null ? x.Loai.TenLoai : "",
-                    Tags = x.Tags
-                })
                 .ToListAsync();
 
-            return Ok(new { count = items.Count, items });
+            var items = rawItems
+                .Select(MapToSummaryDto)
+                .ToList();
+
+            return Ok(new
+            {
+                count = items.Count,
+                items
+            });
         }
+
         // GET: /api/tools/products/by-price-range?minPrice=30000000&maxPrice=50000000&take=10
         [HttpGet("by-price-range")]
         public async Task<IActionResult> GetByPriceRange(
@@ -129,10 +183,7 @@ namespace WebBanXeMay.Controllers.Api.Tools
             if (!CheckKey(out var err)) return err!;
             take = Math.Clamp(take, 1, 50);
 
-            var query = _db.SanPhams
-                .Include(x => x.ThuongHieu)
-                .Include(x => x.Loai)
-                .Where(x => x.IsActive);
+            var query = BuildBaseQuery();
 
             if (minPrice.HasValue)
             {
@@ -144,26 +195,15 @@ namespace WebBanXeMay.Controllers.Api.Tools
                 query = query.Where(x => x.Gia <= maxPrice.Value);
             }
 
-            var baseUrl = $"{Request.Scheme}://{Request.Host}";
-
-            var items = await query
+            var rawItems = await query
                 .OrderBy(x => x.Gia)
                 .ThenBy(x => x.TenSP)
                 .Take(take)
-                .Select(x => new ProductSummaryDto
-                {
-                    Id = x.MaSP,
-                    Ten = x.TenSP,
-                    Slug = x.Slug,
-                    Gia = x.Gia,
-                    SoLuong = x.SoLuong,
-                    CC = x.CC,
-                    ImageUrl = string.IsNullOrEmpty(x.ImageUrl) ? null : baseUrl + x.ImageUrl,
-                    ThuongHieu = x.ThuongHieu != null ? x.ThuongHieu.TenTH : "",
-                    Loai = x.Loai != null ? x.Loai.TenLoai : "",
-                    Tags = x.Tags
-                })
                 .ToListAsync();
+
+            var items = rawItems
+                .Select(MapToSummaryDto)
+                .ToList();
 
             return Ok(new
             {
@@ -180,12 +220,13 @@ namespace WebBanXeMay.Controllers.Api.Tools
         {
             if (!CheckKey(out var err)) return err!;
 
-            var p = await _db.SanPhams
-                .Include(x => x.ThuongHieu)
-                .Include(x => x.Loai)
+            var p = await BuildBaseQuery()
                 .FirstOrDefaultAsync(x => x.MaSP == id);
 
-            if (p == null) return NotFound(new { error = "Product not found" });
+            if (p == null)
+            {
+                return NotFound(new { error = "Product not found" });
+            }
 
             var dto = new ProductDetailDto
             {
@@ -195,21 +236,24 @@ namespace WebBanXeMay.Controllers.Api.Tools
                 Gia = p.Gia,
                 SoLuong = p.SoLuong,
                 CC = p.CC,
-                ImageUrl = p.ImageUrl,
-                ThuongHieu = p.ThuongHieu != null ? p.ThuongHieu.TenTH : "",
-                Loai = p.Loai != null ? p.Loai.TenLoai : "",
+                ImageUrl = BuildAbsoluteImageUrl(p.ImageUrl),
+                ThuongHieu = p.ThuongHieu != null ? p.ThuongHieu.TenTH : string.Empty,
+                Loai = p.Loai != null ? p.Loai.TenLoai : string.Empty,
+                Tags = p.Tags,
                 MoTa = p.MoTa,
                 IsActive = p.IsActive
             };
 
             return Ok(dto);
         }
+
+        // GET: /api/tools/products/by-brand-and-price?brand=honda&maxPrice=40000000&category=xe ga&take=10
         [HttpGet("by-brand-and-price")]
         public async Task<IActionResult> GetByBrandAndPrice(
-    [FromQuery] string? brand,
-    [FromQuery] decimal maxPrice,
-    [FromQuery] string? category,
-    [FromQuery] int take = 10)
+            [FromQuery] string? brand,
+            [FromQuery] decimal maxPrice,
+            [FromQuery] string? category,
+            [FromQuery] int take = 10)
         {
             if (!CheckKey(out var err)) return err!;
             take = Math.Clamp(take, 1, 50);
@@ -220,36 +264,24 @@ namespace WebBanXeMay.Controllers.Api.Tools
             }
 
             var normalizedBrand = NormalizeText(brand);
-            var baseUrl = $"{Request.Scheme}://{Request.Host}";
 
-            var query = _db.SanPhams
-                .Include(x => x.ThuongHieu)
-                .Include(x => x.Loai)
-                .Where(x => x.IsActive
-                            && x.ThuongHieu != null
-                            && x.ThuongHieu.TenTH.ToLower().Contains(normalizedBrand)
-                            && x.Gia <= maxPrice);
+            var query = BuildBaseQuery()
+                .Where(x =>
+                    x.ThuongHieu != null &&
+                    x.ThuongHieu.TenTH.ToLower().Contains(normalizedBrand) &&
+                    x.Gia <= maxPrice);
 
             query = ApplyCategoryFilter(query, category);
 
-            var items = await query
+            var rawItems = await query
                 .OrderBy(x => x.Gia)
                 .ThenBy(x => x.TenSP)
                 .Take(take)
-                .Select(x => new ProductSummaryDto
-                {
-                    Id = x.MaSP,
-                    Ten = x.TenSP,
-                    Slug = x.Slug,
-                    Gia = x.Gia,
-                    SoLuong = x.SoLuong,
-                    CC = x.CC,
-                    ImageUrl = string.IsNullOrEmpty(x.ImageUrl) ? null : baseUrl + x.ImageUrl,
-                    ThuongHieu = x.ThuongHieu != null ? x.ThuongHieu.TenTH : "",
-                    Loai = x.Loai != null ? x.Loai.TenLoai : "",
-                    Tags = x.Tags
-                })
                 .ToListAsync();
+
+            var items = rawItems
+                .Select(MapToSummaryDto)
+                .ToList();
 
             return Ok(new
             {
@@ -260,27 +292,28 @@ namespace WebBanXeMay.Controllers.Api.Tools
                 items
             });
         }
+
+        // GET: /api/tools/products/by-filters?brand=honda&minPrice=30000000&maxPrice=50000000&category=xe ga&take=10
         [HttpGet("by-filters")]
         public async Task<IActionResult> GetByFilters(
-    [FromQuery] string? brand,
-    [FromQuery] decimal? minPrice,
-    [FromQuery] decimal? maxPrice,
-    [FromQuery] string? category,
-    [FromQuery] int take = 10)
+            [FromQuery] string? brand,
+            [FromQuery] decimal? minPrice,
+            [FromQuery] decimal? maxPrice,
+            [FromQuery] string? category,
+            [FromQuery] int take = 10)
         {
             if (!CheckKey(out var err)) return err!;
             take = Math.Clamp(take, 1, 50);
 
-            var query = _db.SanPhams
-                .Include(x => x.ThuongHieu)
-                .Include(x => x.Loai)
-                .Where(x => x.IsActive);
+            var query = BuildBaseQuery();
 
             if (!string.IsNullOrWhiteSpace(brand))
             {
-                var normalizedBrand = brand.Trim().ToLower();
-                query = query.Where(x => x.ThuongHieu != null &&
-                                         x.ThuongHieu.TenTH.ToLower().Contains(normalizedBrand));
+                var normalizedBrand = NormalizeText(brand);
+
+                query = query.Where(x =>
+                    x.ThuongHieu != null &&
+                    x.ThuongHieu.TenTH.ToLower().Contains(normalizedBrand));
             }
 
             if (minPrice.HasValue)
@@ -295,26 +328,15 @@ namespace WebBanXeMay.Controllers.Api.Tools
 
             query = ApplyCategoryFilter(query, category);
 
-            var baseUrl = $"{Request.Scheme}://{Request.Host}";
-
-            var items = await query
+            var rawItems = await query
                 .OrderBy(x => x.Gia)
                 .ThenBy(x => x.TenSP)
                 .Take(take)
-                .Select(x => new ProductSummaryDto
-                {
-                    Id = x.MaSP,
-                    Ten = x.TenSP,
-                    Slug = x.Slug,
-                    Gia = x.Gia,
-                    SoLuong = x.SoLuong,
-                    CC = x.CC,
-                    ImageUrl = string.IsNullOrEmpty(x.ImageUrl) ? null : baseUrl + x.ImageUrl,
-                    ThuongHieu = x.ThuongHieu != null ? x.ThuongHieu.TenTH : "",
-                    Loai = x.Loai != null ? x.Loai.TenLoai : "",
-                    Tags= x.Tags
-                })
                 .ToListAsync();
+
+            var items = rawItems
+                .Select(MapToSummaryDto)
+                .ToList();
 
             return Ok(new
             {
@@ -327,5 +349,4 @@ namespace WebBanXeMay.Controllers.Api.Tools
             });
         }
     }
-
 }

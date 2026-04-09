@@ -89,36 +89,60 @@
             return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${safeUrl}</a>`;
         });
     }
+    function formatBasicMarkdown(text) {
+        if (!text) return "";
 
-    function formatBotMessage(content) {
-        if (!content) return "";
+        return text
+            .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+            .replace(/\*(.+?)\*/g, "<em>$1</em>");
+    }
+    function buildProductDetailUrl(product) {
+        if (!product) return null;
 
-        const imageRegex = /!\[(.*?)\]\((.*?)\)/g;
-        let textOnly = content;
-        let imageHtml = "";
-        let match;
-
-        while ((match = imageRegex.exec(content)) !== null) {
-            const alt = match[1] || "image";
-            const url = match[2] || "";
-
-            if (url) {
-                imageHtml += `
-                    <div class="ai-product-card">
-                        <img src="${escapeAttribute(url)}"
-                             alt="${escapeAttribute(alt)}"
-                             class="ai-product-image" />
-                    </div>
-                `;
-            }
+        if (product.slug && product.slug.trim()) {
+            return `/SanPham/Details?slug=${encodeURIComponent(product.slug)}`;
         }
 
-        textOnly = textOnly.replace(imageRegex, "").trim();
+        return null;
+    }
+    // Thay thế hàm renderProductCards cũ của mày bằng bản này
+    function renderProductCards(products) {
+        if (!Array.isArray(products) || !products.length) return "";
 
-        let safeText = escapeHtml(textOnly).replace(/\n/g, "<br>");
-        safeText = formatLinks(safeText);
+        return `<div class="ai-shop-card-list">` +
+            products.map(p => {
+                const name = escapeHtml(p.ten || "Sản phẩm");
+                const price = p.gia ? Number(p.gia).toLocaleString("vi-VN") + " ₫" : "Liên hệ";
+                const url = buildProductDetailUrl(p);
+                const img = (p.imageUrl && p.imageUrl.trim()) ? p.imageUrl : "/images/no-image.png";
 
-        return `<div class="ai-msg-text">${safeText}</div>${imageHtml}`;
+                return `
+                <a href="${escapeAttribute(url)}" class="ai-shop-card" target="_blank">
+                    <div class="ai-shop-card-media">
+                        <img src="${escapeAttribute(img)}" class="ai-shop-card-thumb" alt="${name}">
+                    </div>
+                    <div class="ai-shop-card-body">
+                        <div class="ai-shop-card-name">${name}</div>
+                        <div class="ai-shop-card-price">${price}</div>
+                        <div class="ai-shop-card-link-text">Nhấn để xem chi tiết...</div>
+                    </div>
+                </a>`;
+            }).join("") +
+            `</div>`;
+    }
+
+    // Sửa hàm formatBotMessage để CHẶN đứng việc render ảnh lung tung
+    function formatBotMessage(content, products = []) {
+        // 1. Dùng Regex xóa sạch các tag ảnh Markdown ![alt](url) để nó không hiện ảnh to đùng nữa
+        let cleanText = (content || "").replace(/!\[.*?\]\(.*?\)/g, "").trim();
+
+        let safeHtml = escapeHtml(cleanText).replace(/\n/g, "<br>");
+        safeHtml = formatBasicMarkdown(safeHtml);
+
+        // 2. Render list card gọn gàng bên dưới text
+        const cards = renderProductCards(products);
+
+        return `<div class="ai-msg-text">${safeHtml}</div>${cards}`;
     }
 
     function toggleEmptyState(show) {
@@ -148,20 +172,20 @@
         scrollBottom();
     }
 
-    function addMessage(role, content) {
-        const div = document.createElement("div");
-        div.className = `ai-msg ${role}`;
+function addMessage(role, content, products = []) {
+    const div = document.createElement("div");
+    div.className = `ai-msg ${role}`;
 
-        if (role === "bot") {
-            div.innerHTML = formatBotMessage(content);
-        } else {
-            div.innerHTML = escapeHtml(content).replace(/\n/g, "<br>");
-        }
-
-        messages.appendChild(div);
-        toggleEmptyState(false);
-        scrollBottom();
+    if (role === "bot") {
+        div.innerHTML = formatBotMessage(content, products);
+    } else {
+        div.innerHTML = escapeHtml(content).replace(/\n/g, "<br>");
     }
+
+    messages.appendChild(div);
+    toggleEmptyState(false);
+    scrollBottom();
+}
 
     function addTyping() {
         removeTyping();
@@ -346,7 +370,9 @@
             const replyText = result?.reply?.trim()
                 || "Xin lỗi, hiện tại mình chưa thể phản hồi. Bạn thử lại giúp mình nhé.";
 
-            addMessage("bot", replyText);
+            const products = Array.isArray(result?.products) ? result.products : [];
+
+            addMessage("bot", replyText, products);
             await loadConversations();
         } catch (error) {
             removeTyping();
