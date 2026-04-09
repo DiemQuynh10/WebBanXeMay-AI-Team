@@ -58,13 +58,58 @@ namespace Chatbot.API.Services
                 return result;
             }
 
-            if (profile?.HasActiveRecommendationContext == true &&
-                intent.IntentType == "followup")
+            if (intent.IntentType == "followup")
             {
-                result.FlowType = ChatFlowType.RecommendationFollowUp;
+                if (profile?.HasActiveCompareContext == true &&
+                    profile.LastComparedProducts.Count >= 2)
+                {
+                    result.FlowType = ChatFlowType.Compare;
+                    result.ShouldUseDeterministicFlow = true;
+                    result.ShouldUseAiFallback = false;
+                    result.Reason = "Compare follow-up detected";
+                    return result;
+                }
+
+                if (profile?.HasActiveRecommendationContext == true &&
+                    profile.LastRecommendedProducts.Count > 0)
+                {
+                    result.FlowType = ChatFlowType.RecommendationFollowUp;
+                    result.ShouldUseDeterministicFlow = true;
+                    result.ShouldUseAiFallback = false;
+                    result.Reason = "Recommendation follow-up detected";
+                    return result;
+                }
+            }
+
+            if (intent.IntentType == "refine")
+            {
+                if (profile?.HasActiveCompareContext == true &&
+                    profile.LastComparedProducts.Count >= 2 &&
+                    !string.IsNullOrWhiteSpace(intent.ComparisonFeature))
+                {
+                    result.FlowType = ChatFlowType.Compare;
+                    result.ShouldUseDeterministicFlow = true;
+                    result.ShouldUseAiFallback = false;
+                    result.Reason = "Compare context overrides refine";
+                    return result;
+                }
+
+                result.FlowType = ChatFlowType.Refinement;
                 result.ShouldUseDeterministicFlow = true;
                 result.ShouldUseAiFallback = false;
-                result.Reason = "Recommendation follow-up detected";
+                result.Reason = "Refinement detected";
+                return result;
+            }
+
+            if (intent.IntentType == "refine" &&
+                profile?.HasActiveCompareContext == true &&
+                profile.LastComparedProducts.Count >= 2 &&
+                !string.IsNullOrWhiteSpace(intent.ComparisonFeature))
+            {
+                result.FlowType = ChatFlowType.Compare;
+                result.ShouldUseDeterministicFlow = true;
+                result.ShouldUseAiFallback = false;
+                result.Reason = "Compare context overrides refine";
                 return result;
             }
 

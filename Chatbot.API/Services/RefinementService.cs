@@ -31,6 +31,11 @@ namespace Chatbot.API.Services
      ParsedIntent intent,
      CustomerPreferenceProfile profile)
         {
+            if (profile.HasActiveCompareContext && profile.LastComparedProducts.Count >= 2)
+            {
+                return null;
+            }
+
             if (!profile.HasActiveRecommendationContext || profile.LastRecommendedProducts == null || profile.LastRecommendedProducts.Count == 0)
             {
                 return null;
@@ -106,7 +111,34 @@ namespace Chatbot.API.Services
             : "Trong nhóm mình vừa gợi ý thì sau khi lọc theo tiêu chí này hiện chưa còn mẫu nào thật sự phù hợp."
                 };
             }
-
+            if ((intent.WantsLargeStorage || intent.WantsFuelSaving || intent.NeedsLowSeat || !string.IsNullOrWhiteSpace(intent.ComparisonFeature))
+    && !intent.ExcludedCategories.Any()
+    && !intent.ExcludedBrands.Any()
+    && string.IsNullOrWhiteSpace(intent.Brand))
+            {
+                filteredList = filteredList
+                    .OrderByDescending(x =>
+                        intent.WantsLargeStorage && (
+                            (x.Ten ?? "").Contains("Freego", StringComparison.OrdinalIgnoreCase) ||
+                            (x.Ten ?? "").Contains("Lead", StringComparison.OrdinalIgnoreCase) ||
+                            (x.Ten ?? "").Contains("Latte", StringComparison.OrdinalIgnoreCase) ||
+                            (x.Ten ?? "").Contains("Address", StringComparison.OrdinalIgnoreCase))
+                            ? 1 : 0)
+                    .ThenByDescending(x =>
+                        intent.NeedsLowSeat && (
+                            (x.Ten ?? "").Contains("Vision", StringComparison.OrdinalIgnoreCase) ||
+                            (x.Ten ?? "").Contains("Zip", StringComparison.OrdinalIgnoreCase) ||
+                            (x.Ten ?? "").Contains("Latte", StringComparison.OrdinalIgnoreCase))
+                            ? 1 : 0)
+                    .ThenByDescending(x =>
+                        intent.WantsFuelSaving && (
+                            (x.Ten ?? "").Contains("Wave", StringComparison.OrdinalIgnoreCase) ||
+                            (x.Ten ?? "").Contains("Future", StringComparison.OrdinalIgnoreCase) ||
+                            (x.Ten ?? "").Contains("Vision", StringComparison.OrdinalIgnoreCase) ||
+                            (x.Ten ?? "").Contains("Sirius", StringComparison.OrdinalIgnoreCase))
+                            ? 1 : 0)
+                    .ToList();
+            }
             var ranked = _productRecommendationService.RankProducts(
                 filteredList,
                 intent,

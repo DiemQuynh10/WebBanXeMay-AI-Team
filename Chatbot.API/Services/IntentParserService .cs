@@ -83,35 +83,68 @@ namespace Chatbot.API.Services
 
         private static void ParseOutOfScope(string text, ParsedIntent result)
         {
-            // Chỉ đánh dấu out-of-scope khi không có tín hiệu xe máy / sản phẩm / đơn hàng
+            // Nếu có bất kỳ tín hiệu nào liên quan tới xe / tư vấn xe thì không được coi là out-of-scope
             bool hasMotorbikeSignal =
                 result.MentionedProducts.Any()
                 || !string.IsNullOrWhiteSpace(result.Brand)
                 || !string.IsNullOrWhiteSpace(result.Category)
+                || !string.IsNullOrWhiteSpace(result.Target)
+                || result.PriceMin.HasValue
+                || result.PriceMax.HasValue
+                || result.TargetPrice.HasValue
+                || result.ForSchool
+                || result.ForWork
+                || result.ForCity
+                || result.ForTour
+                || result.WantsEasyControl
+                || result.WantsFuelSaving
+                || result.WantsLargeStorage
+                || result.NeedsLowSeat
+                || result.RequestedStyles.Count > 0
                 || ContainsAny(text,
-                    "xe may", "xe ga", "xe so", "con tay",
-                    "gia", "bao nhieu", "ton kho", "con hang",
-                    "don hang", "ma don", "tra don", "kiem tra don");
+                    "xe",
+                    "xe may",
+                    "xe ga",
+                    "xe so",
+                    "con tay",
+                    "tu van",
+                    "goi y",
+                    "phu hop",
+                    "nen mua",
+                    "gia",
+                    "bao nhieu",
+                    "ton kho",
+                    "con hang",
+                    "don hang",
+                    "ma don",
+                    "tra don",
+                    "kiem tra don");
 
             if (hasMotorbikeSignal)
                 return;
 
             if (ContainsAny(text,
-                    "thoi tiet",
-                    "bong da",
-                    "chung khoan",
-                    "bitcoin",
-                    "lap trinh",
-                    "code ho",
-                    "viet ho bai",
-                    "toan",
-                    "ly",
-                    "hoa",
-                    "am nhac",
-                    "phim",
-                    "game",
-                    "tinh yeu",
-                    "tu vi"))
+        "thoi tiet",
+        "bong da",
+        "chung khoan",
+        "bitcoin",
+        "lap trinh",
+        "code ho",
+        "viet ho bai",
+        "viet code",
+        "viết code",
+        "code c#",
+        "code c sharp",
+        "code java",
+        "code python",
+        "toan",
+        "ly",
+        "hoa",
+        "am nhac",
+        "phim",
+        "game",
+        "tinh yeu",
+        "tu vi"))
             {
                 result.IsOutOfScope = true;
             }
@@ -138,10 +171,14 @@ namespace Chatbot.API.Services
         {
             bool hasMentionedProduct = result.MentionedProducts.Count >= 1;
 
-            bool asksPrice = ContainsAny(text, "gia", "bao nhieu", "may tien");
-            bool asksStock = ContainsAny(text, "con hang", "ton kho", "con khong", "het hang", "co san");
             bool asksCc = Regex.IsMatch(text, @"\bcc\b", RegexOptions.IgnoreCase)
-                          || ContainsAny(text, "bao nhieu phan khoi", "dung tich", "phan khoi");
+               || ContainsAny(text, "bao nhieu cc", "bao nhieu phan khoi", "dung tich", "phan khoi");
+
+            bool asksStock = ContainsAny(text, "con hang", "ton kho", "con khong", "het hang", "co san");
+
+            bool asksPrice = ContainsAny(text, "gia", "may tien")
+                             || (text.Contains("bao nhieu") && !asksCc);
+
             bool asksDetail = ContainsAny(text,
                 "chi tiet",
                 "thong tin",
@@ -149,12 +186,12 @@ namespace Chatbot.API.Services
                 "co gi",
                 "xem chi tiet");
 
-            if (asksPrice)
-                result.LookupField = "price";
+            if (asksCc)
+                result.LookupField = "cc";
             else if (asksStock)
                 result.LookupField = "stock";
-            else if (asksCc)
-                result.LookupField = "cc";
+            else if (asksPrice)
+                result.LookupField = "price";
             else if (asksDetail)
                 result.LookupField = "detail";
 
@@ -735,6 +772,34 @@ namespace Chatbot.API.Services
         {
             if (mentionedProductCount >= 2)
                 return false;
+
+            bool hasComparativeTone =
+                ContainsAny(text,
+                    "hon",
+                    "nao hon",
+                    "tot hon",
+                    "hop hon",
+                    "rong hon",
+                    "thap hon",
+                    "em hon",
+                    "gon hon",
+                    "nhe hon");
+
+            bool hasFeature =
+                ContainsAny(text,
+                    "cop rong",
+                    "de chong chan",
+                    "tiet kiem xang",
+                    "hop nu",
+                    "di em",
+                    "thuc dung",
+                    "di lam",
+                    "di hoc",
+                    "gon",
+                    "nhe");
+
+            if (hasComparativeTone && hasFeature)
+                return true;
 
             return ContainsAny(text,
                 "con nao cop rong hon",

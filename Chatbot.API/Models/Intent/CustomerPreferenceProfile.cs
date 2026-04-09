@@ -59,6 +59,9 @@
 
         public string? LastUserMessage { get; set; }
         public string? LastIntentType { get; set; }
+        public bool HasPendingOrderLookup { get; set; }
+        public int? PendingOrderId { get; set; }
+        public string? PendingOrderPhone { get; set; }
 
         public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
     }
