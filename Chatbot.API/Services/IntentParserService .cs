@@ -27,9 +27,9 @@ namespace Chatbot.API.Services
             "pcx",
             "sh",
             "shark",
-"shark mini",
-"attila",
-"attila venus"
+            "shark mini",
+            "attila",
+            "attila venus"
         };
 
         public Task<ParsedIntent> ParseAsync(string message)
@@ -44,6 +44,7 @@ namespace Chatbot.API.Services
 
             var text = Normalize(message);
 
+            // 1. Parse các thuộc tính nền
             ParseExcludedCategory(text, result);
             ParseExcludedBrand(text, result);
 
@@ -56,12 +57,294 @@ namespace Chatbot.API.Services
             ParseHeightAndSeat(text, result);
             ParseStyles(text, result);
             ParseMentionedProducts(text, result);
+            ParseComparisonFeature(text, result);
+
+            ResolveBrandAndCategoryConflicts(result);
+
+            // 2. Parse flow-level signals
+            ParseGreeting(text, result);
+            ParseOutOfScope(text, result);
+            ParseOrderLookup(text, result);
+            ParseLookupSignals(text, result);
             ParseIntentType(text, result);
             ParseFollowUp(text, result);
-            ParseComparisonFeature(text, result);
-            ResolveBrandAndCategoryConflicts(result);
+            ParseRouteFlow(text, result);
+
             return Task.FromResult(result);
         }
+
+        private static void ParseGreeting(string text, ParsedIntent result)
+        {
+            if (MatchesWholeText(text, "hello", "hi", "alo", "chao", "xin chao", "ad oi", "shop oi"))
+            {
+                result.IsGreeting = true;
+            }
+        }
+
+        private static void ParseOutOfScope(string text, ParsedIntent result)
+        {
+            // Chỉ đánh dấu out-of-scope khi không có tín hiệu xe máy / sản phẩm / đơn hàng
+            bool hasMotorbikeSignal =
+                result.MentionedProducts.Any()
+                || !string.IsNullOrWhiteSpace(result.Brand)
+                || !string.IsNullOrWhiteSpace(result.Category)
+                || ContainsAny(text,
+                    "xe may", "xe ga", "xe so", "con tay",
+                    "gia", "bao nhieu", "ton kho", "con hang",
+                    "don hang", "ma don", "tra don", "kiem tra don");
+
+            if (hasMotorbikeSignal)
+                return;
+
+            if (ContainsAny(text,
+                    "thoi tiet",
+                    "bong da",
+                    "chung khoan",
+                    "bitcoin",
+                    "lap trinh",
+                    "code ho",
+                    "viet ho bai",
+                    "toan",
+                    "ly",
+                    "hoa",
+                    "am nhac",
+                    "phim",
+                    "game",
+                    "tinh yeu",
+                    "tu vi"))
+            {
+                result.IsOutOfScope = true;
+            }
+        }
+
+        private static void ParseOrderLookup(string text, ParsedIntent result)
+        {
+            if (ContainsAny(text,
+                    "don hang",
+                    "ma don",
+                    "kiem tra don",
+                    "tra don",
+                    "tinh trang don",
+                    "don cua toi"))
+            {
+                result.IsOrderLookup = true;
+                result.LookupTargetType = "order";
+                result.IntentType = "order_lookup";
+                result.HasDeterministicProductIntent = false;
+            }
+        }
+
+        private static void ParseLookupSignals(string text, ParsedIntent result)
+        {
+            bool hasMentionedProduct = result.MentionedProducts.Count >= 1;
+
+            bool asksPrice = ContainsAny(text, "gia", "bao nhieu", "may tien");
+            bool asksStock = ContainsAny(text, "con hang", "ton kho", "con khong", "het hang", "co san");
+            bool asksCc = Regex.IsMatch(text, @"\bcc\b", RegexOptions.IgnoreCase)
+                          || ContainsAny(text, "bao nhieu phan khoi", "dung tich", "phan khoi");
+            bool asksDetail = ContainsAny(text,
+                "chi tiet",
+                "thong tin",
+                "mo ta",
+                "co gi",
+                "xem chi tiet");
+
+            if (asksPrice)
+                result.LookupField = "price";
+            else if (asksStock)
+                result.LookupField = "stock";
+            else if (asksCc)
+                result.LookupField = "cc";
+            else if (asksDetail)
+                result.LookupField = "detail";
+
+            if (hasMentionedProduct && !string.IsNullOrWhiteSpace(result.LookupField))
+            {
+                result.IsDirectProductLookup = true;
+                result.LookupTargetType = "product";
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
+
+            // hỏi 1 mẫu mà không có từ khóa quá rõ nhưng vẫn rất giống lookup
+            if (hasMentionedProduct &&
+                result.MentionedProducts.Count == 1 &&
+                !ContainsAny(text, "tu van", "goi y", "phu hop", "nen mua", "xe nao"))
+            {
+                if (ContainsAny(text, "vision", "latte", "freego", "air blade", "janus", "lead", "vario", "zip", "sirius", "wave", "future"))
+                {
+                    result.IsDirectProductLookup = true;
+                    result.LookupTargetType = "product";
+                    result.LookupField ??= "detail";
+                    result.HasDeterministicProductIntent = true;
+                }
+            }
+        }
+
+        private static void ParseIntentType(string text, ParsedIntent result)
+        {
+            // Ưu tiên: greeting / out-of-scope / order / compare / brand switch / refine / follow-up / lookup / search / recommend
+
+            if (result.IsGreeting)
+            {
+                result.IntentType = "greeting";
+                return;
+            }
+
+            if (result.IsOutOfScope)
+            {
+                result.IntentType = "out_of_scope";
+                return;
+            }
+
+            if (result.IsOrderLookup)
+            {
+                result.IntentType = "order_lookup";
+                return;
+            }
+
+            if (IsExplicitCompareIntent(text, result.MentionedProducts.Count))
+            {
+                result.IntentType = "compare";
+                result.IsDirectCompare = true;
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
+
+            if (IsSwitchBrandIntent(text))
+            {
+                result.IntentType = "brand_switch";
+                result.IsBrandSwitch = true;
+                result.IsFollowUp = true;
+                result.FollowUpType = "switch_brand";
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
+
+            if (IsRefineIntent(text))
+            {
+                result.IntentType = "refine";
+                result.IsFollowUp = true;
+                result.FollowUpType = "refine";
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
+
+            if (IsRecommendationFollowUpIntent(text, result.MentionedProducts.Count))
+            {
+                result.IntentType = "followup";
+                result.IsFollowUp = true;
+                result.FollowUpType = "rerank_previous_list";
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
+
+            if (result.IsDirectProductLookup)
+            {
+                result.IntentType = "product_lookup";
+                return;
+            }
+
+            if (LooksLikeProductSearch(text, result))
+            {
+                result.IntentType = "product_search";
+                result.IsProductSearch = true;
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
+
+            if (LooksLikeOpenRecommendation(text, result))
+            {
+                result.IntentType = "recommend";
+                result.IsOpenRecommendation = true;
+                return;
+            }
+
+            result.IntentType = "unknown";
+        }
+
+        private static void ParseFollowUp(string text, ParsedIntent result)
+        {
+            if (result.IntentType == "compare")
+            {
+                result.IsFollowUp = result.MentionedProducts.Count < 2;
+                result.FollowUpType ??= "compare";
+                return;
+            }
+
+            if (result.IntentType == "refine" ||
+                result.IntentType == "followup" ||
+                result.IntentType == "brand_switch")
+            {
+                result.IsFollowUp = true;
+            }
+        }
+
+        private static void ParseRouteFlow(string text, ParsedIntent result)
+        {
+            if (result.IsGreeting)
+            {
+                result.RouteFlow = ChatFlowType.Greeting;
+                return;
+            }
+
+            if (result.IsOutOfScope)
+            {
+                result.RouteFlow = ChatFlowType.OutOfScope;
+                return;
+            }
+
+            if (result.IsOrderLookup)
+            {
+                result.RouteFlow = ChatFlowType.OrderLookup;
+                return;
+            }
+
+            if (result.IsDirectCompare)
+            {
+                result.RouteFlow = ChatFlowType.Compare;
+                return;
+            }
+
+            if (result.IsDirectProductLookup)
+            {
+                result.RouteFlow = ChatFlowType.ProductLookup;
+                return;
+            }
+
+            if (result.IntentType == "followup")
+            {
+                result.RouteFlow = ChatFlowType.RecommendationFollowUp;
+                return;
+            }
+
+            if (result.IntentType == "refine")
+            {
+                result.RouteFlow = ChatFlowType.Refinement;
+                return;
+            }
+
+            if (result.IntentType == "brand_switch")
+            {
+                result.RouteFlow = ChatFlowType.BrandSwitch;
+                return;
+            }
+
+            if (result.IsProductSearch)
+            {
+                result.RouteFlow = ChatFlowType.ProductSearch;
+                return;
+            }
+
+            if (result.IsOpenRecommendation)
+            {
+                result.RouteFlow = ChatFlowType.Recommendation;
+                return;
+            }
+
+            result.RouteFlow = ChatFlowType.Unknown;
+        }
+
         private static void ResolveBrandAndCategoryConflicts(ParsedIntent result)
         {
             if (!string.IsNullOrWhiteSpace(result.Brand) &&
@@ -76,6 +359,7 @@ namespace Chatbot.API.Services
                 result.Category = null;
             }
         }
+
         private static void ParseCategory(string text, ParsedIntent result)
         {
             if (!result.ExcludedCategories.Contains("xe ga") &&
@@ -113,31 +397,31 @@ namespace Chatbot.API.Services
 
         private static void ParseBrand(string text, ParsedIntent result)
         {
-            if (!result.ExcludedBrands.Contains("Honda") && text.Contains("honda"))
+            if (!result.ExcludedBrands.Contains("Honda") && HasWholeWord(text, "honda"))
             {
                 result.Brand = "Honda";
                 return;
             }
 
-            if (!result.ExcludedBrands.Contains("Yamaha") && text.Contains("yamaha"))
+            if (!result.ExcludedBrands.Contains("Yamaha") && HasWholeWord(text, "yamaha"))
             {
                 result.Brand = "Yamaha";
                 return;
             }
 
-            if (!result.ExcludedBrands.Contains("Suzuki") && text.Contains("suzuki"))
+            if (!result.ExcludedBrands.Contains("Suzuki") && HasWholeWord(text, "suzuki"))
             {
                 result.Brand = "Suzuki";
                 return;
             }
 
-            if (!result.ExcludedBrands.Contains("SYM") && text.Contains("sym"))
+            if (!result.ExcludedBrands.Contains("SYM") && HasWholeWord(text, "sym"))
             {
                 result.Brand = "SYM";
                 return;
             }
 
-            if (!result.ExcludedBrands.Contains("Piaggio") && text.Contains("piaggio"))
+            if (!result.ExcludedBrands.Contains("Piaggio") && HasWholeWord(text, "piaggio"))
             {
                 result.Brand = "Piaggio";
             }
@@ -232,9 +516,10 @@ namespace Chatbot.API.Services
 
         private static void ParseMentionedProducts(string text, ParsedIntent result)
         {
-            foreach (var product in KnownProducts)
+            foreach (var product in KnownProducts
+                         .OrderByDescending(x => x.Length))
             {
-                if (text.Contains(product, StringComparison.OrdinalIgnoreCase))
+                if (HasWholePhrase(text, product))
                 {
                     result.MentionedProducts.Add(ToDisplayProductName(product));
                 }
@@ -243,68 +528,6 @@ namespace Chatbot.API.Services
             result.MentionedProducts = result.MentionedProducts
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
-        }
-
-        private static void ParseIntentType(string text, ParsedIntent result)
-        {
-            if (IsExplicitCompareIntent(text, result.MentionedProducts.Count))
-            {
-                result.IntentType = "compare";
-                return;
-            }
-
-            if (IsSwitchBrandIntent(text))
-            {
-                result.IntentType = "refine";
-                result.IsFollowUp = true;
-                result.FollowUpType = "switch_brand";
-                return;
-            }
-
-            if (IsRefineIntent(text))
-            {
-                result.IntentType = "refine";
-                result.IsFollowUp = true;
-                result.FollowUpType = "refine";
-                return;
-            }
-
-            if (IsRecommendationFollowUpIntent(text, result.MentionedProducts.Count))
-            {
-                result.IntentType = "followup";
-                result.IsFollowUp = true;
-                result.FollowUpType = "rerank_previous_list";
-                return;
-            }
-
-            if (ContainsAny(text, "gia", "bao nhieu", "con hang", "ton kho"))
-            {
-                result.IntentType = "lookup";
-                return;
-            }
-
-            if (ContainsAny(text, "tu van", "goi y", "phu hop", "nen mua", "xe nao"))
-            {
-                result.IntentType = "recommend";
-                return;
-            }
-
-            result.IntentType = "unknown";
-        }
-        private static void ParseFollowUp(string text, ParsedIntent result)
-        {
-            if (result.IntentType == "compare")
-            {
-                result.IsFollowUp = result.MentionedProducts.Count < 2;
-                result.FollowUpType ??= "compare";
-                return;
-            }
-
-            if (result.IntentType == "refine" || result.IntentType == "followup")
-            {
-                result.IsFollowUp = true;
-                return;
-            }
         }
 
         private static void ParseComparisonFeature(string text, ParsedIntent result)
@@ -391,6 +614,153 @@ namespace Chatbot.API.Services
             return null;
         }
 
+        private static bool LooksLikeProductSearch(string text, ParsedIntent result)
+        {
+            if (result.IsDirectProductLookup || result.IsOrderLookup || result.IsGreeting || result.IsOutOfScope)
+                return false;
+
+            bool hasSearchConstraint =
+                !string.IsNullOrWhiteSpace(result.Brand)
+                || !string.IsNullOrWhiteSpace(result.Category)
+                || result.PriceMin.HasValue
+                || result.PriceMax.HasValue
+                || result.TargetPrice.HasValue;
+
+            bool hasOpenRecommendPhrase = ContainsAny(text, "tu van", "goi y", "phu hop", "nen mua", "xe nao");
+
+            bool hasDirectLookupPhrase = !string.IsNullOrWhiteSpace(result.LookupField);
+
+            if (hasDirectLookupPhrase)
+                return false;
+
+            if (hasSearchConstraint && !hasOpenRecommendPhrase)
+                return true;
+
+            // ví dụ: xe ga yamaha, xe honda dưới 40 triệu
+            if (ContainsAny(text, "xe ga", "xe so", "con tay", "honda", "yamaha", "suzuki", "sym", "piaggio") &&
+                (ContainsAny(text, "duoi", "tren", "tu", "den", "khoang", "tam", "quanh") || result.PriceMin.HasValue || result.PriceMax.HasValue || result.TargetPrice.HasValue))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(result.Brand) && !string.IsNullOrWhiteSpace(result.Category))
+                return true;
+
+            return false;
+        }
+
+        private static bool LooksLikeOpenRecommendation(string text, ParsedIntent result)
+        {
+            if (result.IsDirectProductLookup || result.IsOrderLookup || result.IsGreeting || result.IsOutOfScope)
+                return false;
+
+            if (ContainsAny(text, "tu van", "goi y", "phu hop", "nen mua", "xe nao"))
+                return true;
+
+            bool hasHumanNeed =
+                !string.IsNullOrWhiteSpace(result.Target)
+                || result.ForSchool
+                || result.ForWork
+                || result.ForCity
+                || result.ForTour
+                || result.WantsEasyControl
+                || result.WantsFuelSaving
+                || result.WantsLargeStorage
+                || result.NeedsLowSeat
+                || result.RequestedStyles.Count > 0;
+
+            bool hasBudgetOrFilter =
+                result.TargetPrice.HasValue
+                || result.PriceMin.HasValue
+                || result.PriceMax.HasValue
+                || !string.IsNullOrWhiteSpace(result.Brand)
+                || !string.IsNullOrWhiteSpace(result.Category);
+
+            // ví dụ: xe cho nữ khoảng 40 triệu
+            if (hasHumanNeed && hasBudgetOrFilter)
+                return true;
+
+            // ví dụ: tư vấn xe đi làm
+            if (hasHumanNeed && ContainsAny(text, "xe", "mau xe"))
+                return true;
+
+            return false;
+        }
+
+        private static bool IsExplicitCompareIntent(string text, int mentionedProductCount)
+        {
+            if (mentionedProductCount >= 2)
+                return true;
+
+            return ContainsAny(text,
+                "so sanh",
+                "so voi",
+                "khac nhau",
+                "con nao hon",
+                "cai nao hon",
+                "tot hon");
+        }
+
+        private static bool IsRefineIntent(string text)
+        {
+            return ContainsAny(text,
+                "khong thich",
+                "khong muon",
+                "dung",
+                "ne",
+                "ghet",
+                "uu tien",
+                "bot",
+                "them dieu kien");
+        }
+
+        private static bool IsSwitchBrandIntent(string text)
+        {
+            return text.StartsWith("con ")
+                   || text.StartsWith("còn ")
+                   || ContainsAny(text,
+                       "con honda thi sao",
+                       "con yamaha thi sao",
+                       "con suzuki thi sao",
+                       "con sym thi sao",
+                       "con piaggio thi sao",
+                       "còn honda thì sao",
+                       "còn yamaha thì sao",
+                       "còn suzuki thì sao",
+                       "còn sym thì sao",
+                       "còn piaggio thì sao");
+        }
+
+        private static bool IsRecommendationFollowUpIntent(string text, int mentionedProductCount)
+        {
+            if (mentionedProductCount >= 2)
+                return false;
+
+            return ContainsAny(text,
+                "con nao cop rong hon",
+                "xe nao cop rong hon",
+                "con nao de chong chan hon",
+                "xe nao de chong chan hon",
+                "con nao tiet kiem xang hon",
+                "xe nao tiet kiem xang hon",
+                "con nao hop nu hon",
+                "xe nao hop nu hon",
+                "con nao di lam on hon",
+                "con nao di hoc on hon",
+                "con nao gon hon",
+                "con nao nhe hon",
+                "con nao di em hon",
+                "xe nao di em hon",
+                "con nao thuc dung hon",
+                "xe nao thuc dung hon",
+                "cop rong hon",
+                "de chong chan hon",
+                "tiet kiem xang hon",
+                "hop nu hon",
+                "di em hon",
+                "thuc dung hon");
+        }
+
         private static bool ContainsAny(string text, params string[] keywords)
         {
             return keywords.Any(k => text.Contains(k));
@@ -402,6 +772,28 @@ namespace Chatbot.API.Services
             text = RemoveVietnameseSigns(text);
             text = Regex.Replace(text, @"\s+", " ");
             return text;
+        }
+
+        private static bool HasWholeWord(string text, string word)
+        {
+            return Regex.IsMatch(
+                text,
+                $@"(?<!\p{{L}}|\p{{N}}){Regex.Escape(word)}(?!\p{{L}}|\p{{N}})",
+                RegexOptions.IgnoreCase);
+        }
+
+        private static bool HasWholePhrase(string text, string phrase)
+        {
+            return Regex.IsMatch(
+                text,
+                $@"(?<!\p{{L}}|\p{{N}}){Regex.Escape(phrase)}(?!\p{{L}}|\p{{N}})",
+                RegexOptions.IgnoreCase);
+        }
+
+        private static bool MatchesWholeText(string text, params string[] options)
+        {
+            var trimmed = (text ?? string.Empty).Trim();
+            return options.Any(x => string.Equals(trimmed, x, StringComparison.OrdinalIgnoreCase));
         }
 
         private static string RemoveVietnameseSigns(string text)
@@ -509,79 +901,6 @@ namespace Chatbot.API.Services
                 "attila venus" => "SYM Attila Venus",
                 _ => normalizedName
             };
-        }
-        private static bool IsExplicitCompareIntent(string text, int mentionedProductCount)
-        {
-            if (mentionedProductCount >= 2)
-                return true;
-
-            return ContainsAny(text,
-                "so sanh",
-                "so voi",
-                "khac nhau",
-                "con nao hon",
-                "cai nao hon",
-                "tot hon");
-        }
-
-        private static bool IsRefineIntent(string text)
-        {
-            return ContainsAny(text,
-                "khong thich",
-                "khong muon",
-                "dung",
-                "ne",
-                "ghet",
-                "uu tien",
-                "bot",
-                "them dieu kien");
-        }
-
-        private static bool IsSwitchBrandIntent(string text)
-        {
-            return text.StartsWith("con ")
-                || text.StartsWith("còn ")
-                || ContainsAny(text,
-                    "con honda thi sao",
-                    "con yamaha thi sao",
-                    "con suzuki thi sao",
-                    "con sym thi sao",
-                    "con piaggio thi sao",
-                    "còn honda thì sao",
-                    "còn yamaha thì sao",
-                    "còn suzuki thì sao",
-                    "còn sym thì sao",
-                    "còn piaggio thì sao");
-        }
-
-        private static bool IsRecommendationFollowUpIntent(string text, int mentionedProductCount)
-        {
-            if (mentionedProductCount >= 2)
-                return false;
-
-            return ContainsAny(text,
-                "con nao cop rong hon",
-                "xe nao cop rong hon",
-                "con nao de chong chan hon",
-                "xe nao de chong chan hon",
-                "con nao tiet kiem xang hon",
-                "xe nao tiet kiem xang hon",
-                "con nao hop nu hon",
-                "xe nao hop nu hon",
-                "con nao di lam on hon",
-                "con nao di hoc on hon",
-                "con nao gon hon",
-                "con nao nhe hon",
-                "con nao di em hon",
-                "xe nao di em hon",
-                "con nao thuc dung hon",
-                "xe nao thuc dung hon",
-                "cop rong hon",
-                "de chong chan hon",
-                "tiet kiem xang hon",
-                "hop nu hon",
-                "di em hon",
-                "thuc dung hon");
         }
     }
 }

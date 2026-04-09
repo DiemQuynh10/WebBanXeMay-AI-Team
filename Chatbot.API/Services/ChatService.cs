@@ -483,14 +483,13 @@ namespace Chatbot.API.Services
             }
         }
         private static bool ShouldResetContextForFreshConsultation(
-    string message,
-    ParsedIntent parsedIntent,
-    CustomerPreferenceProfile existingProfile)
+     string message,
+     ParsedIntent parsedIntent,
+     CustomerPreferenceProfile existingProfile)
         {
             if (existingProfile == null)
                 return false;
 
-<<<<<<< HEAD
             bool hasOldContext =
                 existingProfile.TurnCount > 0 ||
                 existingProfile.HasActiveRecommendationContext ||
@@ -537,7 +536,7 @@ namespace Chatbot.API.Services
 
             return looksLikeFreshStandalone;
         }
-=======
+
         private static string BuildRagOnlyReply(string ragContext)
         {
             var cleaned = ragContext.Trim();
@@ -548,8 +547,6 @@ namespace Chatbot.API.Services
 
             return cleaned.Substring(0, 1200).Trim() + "...";
         }
-
->>>>>>> f771579b2a62e5e2377e9ccbe93594d9553ce988
         private async Task<ToolFirstConsultationResult?> TryBuildToolFirstConsultationAsync(
     ChatRequest request,
     string conversationId,
