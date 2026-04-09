@@ -242,9 +242,20 @@ namespace Chatbot.API.Services
                     };
                 }
 
+                bool useTool = ShouldUseTool(normalizedMessage) || ShouldUseToolAndRag(normalizedMessage);
+                bool useRag = ShouldUseRag(normalizedMessage) || ShouldUseToolAndRag(normalizedMessage);
+
                 string? forcedToolName = null;
                 bool hasPreparedToolPrompt = false;
-                bool wantedToolFirstConsultation = ShouldUseToolFirstConsultation(normalizedMessage, parsedIntent, conversationProfile);
+                bool wantedToolFirstConsultation = useTool || ShouldUseToolFirstConsultation(normalizedMessage, parsedIntent, conversationProfile);
+
+                if (useTool)
+                {
+                    _logger.LogInformation(
+                        "Tool routing enabled. ConversationId: {ConversationId}, Message: {Message}",
+                        conversationId,
+                        normalizedMessage);
+                }
 
                 if (wantedToolFirstConsultation)
                 {
@@ -292,9 +303,6 @@ namespace Chatbot.API.Services
                 }
 
                 string? ragContext = null;
-
-                bool useTool = ShouldUseTool(normalizedMessage) || ShouldUseToolAndRag(normalizedMessage);
-                bool useRag = ShouldUseRag(normalizedMessage) || ShouldUseToolAndRag(normalizedMessage);
 
                 if (useRag)
                 {
