@@ -7,7 +7,9 @@ using WebBanXeMay.Hubs;
 using WebBanXeMay.Configurations;
 
 var builder = WebApplication.CreateBuilder(args);
-
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
 // ===== Database (SQL Server) =====
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -114,23 +116,23 @@ builder.Services.AddSession(o =>
 var app = builder.Build();
 
 // ===== Seed dữ liệu (roles/users) =====
-using (var scope = app.Services.CreateScope())
-{
-    var sp = scope.ServiceProvider;
-    var userMgr = sp.GetRequiredService<UserManager<ApplicationUser>>();
-    var roleMgr = sp.GetRequiredService<RoleManager<IdentityRole>>();
-    var db = sp.GetRequiredService<AppDbContext>();
+// using (var scope = app.Services.CreateScope())
+// {
+//     var sp = scope.ServiceProvider;
+//     var userMgr = sp.GetRequiredService<UserManager<ApplicationUser>>();
+//     var roleMgr = sp.GetRequiredService<RoleManager<IdentityRole>>();
+//     var db = sp.GetRequiredService<AppDbContext>();
 
-    try
-    {
-        await DataSeeder.SeedAsync(userMgr, roleMgr, db);
-    }
-    catch (Exception ex)
-    {
-        var logger = sp.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "Đã xảy ra lỗi khi seed data.");
-    }
-}
+//     try
+//     {
+//         await DataSeeder.SeedAsync(userMgr, roleMgr, db);
+//     }
+//     catch (Exception ex)
+//     {
+//         var logger = sp.GetRequiredService<ILogger<Program>>();
+//         logger.LogError(ex, "Đã xảy ra lỗi khi seed data.");
+//     }
+// }
 
 // ================================================================
 // CONFIGURE HTTP PIPELINE

@@ -399,7 +399,10 @@ namespace Chatbot.API.Services
 
                 string? ragContext = null;
 
-                if (ShouldUseRag(normalizedMessage) || ShouldUseToolAndRag(normalizedMessage))
+                bool useTool = ShouldUseTool(normalizedMessage) || ShouldUseToolAndRag(normalizedMessage);
+                bool useRag = ShouldUseRag(normalizedMessage) || ShouldUseToolAndRag(normalizedMessage);
+
+                if (useRag)
                 {
                     try
                     {
@@ -446,8 +449,15 @@ namespace Chatbot.API.Services
                 var aiResult = await _openAIService.AskAsync(aiContext);
                 stopwatch.Stop();
 
+                if ((string.IsNullOrWhiteSpace(aiResult.Reply) || !aiResult.Success)
+                    && !string.IsNullOrWhiteSpace(ragContext))
+                {
+                    aiResult.Reply = BuildRagOnlyReply(ragContext);
+                    aiResult.Success = true;
+                    aiResult.UsedAI = false;
+                }
+
                 aiResult.ConversationId = conversationId;
-                aiResult.UsedAI = true;
                 aiResult.ElapsedMs = stopwatch.ElapsedMilliseconds;
 
                 if (!string.IsNullOrWhiteSpace(forcedToolName))
@@ -480,6 +490,7 @@ namespace Chatbot.API.Services
             if (existingProfile == null)
                 return false;
 
+<<<<<<< HEAD
             bool hasOldContext =
                 existingProfile.TurnCount > 0 ||
                 existingProfile.HasActiveRecommendationContext ||
@@ -526,6 +537,19 @@ namespace Chatbot.API.Services
 
             return looksLikeFreshStandalone;
         }
+=======
+        private static string BuildRagOnlyReply(string ragContext)
+        {
+            var cleaned = ragContext.Trim();
+            if (cleaned.Length <= 1200)
+            {
+                return cleaned;
+            }
+
+            return cleaned.Substring(0, 1200).Trim() + "...";
+        }
+
+>>>>>>> f771579b2a62e5e2377e9ccbe93594d9553ce988
         private async Task<ToolFirstConsultationResult?> TryBuildToolFirstConsultationAsync(
     ChatRequest request,
     string conversationId,
@@ -1125,6 +1149,12 @@ namespace Chatbot.API.Services
      ParsedIntent parsedIntent,
      CustomerPreferenceProfile? profile = null)
         {
+            // If message contains price/realtime keywords, use tool
+            var checkText = message?.ToLowerInvariant() ?? string.Empty;
+            string[] toolKeywords = { "giá", "còn hàng", "tồn kho", "có sẵn", "bao nhiêu", "mua", "dưới", "trên", "tầm", "khoảng", "quanh", "triệu" };
+            if (toolKeywords.Any(k => checkText.Contains(k)))
+                return true;
+
             var safeMessage = message ?? string.Empty;
             var text = safeMessage.ToLowerInvariant();
 
@@ -1536,10 +1566,32 @@ namespace Chatbot.API.Services
             {
                 "tư vấn", "phù hợp", "nên mua", "gợi ý", "so sánh",
                 "trả góp", "bảo hành", "thủ tục", "địa chỉ", "giờ mở cửa",
-                "ưu nhược điểm", "tiết kiệm xăng", "xe ga", "xe số", "đi học", "đi làm"
+                "ưu nhược điểm", "tiết kiệm xăng", "xe ga", "xe số", "đi học", "đi làm",
+                "sinh viên", "đi làm", "nữ", "nam", "cốp rộng", "dễ chống chân",
+                "cá tính", "thể thao", "đi phố", "di pho",
+                "chính sách", "bảo hiểm", "giao hàng", "đổi trả", "khuyến mãi",
+                "bảo dưỡng", "sửa chữa", "đăng ký", "sang tên", "giấy tờ",
+                "lãi suất", "thời hạn", "hồ sơ", "quy trình", "điều kiện",
+                "phí", "miễn phí", "ưu đãi", "giảm giá", "tặng"
             };
 
-            return ragKeywords.Any(k => text.Contains(k));
+            return ragKeywords.Any(k => text.Contains(k)) && !ShouldUseTool(message);
+        }
+
+        private bool ShouldUseTool(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return false;
+
+            var text = message.ToLowerInvariant();
+
+            string[] toolKeywords =
+            {
+                "giá", "còn hàng", "tồn kho", "có sẵn", "bao nhiêu", "mua",
+                "dưới", "trên", "tầm", "khoảng", "quanh", "triệu"
+            };
+
+            return toolKeywords.Any(k => text.Contains(k));
         }
 
         private bool ShouldUseToolAndRag(string message)

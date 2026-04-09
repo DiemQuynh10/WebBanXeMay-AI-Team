@@ -27,7 +27,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=True)
 # =======================================================
 # CẤU HÌNH
 # =======================================================
-DB_SERVER = os.environ.get("DB_SERVER", r"LAPTOP-IUA333SC\TESTDB").strip()
+DB_SERVER = os.environ.get("DB_SERVER", r"HUYENPEA").strip()
 DB_NAME = os.environ.get("DB_NAME", "WebBanXeMay").strip()
 DB_USER = os.environ.get("DB_USER", "").strip()          # để trống => Windows Auth
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "").strip()
@@ -248,6 +248,20 @@ def build_general_consulting_knowledge() -> list[str]:
 def build_knowledge_base(products: list[dict[str, Any]], cursor: pyodbc.Cursor) -> str:
     lines: list[str] = []
 
+    # Thêm tri thức tĩnh từ file
+    static_file = BASE_DIR / "static_knowledge.txt"
+    if static_file.exists():
+        print("[KB] Đang đọc static knowledge...")
+        static_content = static_file.read_text(encoding="utf-8").strip()
+        if static_content:
+            lines.append(static_content)
+            lines.append("")  # Thêm dòng trống
+            print("[KB] ✅ Đã thêm static knowledge")
+
+    # Thêm tri thức tư vấn chung
+    lines.extend(build_general_consulting_knowledge())
+
+    # Thêm dữ liệu sản phẩm từ database
     # Nhóm theo loại xe
     groups: dict[str, list[dict[str, Any]]] = {}
     for p in products:

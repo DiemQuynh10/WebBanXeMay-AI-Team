@@ -1,112 +1,104 @@
-🚀 Giới thiệu
+# WebBanXeMay-AI-Team
 
-Hệ thống website bán xe máy tích hợp chatbot AI, gồm 3 phần:
+Hệ thống website bán xe máy tích hợp chatbot AI đa kênh, hỗ trợ:
+- Tư vấn chọn xe theo nhu cầu
+- Tra cứu giá và tồn kho
+- Hỏi đáp sử dụng tri thức từ RAG
+- Tương tác qua Website và Telegram
 
-WebBanXeMay → Website ASP.NET Core MVC
-Chatbot.API → Backend xử lý chatbot
-Chatbot-dev → Python RAG (tri thức)
-⚙️ 1. Yêu cầu môi trường
+---
 
-Cần cài trước:
+# 1. Kiến trúc tổng thể
 
-🔹 Bắt buộc
-Visual Studio 2022
-.NET 6 hoặc phù hợp project
-SQL Server
-Python 3.10+
-Git
-🔹 Khuyến nghị
-SSMS (SQL Server Management Studio)
-Postman
-📥 2. Clone project
-git clone https://github.com/YOUR_USERNAME/WebBanXeMay-AI.git
-cd WebBanXeMay-AI
-🔐 3. Cấu hình API Key (QUAN TRỌNG)
-👉 Windows PowerShell
-$env:OPENAI_API_KEY="your_api_key_here"
-👉 Hoặc lưu lâu dài
-setx OPENAI_API_KEY "your_api_key_here"
+Dự án gồm 3 thành phần chính:
 
-👉 Sau đó mở terminal mới
+## 1.1 WebBanXeMay
+Website chính dành cho người dùng, hiển thị giao diện bán xe và chatbot.
 
-🧾 4. Tạo file cấu hình
-4.1 Chatbot.API
+## 1.2 Chatbot.API
+API trung gian xử lý hội thoại, gọi mô hình AI, kết nối dữ liệu nghiệp vụ và Telegram webhook.
 
-Tạo file:
+## 1.3 Chatbot-dev
+Dịch vụ RAG viết bằng Python.
 
-Chatbot.API/appsettings.json
-{
-  "ToolApi": {
-    "BaseUrl": "https://localhost:7097"
-  },
-  "OpenAI": {
-    "Model": "gpt-4o-mini"
-  },
-  "RagApi": {
-    "BaseUrl": "http://localhost:8000"
-  },
-  "ConnectionStrings": {
-    "ChatbotConnection": "Server=YOUR_SERVER;Database=ChatbotMemoryDb;Trusted_Connection=True;TrustServerCertificate=True;"
-  }
-}
-4.2 WebBanXeMay
+---
 
-Tạo file:
+# 2. Clone project
 
-WebBanXeMay/appsettings.json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=YOUR_SERVER;Database=WebBanXeMay;Trusted_Connection=True;TrustServerCertificate=True;"
-  },
-  "ChatbotApi": {
-    "BaseUrl": "http://localhost:5127"
-  }
-}
+```bash
+git clone <LINK_REPO>
+cd WebBanXeMay-AI-Team
+git checkout dev
+```
 
-👉 Thay YOUR_SERVER bằng:
+---
 
-LAPTOP-XXX\SQLEXPRESS
-🗄️ 5. Tạo Database
+# 3. Cấu hình quan trọng
 
-Mở SQL Server → chạy:
+## Tạo file (KHÔNG commit lên Git)
 
-CREATE DATABASE WebBanXeMay;
-CREATE DATABASE ChatbotMemoryDb;
-🧠 6. Chạy Python RAG
+- Chatbot.API/appsettings.Development.json
+- WebBanXeMay/appsettings.Development.json
+
+---
+
+# 4. Chạy hệ thống
+
+## Web
+```bash
+dotnet run --project WebBanXeMay
+```
+
+## API
+```bash
+dotnet run --project Chatbot.API
+```
+
+## RAG
+```bash
 cd Chatbot-dev
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-▶️ Chạy server
-uvicorn main:app --reload --port 8000
+python rag.py
+```
 
-👉 Nếu file khác main.py → sửa lại cho đúng
+## Telegram (ngrok)
+```bash
+ngrok http 7066
+```
 
-🤖 7. Chạy Chatbot.API
-cd Chatbot.API
-dotnet restore
-dotnet run
+---
 
-👉 Chạy ở:
+# 5. Thứ tự chạy
 
-http://localhost:5127
-🌐 8. Chạy WebBanXeMay
-cd WebBanXeMay
-dotnet restore
-dotnet run
+1. SQL Server  
+2. WebBanXeMay  
+3. Chatbot.API  
+4. RAG Python  
+5. ngrok  
+6. test bot  
 
-Hoặc mở bằng Visual Studio → Run
+---
 
-🔄 9. Thứ tự chạy đúng
+# 6. Test nhanh
 
-👉 BẮT BUỘC theo thứ tự:
+- xe ga cho sinh viên  
+- xe cho nữ 40 triệu  
+- air blade giá bao nhiêu  
 
-SQL Server
-Python RAG
-Chatbot.API
-WebBanXeMay
-🔁 10. Luồng hoạt động
+---
 
-User → Web → Chatbot.API →
-→ (Tool API hoặc RAG) →
-→ trả kết quả về Web
+# 7. Workflow team
+
+```bash
+git checkout dev
+git pull
+git checkout -b feature/ten-chuc-nang
+```
+
+---
+
+# 8. Lưu ý
+
+Không commit:
+- appsettings.Development.json
+- API key
+- Token

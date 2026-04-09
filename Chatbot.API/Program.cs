@@ -7,7 +7,9 @@ using Chatbot.API.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
-
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
 // Database
 builder.Services.AddDbContext<ChatbotDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("ChatbotConnection")));
