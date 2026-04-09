@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using Chatbot.API.Helpers;
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.Responses;
 using Chatbot.API.Models.ToolApi;
@@ -121,7 +122,8 @@ namespace Chatbot.API.Services
                 Success = true,
                 ConversationId = conversationId,
                 UsedAI = false,
-                Reply = reply
+                Reply = reply,
+                Products = ChatProductCardMapper.MapMany(reranked, 4)
             };
         }
 

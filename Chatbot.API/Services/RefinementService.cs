@@ -1,4 +1,5 @@
-﻿using Chatbot.API.Models.Intent;
+﻿using Chatbot.API.Helpers;
+using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.Responses;
 using Chatbot.API.Models.ToolApi;
 using Chatbot.API.Services.Interfaces;
@@ -163,7 +164,8 @@ namespace Chatbot.API.Services
                 Success = true,
                 ConversationId = conversationId,
                 UsedAI = false,
-                Reply = reply
+                Reply = reply,
+                Products = ChatProductCardMapper.MapMany(ranked, 4)
             };
         }
         private static string BuildRefineReply(IReadOnlyList<ProductSummaryDto> ranked, ParsedIntent intent)
