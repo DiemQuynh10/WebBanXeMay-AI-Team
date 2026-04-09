@@ -22,8 +22,23 @@ namespace Chatbot.API.Services
         private readonly IIntentParserService _intentParserService;
         private readonly IProductRecommendationService _productRecommendationService;
         private readonly IConversationPreferenceService _conversationPreferenceService;
-
-        public ChatService(IOpenAIService openAIService, IWebBanXeMayToolClient toolClient, ILogger<ChatService> logger, IQueryNormalizationService queryNormalizationService, IClarificationStateService clarificationStateService, IRagService ragService, IPriceIntentParser priceIntentParser, IIntentParserService intentParserService, IProductRecommendationService productRecommendationService, IConversationPreferenceService conversationPreferenceService)
+        private readonly ICompareService _compareService;
+        private readonly IRecommendationFollowUpService _recommendationFollowUpService;
+        private readonly IRefinementService _refinementService;
+        public ChatService(
+     IOpenAIService openAIService,
+     IWebBanXeMayToolClient toolClient,
+     ILogger<ChatService> logger,
+     IQueryNormalizationService queryNormalizationService,
+     IClarificationStateService clarificationStateService,
+     IRagService ragService,
+     IPriceIntentParser priceIntentParser,
+     IIntentParserService intentParserService,
+     IProductRecommendationService productRecommendationService,
+     IConversationPreferenceService conversationPreferenceService,
+     ICompareService compareService,
+     IRecommendationFollowUpService recommendationFollowUpService,
+     IRefinementService refinementService)
         {
             _openAIService = openAIService;
             _toolClient = toolClient;
@@ -35,6 +50,9 @@ namespace Chatbot.API.Services
             _intentParserService = intentParserService;
             _productRecommendationService = productRecommendationService;
             _conversationPreferenceService = conversationPreferenceService;
+            _compareService = compareService;
+            _recommendationFollowUpService = recommendationFollowUpService;
+            _refinementService = refinementService;
         }
 
         public async Task<ChatResponse> ProcessMessageAsync(ChatRequest request)
@@ -190,7 +208,25 @@ namespace Chatbot.API.Services
                 parsedIntent.PriceMax = priceRange.MaxPrice ?? parsedIntent.PriceMax;
                 parsedIntent.FilterType = priceRange.FilterType;
                 parsedIntent.TargetPrice = priceRange.TargetPrice;
+                var existingProfile = await _conversationPreferenceService.GetAsync(conversationId);
+
+                if (ShouldResetContextForFreshConsultation(normalizedMessage, parsedIntent, existingProfile))
+                {
+                    await _conversationPreferenceService.ResetForFreshConsultationAsync(conversationId);
+                    existingProfile = await _conversationPreferenceService.GetAsync(conversationId);
+                }
                 var conversationProfile = await _conversationPreferenceService.MergeAsync(conversationId, parsedIntent);
+
+                if (parsedIntent.MentionedProducts.Any())
+                {
+                    await _conversationPreferenceService.SetMentionedProductsAsync(
+                        conversationId,
+                        parsedIntent.MentionedProducts);
+                }
+
+                await _conversationPreferenceService.SetLastIntentTypeAsync(
+                    conversationId,
+                    parsedIntent.IntentType);
 
                 _logger.LogInformation(
                     "Conversation profile merged. ConversationId: {ConversationId}, ProfileSummary: {ProfileSummary}",
@@ -230,6 +266,76 @@ namespace Chatbot.API.Services
                     return result;
                 }
 
+                // 1. Compare chỉ khi thật sự là compare rõ ràng giữa ít nhất 2 sản phẩm
+                if (parsedIntent.IntentType == "compare" && parsedIntent.MentionedProducts.Count >= 2)
+                {
+                    var compareResponse = await _compareService.CompareAsync(
+                        conversationId,
+                        normalizedMessage,
+                        parsedIntent,
+                        conversationProfile);
+
+                    if (compareResponse != null)
+                    {
+                        await _conversationPreferenceService.SetComparedProductsAsync(
+                            conversationId,
+                            parsedIntent.MentionedProducts.Take(2));
+
+                        stopwatch.Stop();
+                        compareResponse.ConversationId = conversationId;
+                        compareResponse.ElapsedMs = stopwatch.ElapsedMilliseconds;
+                        compareResponse.UsedAI = false;
+                        return compareResponse;
+                    }
+                }
+
+
+                var shouldUseFollowUp =
+    conversationProfile.HasActiveRecommendationContext &&
+    conversationProfile.LastRecommendedProducts.Any() &&
+    (
+        parsedIntent.IntentType == "followup" ||
+        string.Equals(parsedIntent.FollowUpType, "rerank_previous_list", StringComparison.OrdinalIgnoreCase) ||
+        !string.IsNullOrWhiteSpace(parsedIntent.ComparisonFeature)
+    );
+
+                if (shouldUseFollowUp)
+                {
+                    var followUpResponse = await _recommendationFollowUpService.HandleAsync(
+                        conversationId,
+                        normalizedMessage,
+                        parsedIntent,
+                        conversationProfile);
+
+                    if (followUpResponse != null)
+                    {
+                        stopwatch.Stop();
+                        followUpResponse.ConversationId = conversationId;
+                        followUpResponse.ElapsedMs = stopwatch.ElapsedMilliseconds;
+                        followUpResponse.UsedAI = false;
+                        return followUpResponse;
+                    }
+                }
+
+                if (parsedIntent.IntentType == "refine" &&
+    conversationProfile.HasActiveRecommendationContext &&
+    conversationProfile.LastRecommendedProducts.Any())
+                {
+                    var refineResponse = await _refinementService.HandleAsync(
+                        conversationId,
+                        normalizedMessage,
+                        parsedIntent,
+                        conversationProfile);
+
+                    if (refineResponse != null)
+                    {
+                        stopwatch.Stop();
+                        refineResponse.ConversationId = conversationId;
+                        refineResponse.ElapsedMs = stopwatch.ElapsedMilliseconds;
+                        refineResponse.UsedAI = false;
+                        return refineResponse;
+                    }
+                }
                 if (NeedsClarificationForConsultation(normalizedMessage, parsedIntent, conversationProfile))
                 {
                     return new ChatResponse
@@ -366,7 +472,60 @@ namespace Chatbot.API.Services
                 };
             }
         }
+        private static bool ShouldResetContextForFreshConsultation(
+    string message,
+    ParsedIntent parsedIntent,
+    CustomerPreferenceProfile existingProfile)
+        {
+            if (existingProfile == null)
+                return false;
 
+            bool hasOldContext =
+                existingProfile.TurnCount > 0 ||
+                existingProfile.HasActiveRecommendationContext ||
+                !string.IsNullOrWhiteSpace(existingProfile.PreferredBrand) ||
+                !string.IsNullOrWhiteSpace(existingProfile.PreferredCategory) ||
+                existingProfile.TargetPrice.HasValue ||
+                existingProfile.PriceMin.HasValue ||
+                existingProfile.PriceMax.HasValue ||
+                existingProfile.HeightCm.HasValue;
+
+            if (!hasOldContext)
+                return false;
+
+            var text = (message ?? string.Empty).Trim().ToLowerInvariant();
+
+            bool looksLikeFollowUp =
+                IsFollowUpPreferenceFragment(text) ||
+                text.StartsWith("còn ") ||
+                text.StartsWith("không thích ") ||
+                text.StartsWith("không muốn ") ||
+                text.StartsWith("ưu tiên ") ||
+                text.StartsWith("né ") ||
+                text.StartsWith("con nào ") ||
+                parsedIntent.IntentType == "followup" ||
+                parsedIntent.IntentType == "refine" ||
+                parsedIntent.IntentType == "compare";
+
+            if (looksLikeFollowUp)
+                return false;
+
+            bool looksLikeFreshStandalone =
+                text.StartsWith("tư vấn") ||
+                text.StartsWith("xe ") ||
+                text.StartsWith("mình ") ||
+                text.StartsWith("cho mình ") ||
+                text.StartsWith("tôi ") ||
+                parsedIntent.TargetPrice.HasValue ||
+                parsedIntent.PriceMin.HasValue ||
+                parsedIntent.PriceMax.HasValue ||
+                parsedIntent.HeightCm.HasValue ||
+                !string.IsNullOrWhiteSpace(parsedIntent.Target) ||
+                !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
+                !string.IsNullOrWhiteSpace(parsedIntent.Category);
+
+            return looksLikeFreshStandalone;
+        }
         private async Task<ToolFirstConsultationResult?> TryBuildToolFirstConsultationAsync(
     ChatRequest request,
     string conversationId,
@@ -462,7 +621,6 @@ namespace Chatbot.API.Services
                     return null;
                 }
 
-                // ✅ RAG advisory: dùng để làm giàu lý do tư vấn, không thay Tool/Ranking
                 string? advisoryContext = null;
                 Dictionary<string, string> ragReasonHints = new(StringComparer.OrdinalIgnoreCase);
 
@@ -513,7 +671,10 @@ namespace Chatbot.API.Services
                 {
                     effectivePrompt += "\n\nGợi ý tư vấn bổ sung từ tri thức nội bộ:\n" + advisoryContext;
                 }
-
+                await _conversationPreferenceService.SetRecommendedProductsAsync(
+    conversationId,
+    rankedItems,
+    "fresh_consultation");
                 return new ToolFirstConsultationResult
                 {
                     ToolName = ToolNames.GetProductsByFilters,
@@ -834,7 +995,15 @@ namespace Chatbot.API.Services
 
             if (!isConsultation)
                 return false;
+            if (parsedIntent.HeightCm.HasValue || profile?.HeightCm.HasValue == true)
+            {
+                return false;
+            }
 
+            if (parsedIntent.NeedsLowSeat || profile?.NeedsLowSeat == true)
+            {
+                return false;
+            }
             bool hasBudget = parsedIntent.PriceMin.HasValue
     || parsedIntent.PriceMax.HasValue
     || parsedIntent.TargetPrice.HasValue
@@ -1940,7 +2109,13 @@ namespace Chatbot.API.Services
             if (reasons.Count == 0)
                 return "là lựa chọn khá đáng cân nhắc trong nhóm đang lọc";
 
-            return string.Join(", ", reasons.Take(2));
+            var distinctReasons = reasons
+     .Where(x => !string.IsNullOrWhiteSpace(x))
+     .Select(x => x.Trim())
+     .Distinct(StringComparer.OrdinalIgnoreCase)
+     .ToList();
+
+            return string.Join(", ", distinctReasons.Take(2));
 
             static bool asksForBudgetFriendly(string text)
             {
@@ -1964,6 +2139,9 @@ namespace Chatbot.API.Services
     parsedIntent.TargetPrice.HasValue ||
     parsedIntent.PriceMin.HasValue ||
     parsedIntent.PriceMax.HasValue ||
+    profile?.TargetPrice.HasValue == true ||
+    profile?.PriceMin.HasValue == true ||
+    profile?.PriceMax.HasValue == true ||
     LooksLikeBudgetFragment(text) ||
     text.Contains("tầm") ||
     text.Contains("khoảng") ||

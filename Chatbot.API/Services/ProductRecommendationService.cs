@@ -134,10 +134,172 @@ namespace Chatbot.API.Services
             score += ScoreByStyle(product, profile);
             score += ScoreByBrandPreference(product, profile);
             score += ScoreByVehicleTypeAffinity(product, profile);
+            score += ScoreByEngineCc(product, profile);
+
+            var followUpFeatureScore = ScoreByFollowUpFeature(product, intent);
+
+            if (!string.IsNullOrWhiteSpace(intent.ComparisonFeature))
+            {
+                score += followUpFeatureScore * 2;
+            }
+            else
+            {
+                score += followUpFeatureScore;
+            }
+
+            return score;
+        }
+        private static int ScoreByFollowUpFeature(ProductContext product, ParsedIntent intent)
+        {
+            if (string.IsNullOrWhiteSpace(intent.ComparisonFeature))
+                return 0;
+
+            return intent.ComparisonFeature switch
+            {
+                "storage" => ScoreStorageFeature(product),
+                "low_seat" => ScoreLowSeatFeature(product),
+                "female_fit" => ScoreFemaleFitFeature(product),
+                "fuel_saving" => ScoreFuelSavingFeature(product),
+                "work_fit" => ScoreWorkFitFeature(product),
+                "school_fit" => ScoreSchoolFitFeature(product),
+                "ride_comfort" => ScoreRideComfortFeature(product),
+                _ => 0
+            };
+        }
+
+        private static int ScoreStorageFeature(ProductContext product)
+        {
+            var score = 0;
+
+            if (ContainsAny(product.Tags, "cop rong", "de do", "chua do"))
+                score += 30;
+
+            if (ContainsAny(product.Name, "freego", "lead"))
+                score += 16;
+
+            if (ContainsAny(product.Name, "latte"))
+                score += 10;
 
             return score;
         }
 
+        private static int ScoreLowSeatFeature(ProductContext product)
+        {
+            var score = 0;
+
+            if (ContainsAny(product.Tags, "yen thap", "de chong chan"))
+                score += 32;
+
+            if (product.SeatHeightMm.HasValue && product.SeatHeightMm.Value <= 770m)
+                score += 16;
+
+            if (ContainsAny(product.Name, "zip"))
+                score += 12;
+
+            if (ContainsAny(product.Name, "vision", "latte"))
+                score += 8;
+
+            return score;
+        }
+
+        private static int ScoreFemaleFitFeature(ProductContext product)
+        {
+            var score = 0;
+
+            if (ContainsAny(product.Tags, "nu tinh", "thanh lich", "nhe nhang", "de di"))
+                score += 28;
+
+            if (product.VehicleType == VehicleType.Scooter)
+                score += 8;
+
+            if (ContainsAny(product.Name, "latte", "grande", "attila", "venus"))
+                score += 12;
+
+            if (ContainsAny(product.Name, "vision", "zip"))
+                score += 8;
+
+            if (ContainsAny(product.Tags, "ham ho", "manh me", "dam chac"))
+                score -= 10;
+
+            return score;
+        }
+
+        private static int ScoreFuelSavingFeature(ProductContext product)
+        {
+            var score = 0;
+
+            if (ContainsAny(product.Tags, "tiet kiem", "it ton xang"))
+                score += 28;
+
+            if (ContainsAny(product.Name, "wave", "future", "sirius", "vision"))
+                score += 10;
+
+            return score;
+        }
+
+        private static int ScoreWorkFitFeature(ProductContext product)
+        {
+            var score = 0;
+
+            if (ContainsAny(product.Tags, "di lam", "thuc dung", "trung tinh", "linh hoat", "dam chac"))
+                score += 24;
+
+            if (ContainsAny(product.Tags, "nu tinh", "nhe nhang") &&
+                !ContainsAny(product.Tags, "trung tinh", "thuc dung"))
+            {
+                score -= 10;
+            }
+
+            if (ContainsAny(product.Name, "zip"))
+            {
+                score -= 6;
+            }
+
+            if (ContainsAny(product.Name, "air blade"))
+                score += 18;
+
+            if (ContainsAny(product.Name, "burgman"))
+                score += 14;
+
+            if (ContainsAny(product.Name, "freego", "future"))
+                score += 10;
+
+            if (ContainsAny(product.Name, "latte"))
+                score += 4;
+
+            return score;
+        }
+
+        private static int ScoreSchoolFitFeature(ProductContext product)
+        {
+            var score = 0;
+
+            if (ContainsAny(product.Tags, "di hoc", "tiet kiem", "de di", "thuc dung"))
+                score += 24;
+
+            if (ContainsAny(product.Name, "vision", "wave", "sirius"))
+                score += 10;
+
+            return score;
+        }
+        private static int ScoreRideComfortFeature(ProductContext product)
+        {
+            var score = 0;
+
+            if (ContainsAny(product.Tags, "de di", "nhe nhang", "di pho", "linh hoat"))
+                score += 18;
+
+            if (ContainsAny(product.Name, "grande", "latte", "vision"))
+                score += 12;
+
+            if (ContainsAny(product.Tags, "dam chac"))
+                score += 6;
+
+            if (product.VehicleType == VehicleType.Scooter)
+                score += 4;
+
+            return score;
+        }
         private static bool ShouldHardReject(ProductContext product, ParsedIntent intent, RequestProfile profile)
         {
             if (product.Stock <= 0)
@@ -566,17 +728,23 @@ namespace Chatbot.API.Services
                     score += MaleStyleBonus;
                 }
 
-                if (ContainsAny(product.Tags, "nu tinh", "nhe nhang"))
+                if (ContainsAny(product.Tags, "nu tinh", "nhe nhang", "thanh lich"))
                 {
-                    score += MaleAgainstFemininePenalty;
+                    score -= 16;
                 }
 
-                if (profile.ForWork && ContainsAny(product.Tags, "nu tinh", "nhe nhang"))
+                if (profile.ForWork && ContainsAny(product.Tags, "nu tinh", "nhe nhang", "thanh lich"))
                 {
-                    score -= 20;
+                    score -= 24;
                 }
 
                 if (profile.ForWork && ContainsAny(product.Tags, "trung tinh", "dam chac", "di lam", "thuc dung"))
+                {
+                    score += 10;
+                }
+                if (profile.PrefersMaleStyle && profile.ForWork &&
+    product.VehicleType == VehicleType.Scooter &&
+    ContainsAny(product.Tags, "trung tinh", "dam chac", "di lam", "thuc dung"))
                 {
                     score += 10;
                 }
@@ -736,7 +904,12 @@ namespace Chatbot.API.Services
             var dislikesUnderbone =
                 conversationProfile.ExcludedCategories.Contains("xe số") ||
                 ContainsAny(message, "khong thich xe so", "khong muon xe so", "ne xe so", "ghet xe so");
-
+            var explicitlyWants50cc =
+    ContainsAny(message,
+        "50cc", "xe 50", "xe 50cc",
+        "chua co bang", "chưa có bằng",
+        "hoc sinh", "học sinh",
+        "khong can bang", "không cần bằng");
             var explicitlyWantsScooter =
     ContainsAny(message, "muon xe ga", "thich xe ga", "chon xe ga", "tay ga");
 
@@ -782,19 +955,19 @@ namespace Chatbot.API.Services
                 ForWork = conversationProfile.ForWork || ContainsAny(message, "di lam", "cong so", "di lam hang ngay"),
                 ForCity = conversationProfile.ForCity || ContainsAny(message, "di pho", "trong pho", "do thi", "hang ngay"),
                 ForTour = conversationProfile.ForTour || ContainsAny(message, "di tour", "duong dai", "di xa", "phuot"),
-
+                ExplicitlyWants50cc = explicitlyWants50cc,
                 WantsEasyControl = wantsEasyControl,
                 WantsFuelSaving = conversationProfile.WantsFuelSaving || ContainsAny(message, "tiet kiem xang", "it ton xang"),
                 WantsLargeStorage = conversationProfile.WantsLargeStorage || ContainsAny(message, "cop rong", "de do", "chua do"),
 
                 WantsScooter = !dislikesScooter &&
-    (explicitlyWantsScooter || preferredCategory.Contains("ga")),
+    (explicitlyWantsScooter || (!string.IsNullOrWhiteSpace(preferredCategory) && preferredCategory.Contains("ga"))),
 
                 WantsUnderbone = !dislikesUnderbone &&
-    (explicitlyWantsUnderbone || preferredCategory.Contains("so")),
+    (explicitlyWantsUnderbone || (!string.IsNullOrWhiteSpace(preferredCategory) && preferredCategory.Contains("so"))),
 
                 WantsManual = !dislikesManual &&
-    (explicitlyWantsManual || preferredCategory.Contains("con")),
+    (explicitlyWantsManual || (!string.IsNullOrWhiteSpace(preferredCategory) && preferredCategory.Contains("con"))),
 
                 DislikesManual = dislikesManual,
                 DislikesScooter = dislikesScooter,
@@ -818,7 +991,31 @@ namespace Chatbot.API.Services
                 RequestedStyles = requestedStyles
             };
         }
+        private static int ScoreByEngineCc(ProductContext product, RequestProfile profile)
+        {
+            var score = 0;
 
+            bool is50cc =
+                product.EngineCc.HasValue && product.EngineCc.Value <= 50;
+
+            if (!is50cc)
+                return 0;
+
+            if (profile.ExplicitlyWants50cc)
+            {
+                score += 18;
+                return score;
+            }
+
+            if (profile.IsStudent && !profile.ForWork)
+            {
+                score += 4;
+                return score;
+            }
+
+            score -= 22;
+            return score;
+        }
         private static HashSet<StyleTag> MergeStyles(
             IEnumerable<string> profileStyles,
             HashSet<StyleTag> messageStyles)
@@ -1464,6 +1661,7 @@ namespace Chatbot.API.Services
             public int? HeightCm { get; set; }
             public bool NeedsCompactFit { get; set; }
             public bool NeedsLowSeat { get; set; }
+            public bool ExplicitlyWants50cc { get; set; }
             public HashSet<StyleTag> RequestedStyles { get; set; } = new HashSet<StyleTag>();
         }
 
