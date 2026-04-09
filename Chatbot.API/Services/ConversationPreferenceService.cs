@@ -82,14 +82,28 @@ namespace Chatbot.API.Services
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
             }
+
             if (!string.IsNullOrWhiteSpace(intent.ComparisonFeature))
             {
                 profile.LastComparisonFeature = intent.ComparisonFeature;
             }
+
             if (!string.IsNullOrWhiteSpace(intent.IntentType))
             {
                 profile.LastIntentType = intent.IntentType;
             }
+
+            if (!string.IsNullOrWhiteSpace(intent.RouteFlow) &&
+                !string.Equals(intent.RouteFlow, ChatFlowType.Unknown, StringComparison.OrdinalIgnoreCase))
+            {
+                profile.ActiveFlow = intent.RouteFlow;
+            }
+
+            if (intent.IsDirectCompare)
+            {
+                profile.HasActiveCompareContext = true;
+            }
+
             profile.TurnCount++;
             profile.LastUserMessage = intent.RawMessage;
             profile.UpdatedAtUtc = DateTime.UtcNow;
@@ -98,9 +112,9 @@ namespace Chatbot.API.Services
         }
 
         public Task SetRecommendedProductsAsync(
-    string conversationId,
-    IEnumerable<ProductSummaryDto> products,
-    string answerMode = "fresh_consultation")
+            string conversationId,
+            IEnumerable<ProductSummaryDto> products,
+            string answerMode = "fresh_consultation")
         {
             var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
             {
@@ -126,10 +140,17 @@ namespace Chatbot.API.Services
 
             profile.HasActiveRecommendationContext = items.Count > 0;
             profile.LastAnswerMode = answerMode;
+            profile.ActiveFlow = answerMode switch
+            {
+                "followup" => ChatFlowType.RecommendationFollowUp,
+                "refine" => ChatFlowType.Refinement,
+                _ => ChatFlowType.Recommendation
+            };
             profile.UpdatedAtUtc = DateTime.UtcNow;
 
             return Task.CompletedTask;
         }
+
         public Task ClearRecommendationContextAsync(string conversationId)
         {
             var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
@@ -140,12 +161,22 @@ namespace Chatbot.API.Services
             profile.LastRecommendedProducts.Clear();
             profile.LastRecommendedProductIds.Clear();
             profile.HasActiveRecommendationContext = false;
+
+            if (string.Equals(profile.ActiveFlow, ChatFlowType.Recommendation, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(profile.ActiveFlow, ChatFlowType.RecommendationFollowUp, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(profile.ActiveFlow, ChatFlowType.Refinement, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(profile.ActiveFlow, ChatFlowType.BrandSwitch, StringComparison.OrdinalIgnoreCase))
+            {
+                profile.ActiveFlow = null;
+            }
+
             profile.LastAnswerMode = null;
             profile.LastComparisonFeature = null;
             profile.UpdatedAtUtc = DateTime.UtcNow;
 
             return Task.CompletedTask;
         }
+
         public Task ResetForFreshConsultationAsync(string conversationId)
         {
             var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
@@ -187,12 +218,25 @@ namespace Chatbot.API.Services
             profile.LastMentionedProducts.Clear();
             profile.LastComparedProducts.Clear();
 
+            profile.LastLookupProductName = null;
+            profile.LastLookupProductId = null;
+            profile.LastSearchProductNames.Clear();
+            profile.LastSearchProductIds.Clear();
+
             profile.HasActiveRecommendationContext = false;
+            profile.HasActiveCompareContext = false;
+
+            profile.ActiveFlow = null;
             profile.LastAnswerMode = null;
             profile.LastComparisonFeature = null;
             profile.LastIntentType = null;
             profile.LastUserMessage = null;
 
+            profile.LastResolvedBrandSwitchFrom = null;
+            profile.LastResolvedBrandSwitchTo = null;
+            profile.HasPendingOrderLookup = false;
+            profile.PendingOrderId = null;
+            profile.PendingOrderPhone = null;
             profile.UpdatedAtUtc = DateTime.UtcNow;
 
             return Task.CompletedTask;
@@ -221,15 +265,28 @@ namespace Chatbot.API.Services
                 ConversationId = id
             });
 
-            profile.LastComparedProducts = productNames
+            var compared = productNames
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Take(2)
                 .ToList();
 
+            profile.LastComparedProducts.Clear();
+            profile.LastComparedProducts.AddRange(compared);
+
+            profile.HasActiveCompareContext = profile.LastComparedProducts.Count >= 2;
+
+            if (profile.HasActiveCompareContext)
+            {
+                profile.ActiveFlow = ChatFlowType.Compare;
+
+                profile.HasActiveRecommendationContext = false;
+                profile.LastComparisonFeature = null;
+            }
+
             profile.UpdatedAtUtc = DateTime.UtcNow;
             return Task.CompletedTask;
-        }
+        } 
 
         public Task SetLastIntentTypeAsync(string conversationId, string intentType)
         {
@@ -307,10 +364,23 @@ namespace Chatbot.API.Services
             if (profile.LastComparedProducts.Count > 0)
                 parts.Add($"cặp vừa so sánh: {string.Join(" vs ", profile.LastComparedProducts)}");
 
+            if (!string.IsNullOrWhiteSpace(profile.LastLookupProductName))
+                parts.Add($"mẫu vừa tra cứu: {profile.LastLookupProductName}");
+
+            if (profile.LastSearchProductNames.Count > 0)
+                parts.Add($"danh sách vừa lọc: {string.Join(", ", profile.LastSearchProductNames.Take(5))}");
+
+            if (!string.IsNullOrWhiteSpace(profile.ActiveFlow))
+                parts.Add($"flow hiện tại: {profile.ActiveFlow}");
+
             if (!string.IsNullOrWhiteSpace(profile.LastIntentType))
                 parts.Add($"intent gần nhất: {profile.LastIntentType}");
+
             if (profile.HasActiveRecommendationContext)
                 parts.Add("đang có ngữ cảnh gợi ý trước đó");
+
+            if (profile.HasActiveCompareContext)
+                parts.Add("đang có ngữ cảnh so sánh");
 
             if (!string.IsNullOrWhiteSpace(profile.LastAnswerMode))
                 parts.Add($"kiểu trả lời gần nhất: {profile.LastAnswerMode}");
@@ -318,8 +388,15 @@ namespace Chatbot.API.Services
             if (profile.LastRecommendedProductIds.Count > 0)
                 parts.Add($"ids vừa gợi ý: {string.Join(", ", profile.LastRecommendedProductIds)}");
 
+            if (profile.LastLookupProductId.HasValue)
+                parts.Add($"id vừa tra cứu: {profile.LastLookupProductId.Value}");
+
+            if (profile.LastSearchProductIds.Count > 0)
+                parts.Add($"ids vừa lọc: {string.Join(", ", profile.LastSearchProductIds.Take(10))}");
+
             if (profile.TurnCount > 0)
                 parts.Add($"số lượt hội thoại: {profile.TurnCount}");
+
             if (parts.Count == 0)
                 return "Chưa có hồ sơ nhu cầu rõ ràng.";
 

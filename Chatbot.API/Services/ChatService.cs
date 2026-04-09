@@ -25,6 +25,9 @@ namespace Chatbot.API.Services
         private readonly ICompareService _compareService;
         private readonly IRecommendationFollowUpService _recommendationFollowUpService;
         private readonly IRefinementService _refinementService;
+        private readonly IChatFlowRouter _chatFlowRouter;
+        private readonly IProductLookupFlowService _productLookupFlowService;
+        private readonly IProductSearchFlowService _productSearchFlowService;
         public ChatService(
      IOpenAIService openAIService,
      IWebBanXeMayToolClient toolClient,
@@ -38,7 +41,10 @@ namespace Chatbot.API.Services
      IConversationPreferenceService conversationPreferenceService,
      ICompareService compareService,
      IRecommendationFollowUpService recommendationFollowUpService,
-     IRefinementService refinementService)
+     IRefinementService refinementService,
+     IChatFlowRouter chatFlowRouter,
+IProductLookupFlowService productLookupFlowService,
+IProductSearchFlowService productSearchFlowService)
         {
             _openAIService = openAIService;
             _toolClient = toolClient;
@@ -53,6 +59,9 @@ namespace Chatbot.API.Services
             _compareService = compareService;
             _recommendationFollowUpService = recommendationFollowUpService;
             _refinementService = refinementService;
+            _chatFlowRouter = chatFlowRouter;
+            _productLookupFlowService = productLookupFlowService;
+            _productSearchFlowService = productSearchFlowService;
         }
 
         public async Task<ChatResponse> ProcessMessageAsync(ChatRequest request)
@@ -215,6 +224,7 @@ namespace Chatbot.API.Services
                     await _conversationPreferenceService.ResetForFreshConsultationAsync(conversationId);
                     existingProfile = await _conversationPreferenceService.GetAsync(conversationId);
                 }
+                var previousActiveFlow = existingProfile.ActiveFlow;
                 var conversationProfile = await _conversationPreferenceService.MergeAsync(conversationId, parsedIntent);
 
                 if (parsedIntent.MentionedProducts.Any())
@@ -241,8 +251,180 @@ namespace Chatbot.API.Services
                     parsedIntent.PriceMax,
                     parsedIntent.FilterType,
                     parsedIntent.TargetPrice);
+                var routing = _chatFlowRouter.Route(
+    normalizedMessage,
+    parsedIntent,
+    conversationProfile);
+                _logger.LogInformation(
+                    "Flow routed. ConversationId: {ConversationId}, FlowType: {FlowType}, Reason: {Reason}",
+                    conversationId,
+                    routing.FlowType,
+                    routing.Reason);
+                // HARD OVERRIDE: nếu đang có compare context và user hỏi kiểu so sánh tính năng,
+                // thì ép cứng về Compare, không cho rơi xuống router/fallback khác.
+                if (IsCompareFeatureFollowUpQuestion(parsedIntent, conversationProfile, normalizedMessage))
+                {
+                    _logger.LogInformation(
+                        "Hard override compare follow-up. ConversationId: {ConversationId}, ComparedProducts: {ComparedProducts}, Message: {Message}",
+                        conversationId,
+                        string.Join(" | ", conversationProfile.LastComparedProducts),
+                        normalizedMessage);
 
+                    var forcedCompareResponse = await _compareService.CompareAsync(
+                        conversationId,
+                        normalizedMessage,
+                        parsedIntent,
+                        conversationProfile);
+
+                    if (forcedCompareResponse != null)
+                    {
+                        await _conversationPreferenceService.SetComparedProductsAsync(
+                            conversationId,
+                            conversationProfile.LastComparedProducts.Take(2));
+
+                        conversationProfile.HasActiveCompareContext = true;
+                        conversationProfile.ActiveFlow = ChatFlowType.Compare;
+                        conversationProfile.HasActiveRecommendationContext = false;
+
+                        stopwatch.Stop();
+                        forcedCompareResponse.ConversationId = conversationId;
+                        forcedCompareResponse.ElapsedMs = stopwatch.ElapsedMilliseconds;
+                        forcedCompareResponse.UsedAI = false;
+                        return forcedCompareResponse;
+                    }
+
+                    stopwatch.Stop();
+                    return new ChatResponse
+                    {
+                        Success = true,
+                        Reply = $"Mình đang hiểu bạn muốn so tiếp giữa **{conversationProfile.LastComparedProducts[0]}** và **{conversationProfile.LastComparedProducts[1]}**, nhưng hiện chưa đủ dữ liệu để kết luận rõ hơn theo tiêu chí này.",
+                        ConversationId = conversationId,
+                        UsedAI = false,
+                        ElapsedMs = stopwatch.ElapsedMilliseconds
+                    };
+                }
                 NormalizeRequestMetadata(request);
+                if (conversationProfile.HasPendingOrderLookup)
+                {
+                    var extractedOrderId = ExtractOrderId(normalizedMessage);
+                    var extractedPhone = ExtractPhone(normalizedMessage);
+
+                    if (extractedOrderId.HasValue && !conversationProfile.PendingOrderId.HasValue)
+                    {
+                        conversationProfile.PendingOrderId = extractedOrderId.Value;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(extractedPhone) && string.IsNullOrWhiteSpace(conversationProfile.PendingOrderPhone))
+                    {
+                        conversationProfile.PendingOrderPhone = extractedPhone;
+                    }
+
+                    if (conversationProfile.PendingOrderId.HasValue &&
+                        !string.IsNullOrWhiteSpace(conversationProfile.PendingOrderPhone))
+                    {
+                        var pendingRequest = new ChatRequest
+                        {
+                            ConversationId = conversationId,
+                            Channel = request.Channel,
+                            UserId = request.UserId,
+                            Message = normalizedMessage,
+                            Phone = conversationProfile.PendingOrderPhone
+                        };
+
+                        var orderResult = await HandleOrderLookupAsync(
+                            pendingRequest,
+                            $"mã đơn {conversationProfile.PendingOrderId.Value} {conversationProfile.PendingOrderPhone}");
+
+                        await ClearPendingOrderLookupAsync(conversationId);
+
+                        stopwatch.Stop();
+                        orderResult.ConversationId = conversationId;
+                        orderResult.UsedAI = false;
+                        orderResult.ElapsedMs = stopwatch.ElapsedMilliseconds;
+                        return orderResult;
+                    }
+
+                    if (!conversationProfile.PendingOrderId.HasValue)
+                    {
+                        stopwatch.Stop();
+                        return new ChatResponse
+                        {
+                            Success = true,
+                            Reply = "Mình đã nhận được thông tin rồi. Bạn gửi thêm mã đơn hàng giúp mình nhé.",
+                            ConversationId = conversationId,
+                            UsedAI = false,
+                            ElapsedMs = stopwatch.ElapsedMilliseconds
+                        };
+                    }
+
+                    if (string.IsNullOrWhiteSpace(conversationProfile.PendingOrderPhone))
+                    {
+                        stopwatch.Stop();
+                        return new ChatResponse
+                        {
+                            Success = true,
+                            Reply = $"Mình đã nhận được mã đơn {conversationProfile.PendingOrderId.Value}. Bạn gửi thêm số điện thoại dùng khi đặt hàng giúp mình nhé.",
+                            ConversationId = conversationId,
+                            UsedAI = false,
+                            ElapsedMs = stopwatch.ElapsedMilliseconds
+                        };
+                    }
+                }
+                if (string.Equals(routing.FlowType, ChatFlowType.Recommendation, StringComparison.OrdinalIgnoreCase))
+                {
+                    bool currentTurnHasExplicitBrand = !string.IsNullOrWhiteSpace(parsedIntent.Brand);
+                    bool currentTurnHasExplicitCategory = !string.IsNullOrWhiteSpace(parsedIntent.Category);
+                    bool currentTurnHasExplicitBudget =
+                        parsedIntent.TargetPrice.HasValue ||
+                        parsedIntent.PriceMin.HasValue ||
+                        parsedIntent.PriceMax.HasValue;
+
+                    bool currentTurnLooksFreshRecommendation =
+                        parsedIntent.IntentType == "recommend" &&
+                        !parsedIntent.IsFollowUp &&
+                        !parsedIntent.IsBrandSwitch;
+
+                    bool previousFlowWasLookupOrSearch =
+                        string.Equals(previousActiveFlow, ChatFlowType.ProductLookup, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(previousActiveFlow, ChatFlowType.ProductSearch, StringComparison.OrdinalIgnoreCase);
+
+                    if (currentTurnLooksFreshRecommendation && previousFlowWasLookupOrSearch)
+                    {
+                        if (!currentTurnHasExplicitBrand)
+                            conversationProfile.PreferredBrand = null;
+
+                        if (!currentTurnHasExplicitCategory)
+                            conversationProfile.PreferredCategory = null;
+
+                        if (!currentTurnHasExplicitBudget)
+                        {
+                            conversationProfile.PriceMin = null;
+                            conversationProfile.PriceMax = null;
+                            conversationProfile.TargetPrice = null;
+                            conversationProfile.FilterType = PriceFilterType.None;
+                        }
+
+                        // Dọn context search cũ
+                        conversationProfile.LastSearchProductNames.Clear();
+                        conversationProfile.LastSearchProductIds.Clear();
+
+                        // Dọn luôn recommendation context cũ nếu vòng hiện tại là recommendation mới
+                        conversationProfile.HasActiveRecommendationContext = false;
+                        conversationProfile.LastRecommendedProducts.Clear();
+                        conversationProfile.LastRecommendedProductIds.Clear();
+                        conversationProfile.LastAnswerMode = null;
+
+                        // Dọn compare context cũ để tránh lẫn sang flow mới
+                        conversationProfile.HasActiveCompareContext = false;
+                        conversationProfile.LastComparedProducts.Clear();
+                        conversationProfile.LastComparisonFeature = null;
+
+                        _logger.LogInformation(
+                            "Fresh recommendation cleanup applied strongly. ConversationId: {ConversationId}",
+                            conversationId);
+                    }
+                }
+
 
                 _logger.LogInformation(
                     "Processing chat message. ConversationId: {ConversationId}, Channel: {Channel}, UserId: {UserId}",
@@ -250,10 +432,41 @@ namespace Chatbot.API.Services
                     request.Channel,
                     request.UserId);
 
-                if (IsOrderLookupIntent(normalizedMessage))
+                // ===== FLOW-BASED ROUTING =====
+
+                // 1. Greeting
+                if (string.Equals(routing.FlowType, ChatFlowType.Greeting, StringComparison.OrdinalIgnoreCase))
+                {
+                    stopwatch.Stop();
+                    return new ChatResponse
+                    {
+                        Success = true,
+                        Reply = "Xin chào 👋 Mình có thể hỗ trợ bạn tra cứu giá xe, kiểm tra tồn kho, tư vấn mẫu xe phù hợp hoặc tra cứu đơn hàng.",
+                        ConversationId = conversationId,
+                        UsedAI = false,
+                        ElapsedMs = stopwatch.ElapsedMilliseconds
+                    };
+                }
+
+                // 2. Out of scope
+                if (string.Equals(routing.FlowType, ChatFlowType.OutOfScope, StringComparison.OrdinalIgnoreCase))
+                {
+                    stopwatch.Stop();
+                    return new ChatResponse
+                    {
+                        Success = true,
+                        Reply = "Mình hiện chỉ hỗ trợ về xe máy, sản phẩm trong hệ thống và tra cứu đơn hàng. Bạn cứ hỏi mình về mẫu xe, giá, còn hàng hay tư vấn chọn xe nhé.",
+                        ConversationId = conversationId,
+                        UsedAI = false,
+                        ElapsedMs = stopwatch.ElapsedMilliseconds
+                    };
+                }
+
+                // 3. Order lookup
+                if (string.Equals(routing.FlowType, ChatFlowType.OrderLookup, StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.LogInformation(
-                        "Order lookup intent detected. ConversationId: {ConversationId}, Message: {Message}",
+                        "Order lookup flow detected. ConversationId: {ConversationId}, Message: {Message}",
                         request.ConversationId,
                         normalizedMessage);
 
@@ -266,8 +479,27 @@ namespace Chatbot.API.Services
                     return result;
                 }
 
-                // 1. Compare chỉ khi thật sự là compare rõ ràng giữa ít nhất 2 sản phẩm
-                if (parsedIntent.IntentType == "compare" && parsedIntent.MentionedProducts.Count >= 2)
+                // 4. Direct product lookup
+                if (string.Equals(routing.FlowType, ChatFlowType.ProductLookup, StringComparison.OrdinalIgnoreCase))
+                {
+                    var lookupResponse = await _productLookupFlowService.HandleAsync(
+                        conversationId,
+                        normalizedMessage,
+                        parsedIntent,
+                        conversationProfile);
+
+                    if (lookupResponse != null)
+                    {
+                        stopwatch.Stop();
+                        lookupResponse.ConversationId = conversationId;
+                        lookupResponse.ElapsedMs = stopwatch.ElapsedMilliseconds;
+                        lookupResponse.UsedAI = false;
+                        return lookupResponse;
+                    }
+                }
+
+                // 5. Direct compare
+                if (string.Equals(routing.FlowType, ChatFlowType.Compare, StringComparison.OrdinalIgnoreCase))
                 {
                     var compareResponse = await _compareService.CompareAsync(
                         conversationId,
@@ -277,9 +509,27 @@ namespace Chatbot.API.Services
 
                     if (compareResponse != null)
                     {
+                        var comparedTargets = parsedIntent.MentionedProducts.Any()
+                            ? parsedIntent.MentionedProducts
+                                .Where(x => !string.IsNullOrWhiteSpace(x))
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .Take(2)
+                                .ToList()
+                            : conversationProfile.LastComparedProducts
+                                .Where(x => !string.IsNullOrWhiteSpace(x))
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .Take(2)
+                                .ToList();
+
                         await _conversationPreferenceService.SetComparedProductsAsync(
                             conversationId,
-                            parsedIntent.MentionedProducts.Take(2));
+                            comparedTargets);
+
+                        conversationProfile.LastComparedProducts.Clear();
+                        conversationProfile.LastComparedProducts.AddRange(comparedTargets);
+                        conversationProfile.HasActiveCompareContext = true;
+                        conversationProfile.ActiveFlow = ChatFlowType.Compare;
+                        conversationProfile.HasActiveRecommendationContext = false;
 
                         stopwatch.Stop();
                         compareResponse.ConversationId = conversationId;
@@ -287,19 +537,23 @@ namespace Chatbot.API.Services
                         compareResponse.UsedAI = false;
                         return compareResponse;
                     }
+
+                    if (conversationProfile.HasActiveCompareContext &&
+                        conversationProfile.LastComparedProducts.Count >= 2)
+                    {
+                        stopwatch.Stop();
+                        return new ChatResponse
+                        {
+                            Success = true,
+                            Reply = $"Mình đang hiểu bạn muốn so tiếp giữa **{conversationProfile.LastComparedProducts[0]}** và **{conversationProfile.LastComparedProducts[1]}**, nhưng hiện chưa đủ dữ liệu để kết luận rõ hơn theo tiêu chí này.",
+                            ConversationId = conversationId,
+                            UsedAI = false,
+                            ElapsedMs = stopwatch.ElapsedMilliseconds
+                        };
+                    }
                 }
-
-
-                var shouldUseFollowUp =
-    conversationProfile.HasActiveRecommendationContext &&
-    conversationProfile.LastRecommendedProducts.Any() &&
-    (
-        parsedIntent.IntentType == "followup" ||
-        string.Equals(parsedIntent.FollowUpType, "rerank_previous_list", StringComparison.OrdinalIgnoreCase) ||
-        !string.IsNullOrWhiteSpace(parsedIntent.ComparisonFeature)
-    );
-
-                if (shouldUseFollowUp)
+                // 6. Recommendation follow-up
+                if (string.Equals(routing.FlowType, ChatFlowType.RecommendationFollowUp, StringComparison.OrdinalIgnoreCase))
                 {
                     var followUpResponse = await _recommendationFollowUpService.HandleAsync(
                         conversationId,
@@ -317,9 +571,28 @@ namespace Chatbot.API.Services
                     }
                 }
 
-                if (parsedIntent.IntentType == "refine" &&
-    conversationProfile.HasActiveRecommendationContext &&
-    conversationProfile.LastRecommendedProducts.Any())
+                // 7. Brand switch within compare context
+                if (string.Equals(routing.FlowType, ChatFlowType.BrandSwitch, StringComparison.OrdinalIgnoreCase) &&
+                    conversationProfile.HasActiveCompareContext &&
+                    conversationProfile.LastComparedProducts.Count >= 2)
+                {
+                    var compareBrandSwitchResponse = await HandleBrandSwitchWithinCompareContextAsync(
+                        conversationId,
+                        parsedIntent,
+                        conversationProfile);
+
+                    if (compareBrandSwitchResponse != null)
+                    {
+                        stopwatch.Stop();
+                        compareBrandSwitchResponse.ConversationId = conversationId;
+                        compareBrandSwitchResponse.ElapsedMs = stopwatch.ElapsedMilliseconds;
+                        compareBrandSwitchResponse.UsedAI = false;
+                        return compareBrandSwitchResponse;
+                    }
+                }
+
+                if (string.Equals(routing.FlowType, ChatFlowType.Refinement, StringComparison.OrdinalIgnoreCase) ||
+     string.Equals(routing.FlowType, ChatFlowType.BrandSwitch, StringComparison.OrdinalIgnoreCase))
                 {
                     var refineResponse = await _refinementService.HandleAsync(
                         conversationId,
@@ -335,25 +608,59 @@ namespace Chatbot.API.Services
                         refineResponse.UsedAI = false;
                         return refineResponse;
                     }
-                }
-                if (NeedsClarificationForConsultation(normalizedMessage, parsedIntent, conversationProfile))
-                {
+
+                    stopwatch.Stop();
                     return new ChatResponse
                     {
                         Success = true,
-                        Reply = BuildClarificationQuestion(normalizedMessage, parsedIntent, conversationProfile),
+                        Reply = "Mình đã hiểu tiêu chí lọc thêm của bạn, nhưng hiện chưa đủ dữ liệu để lọc chính xác hơn ở bước này. Bạn có thể nói rõ hơn một chút như hãng muốn ưu tiên, mức giá hoặc mẫu đang phân vân nhé.",
                         ConversationId = conversationId,
                         UsedAI = false,
                         ElapsedMs = stopwatch.ElapsedMilliseconds
                     };
                 }
 
+                // 8. Product search
+                if (string.Equals(routing.FlowType, ChatFlowType.ProductSearch, StringComparison.OrdinalIgnoreCase))
+                {
+                    var searchResponse = await _productSearchFlowService.HandleAsync(
+                        conversationId,
+                        normalizedMessage,
+                        parsedIntent,
+                        conversationProfile);
+
+                    if (searchResponse != null)
+                    {
+                        conversationProfile.ActiveFlow = ChatFlowType.ProductSearch;
+                        conversationProfile.HasActiveCompareContext = false;
+                        stopwatch.Stop();
+                        searchResponse.ConversationId = conversationId;
+                        searchResponse.ElapsedMs = stopwatch.ElapsedMilliseconds;
+                        searchResponse.UsedAI = false;
+                        return searchResponse;
+                    }
+                }
+
+                // 9. Recommendation
                 string? forcedToolName = null;
                 bool hasPreparedToolPrompt = false;
-                bool wantedToolFirstConsultation = ShouldUseToolFirstConsultation(normalizedMessage, parsedIntent, conversationProfile);
+                bool wantedToolFirstConsultation =
+                    string.Equals(routing.FlowType, ChatFlowType.Recommendation, StringComparison.OrdinalIgnoreCase);
 
                 if (wantedToolFirstConsultation)
                 {
+                    if (NeedsClarificationForConsultation(normalizedMessage, parsedIntent, conversationProfile))
+                    {
+                        return new ChatResponse
+                        {
+                            Success = true,
+                            Reply = BuildClarificationQuestion(normalizedMessage, parsedIntent, conversationProfile),
+                            ConversationId = conversationId,
+                            UsedAI = false,
+                            ElapsedMs = stopwatch.ElapsedMilliseconds
+                        };
+                    }
+
                     var consultationResponse = await TryBuildToolFirstConsultationAsync(
                         request,
                         conversationId,
@@ -365,6 +672,8 @@ namespace Chatbot.API.Services
                     {
                         if (!string.IsNullOrWhiteSpace(consultationResponse.Reply))
                         {
+                            conversationProfile.ActiveFlow = ChatFlowType.Recommendation;
+                            conversationProfile.HasActiveCompareContext = false;
                             stopwatch.Stop();
 
                             return new ChatResponse
@@ -396,11 +705,23 @@ namespace Chatbot.API.Services
                         };
                     }
                 }
-
+                if (conversationProfile.HasActiveCompareContext &&
+     conversationProfile.LastComparedProducts.Count >= 2 &&
+     IsCompareFeatureFollowUpQuestion(parsedIntent, conversationProfile, normalizedMessage))
+                {
+                    stopwatch.Stop();
+                    return new ChatResponse
+                    {
+                        Success = true,
+                        Reply = $"Mình đang hiểu bạn muốn so tiếp giữa **{conversationProfile.LastComparedProducts[0]}** và **{conversationProfile.LastComparedProducts[1]}** theo tiêu chí này. Bạn có thể nói rõ hơn như \"mẫu nào cốp rộng hơn\" hoặc \"mẫu nào dễ chống chân hơn\" để mình chốt chính xác hơn nhé.",
+                        ConversationId = conversationId,
+                        UsedAI = false,
+                        ElapsedMs = stopwatch.ElapsedMilliseconds
+                    };
+                }
                 string? ragContext = null;
 
-                bool useTool = ShouldUseTool(normalizedMessage) || ShouldUseToolAndRag(normalizedMessage);
-                bool useRag = ShouldUseRag(normalizedMessage) || ShouldUseToolAndRag(normalizedMessage);
+                bool useRag = routing.ShouldUseRag || ShouldUseRag(normalizedMessage);
 
                 if (useRag)
                 {
@@ -506,16 +827,16 @@ namespace Chatbot.API.Services
             var text = (message ?? string.Empty).Trim().ToLowerInvariant();
 
             bool looksLikeFollowUp =
-                IsFollowUpPreferenceFragment(text) ||
-                text.StartsWith("còn ") ||
-                text.StartsWith("không thích ") ||
-                text.StartsWith("không muốn ") ||
-                text.StartsWith("ưu tiên ") ||
-                text.StartsWith("né ") ||
-                text.StartsWith("con nào ") ||
-                parsedIntent.IntentType == "followup" ||
-                parsedIntent.IntentType == "refine" ||
-                parsedIntent.IntentType == "compare";
+    text.StartsWith("còn ") ||
+    text.StartsWith("không thích ") ||
+    text.StartsWith("không muốn ") ||
+    text.StartsWith("ưu tiên ") ||
+    text.StartsWith("né ") ||
+    text.StartsWith("con nào ") ||
+    parsedIntent.IntentType == "followup" ||
+    parsedIntent.IntentType == "refine" ||
+    parsedIntent.IntentType == "compare" ||
+    parsedIntent.IntentType == "brand_switch";
 
             if (looksLikeFollowUp)
                 return false;
@@ -723,6 +1044,8 @@ namespace Chatbot.API.Services
 
             if (orderId == null && string.IsNullOrWhiteSpace(phone))
             {
+                await SetPendingOrderLookupAsync(request.ConversationId ?? string.Empty, null, null);
+
                 return new ChatResponse
                 {
                     Success = true,
@@ -733,6 +1056,8 @@ namespace Chatbot.API.Services
 
             if (orderId == null)
             {
+                await SetPendingOrderLookupAsync(request.ConversationId ?? string.Empty, null, phone);
+
                 return new ChatResponse
                 {
                     Success = true,
@@ -743,6 +1068,8 @@ namespace Chatbot.API.Services
 
             if (string.IsNullOrWhiteSpace(phone))
             {
+                await SetPendingOrderLookupAsync(request.ConversationId ?? string.Empty, orderId.Value, null);
+
                 return new ChatResponse
                 {
                     Success = true,
@@ -793,7 +1120,7 @@ namespace Chatbot.API.Services
             }
 
             reply += $"Sản phẩm: {itemText}.";
-
+            await ClearPendingOrderLookupAsync(request.ConversationId ?? string.Empty);
             return new ChatResponse
             {
                 Success = true,
@@ -1084,6 +1411,15 @@ namespace Chatbot.API.Services
             if (hasTarget) knownSignals++;
             if (hasNeedHint) knownSignals++;
             if (hasNeedHint && (text.Contains("đi phố") || text.Contains("di pho") || text.Contains("cá tính") || text.Contains("ca tinh")))
+            {
+                return false;
+            }
+
+            bool allowSoftRecommendationWithoutBudget =
+     hasTarget ||
+     hasNeedHint;
+
+            if (allowSoftRecommendationWithoutBudget)
             {
                 return false;
             }
@@ -2171,6 +2507,109 @@ namespace Chatbot.API.Services
                 return text.Contains("rẻ") || text.Contains("giá mềm") || text.Contains("tiết kiệm");
             }
         }
+        private async Task SetPendingOrderLookupAsync(string conversationId, int? orderId, string? phone)
+        {
+            var profile = await _conversationPreferenceService.GetAsync(conversationId);
+            profile.HasPendingOrderLookup = true;
+            profile.PendingOrderId = orderId;
+            profile.PendingOrderPhone = phone;
+            profile.ActiveFlow = ChatFlowType.OrderLookup;
+            profile.UpdatedAtUtc = DateTime.UtcNow;
+        }
+
+        private async Task ClearPendingOrderLookupAsync(string conversationId)
+        {
+            var profile = await _conversationPreferenceService.GetAsync(conversationId);
+            profile.HasPendingOrderLookup = false;
+            profile.PendingOrderId = null;
+            profile.PendingOrderPhone = null;
+            profile.UpdatedAtUtc = DateTime.UtcNow;
+        }
+        private async Task<ChatResponse?> HandleBrandSwitchWithinCompareContextAsync(
+    string conversationId,
+    ParsedIntent parsedIntent,
+    CustomerPreferenceProfile profile)
+        {
+            if (profile == null ||
+                !profile.HasActiveCompareContext ||
+                profile.LastComparedProducts == null ||
+                profile.LastComparedProducts.Count < 2)
+            {
+                return null;
+            }
+
+            if (string.IsNullOrWhiteSpace(parsedIntent.Brand))
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    Reply = $"Mình đang so sánh giữa **{profile.LastComparedProducts[0]}** và **{profile.LastComparedProducts[1]}**. Bạn muốn mình lọc theo hãng nào giúp bạn nhé?"
+                };
+            }
+
+            var comparedProducts = new List<ProductSummaryDto>();
+
+            var comparedNames = profile.LastComparedProducts
+    .Where(x => !string.IsNullOrWhiteSpace(x))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .Take(2)
+    .ToList();
+
+            foreach (var name in comparedNames)
+            {
+                var searchResult = await _toolClient.SearchProductsAsync(name, 5);
+
+                var matched = searchResult?.Items?
+                    .OrderByDescending(x => string.Equals(x.Ten, name, StringComparison.OrdinalIgnoreCase))
+                    .ThenByDescending(x => (x.Ten ?? string.Empty).Contains(name, StringComparison.OrdinalIgnoreCase))
+                    .ThenByDescending(x => x.SoLuong)
+                    .FirstOrDefault();
+
+                if (matched != null)
+                {
+                    comparedProducts.Add(matched);
+                }
+            }
+
+            if (comparedProducts.Count == 0)
+            {
+                return null;
+            }
+
+            var filtered = comparedProducts
+                .Where(x => string.Equals(x.ThuongHieu, parsedIntent.Brand, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (filtered.Count == 0)
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    Reply = $"Trong cặp mình đang so sánh thì hiện không có mẫu **{parsedIntent.Brand}** nào."
+                };
+            }
+
+            if (filtered.Count == 1)
+            {
+                var item = filtered[0];
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    Reply = $"Nếu chỉ xét theo **{parsedIntent.Brand}** trong cặp mình đang so sánh thì đó là **{item.Ten}** ({item.Gia:N0} VNĐ)."
+                };
+            }
+
+            var lines = filtered
+                .Select(x => $"- **{x.Ten}** ({x.Gia:N0} VNĐ)")
+                .ToList();
+
+            return new ChatResponse
+            {
+                Success = true,
+                Reply = $"Trong cặp mình đang so sánh, các mẫu thuộc **{parsedIntent.Brand}** gồm:\n\n{string.Join("\n", lines)}"
+            };
+        }
         private static string BuildFollowUpQuestion(
      string text,
      ParsedIntent parsedIntent,
@@ -2466,6 +2905,47 @@ namespace Chatbot.API.Services
             }
 
             return null;
+        }
+        private static bool IsCompareFeatureFollowUpQuestion(
+    ParsedIntent parsedIntent,
+    CustomerPreferenceProfile profile,
+    string message)
+        {
+            if (parsedIntent == null || profile == null)
+                return false;
+
+            if (!profile.HasActiveCompareContext || profile.LastComparedProducts.Count < 2)
+                return false;
+
+            var text = (message ?? string.Empty).Trim().ToLowerInvariant();
+
+            bool hasKnownFeaturePhrase =
+                !string.IsNullOrWhiteSpace(parsedIntent.ComparisonFeature) ||
+                text.Contains("cốp rộng") ||
+                text.Contains("cop rong") ||
+                text.Contains("dễ chống chân") ||
+                text.Contains("de chong chan") ||
+                text.Contains("tiết kiệm xăng") ||
+                text.Contains("tiet kiem xang") ||
+                text.Contains("hợp nữ") ||
+                text.Contains("hop nu") ||
+                text.Contains("đi êm") ||
+                text.Contains("di em") ||
+                text.Contains("thực dụng") ||
+                text.Contains("thuc dung");
+
+            bool hasCompareTone =
+                text.Contains("hơn") ||
+                text.Contains("hon") ||
+                text.StartsWith("con nào") ||
+                text.StartsWith("xe nào") ||
+                text.StartsWith("mẫu nào");
+
+            bool looksLikeGenericCompareFollowUp =
+                hasCompareTone &&
+                (text.Contains("nào") || text.Contains("nao"));
+
+            return (hasKnownFeaturePhrase && hasCompareTone) || looksLikeGenericCompareFollowUp;
         }
     }
 }

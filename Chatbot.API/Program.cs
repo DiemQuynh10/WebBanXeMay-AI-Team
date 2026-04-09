@@ -55,6 +55,9 @@ builder.Services.AddScoped<IProductRecommendationService, ProductRecommendationS
 builder.Services.AddScoped<ICompareService, CompareService>();
 builder.Services.AddScoped<IRecommendationFollowUpService, RecommendationFollowUpService>();
 builder.Services.AddScoped<IRefinementService, RefinementService>();
+builder.Services.AddScoped<IChatFlowRouter, ChatFlowRouter>();
+builder.Services.AddScoped<IProductLookupFlowService, ProductLookupFlowService>();
+builder.Services.AddScoped<IProductSearchFlowService, ProductSearchFlowService>();
 // Main chatbot services
 builder.Services.AddScoped<IChatService, ChatService>();
 

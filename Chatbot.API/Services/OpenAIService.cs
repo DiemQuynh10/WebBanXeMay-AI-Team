@@ -71,9 +71,7 @@ namespace Chatbot.API.Services
                 var requestBody = new JsonObject
                 {
                     ["model"] = _settings.Model,
-                    ["messages"] = messages,
-                    ["tools"] = _toolDefinitionProvider.GetTools(),
-                    ["tool_choice"] = "auto"
+                    ["messages"] = messages
                 };
 
                 var rawJson = await SendChatCompletionAsync(requestBody, "OpenAI first response");
