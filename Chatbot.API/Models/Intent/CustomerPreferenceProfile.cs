@@ -33,6 +33,22 @@
 
         public HashSet<string> RequestedStyles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+        public List<string> LastRecommendedProducts { get; set; } = new();
+        public List<string> LastMentionedProducts { get; set; } = new();
+        public List<string> LastComparedProducts { get; set; } = new();
+        public List<int> LastRecommendedProductIds { get; set; } = new();
+
+        public bool HasActiveRecommendationContext { get; set; }
+
+        public string? LastAnswerMode { get; set; } // fresh_consultation, followup, refine, compare
+
+        public string? LastComparisonFeature { get; set; }
+
+        public int TurnCount { get; set; }
+
+        public string? LastUserMessage { get; set; }
+        public string? LastIntentType { get; set; }
+
         public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
     }
 }

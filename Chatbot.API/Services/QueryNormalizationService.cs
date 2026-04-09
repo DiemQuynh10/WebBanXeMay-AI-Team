@@ -71,7 +71,36 @@ namespace Chatbot.API.Services
                 ["khoangr"] = "khoảng",
                 ["khoarng"] = "khoảng",
                 ["khoanrg"] = "khoảng",
-                ["khoang"] = "khoảng"
+                ["khoang"] = "khoảng",
+
+                ["khoong"] = "không",
+                ["khongg"] = "không",
+                ["khôg"] = "không",
+                ["khog"] = "không",
+                ["hong"] = "không",
+                ["hông"] = "không",
+                ["hem"] = "không",
+                ["hok"] = "không",
+
+                ["thik"] = "thích",
+                ["thix"] = "thích",
+                ["thichh"] = "thích",
+
+                ["khoong thich"] = "không thích",
+                ["khongg thich"] = "không thích",
+                ["khôg thích"] = "không thích",
+                ["hong thich"] = "không thích",
+                ["hong thích"] = "không thích",
+                ["hông thích"] = "không thích",
+                ["ko thich"] = "không thích",
+                ["k thich"] = "không thích",
+                ["kg"] = "không",
+                ["khum"] = "không",
+                ["khong muon"] = "không muốn",
+                ["khoong muon"] = "không muốn",
+                ["hong muon"] = "không muốn",
+                ["ko muon"] = "không muốn",
+                ["k muon"] = "không muốn"
             };
 
         private static readonly HashSet<string> HighRiskTokens =
@@ -86,7 +115,7 @@ namespace Chatbot.API.Services
                 "snh",
                 "vin"
             };
-
+        
         public NormalizationResult Analyze(string input)
         {
             if (string.IsNullOrWhiteSpace(input))

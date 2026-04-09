@@ -13,21 +13,23 @@ namespace Chatbot.API.Controllers
         private readonly IClarificationStateService _clarificationStateService;
         private readonly IConversationHistoryService _historyService;
         private readonly ILogger<ChatController> _logger;
+        private readonly IConversationPreferenceService _conversationPreferenceService;
 
         public ChatController(
-            IChatService chatService,
-            IConversationMemoryService memoryService,
-            IClarificationStateService clarificationStateService,
-            IConversationHistoryService historyService,
-            ILogger<ChatController> logger)
+    IChatService chatService,
+    IConversationMemoryService memoryService,
+    IClarificationStateService clarificationStateService,
+    IConversationHistoryService historyService,
+    IConversationPreferenceService conversationPreferenceService,
+    ILogger<ChatController> logger)
         {
             _chatService = chatService;
             _memoryService = memoryService;
             _clarificationStateService = clarificationStateService;
             _historyService = historyService;
+            _conversationPreferenceService = conversationPreferenceService;
             _logger = logger;
         }
-
         [HttpPost]
         public async Task<IActionResult> Chat([FromBody] ChatRequest request)
         {
@@ -154,10 +156,10 @@ namespace Chatbot.API.Controllers
                         errorMessage = "conversationId không được để trống."
                     });
                 }
-
+                var normalizedId = conversationId.Trim();
                 await _historyService.DeleteConversationAsync(conversationId.Trim());
                 _clarificationStateService.Clear(conversationId.Trim());
-
+                await _conversationPreferenceService.ClearAsync(normalizedId);
                 return Ok(new
                 {
                     success = true
@@ -194,6 +196,7 @@ namespace Chatbot.API.Controllers
                 await _memoryService.ClearAsync(conversationId);
                 _clarificationStateService.Clear(conversationId);
 
+                await _conversationPreferenceService.ClearAsync(conversationId);
                 _logger.LogInformation("Conversation reset. ConversationId: {ConversationId}", conversationId);
 
                 return Ok(new
