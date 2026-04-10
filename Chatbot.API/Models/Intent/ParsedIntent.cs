@@ -52,7 +52,12 @@
         public bool IsDirectCompare { get; set; }
         public bool IsBrandSwitch { get; set; }
 
+        public bool HasFreshConsultationSignal { get; set; }
+        public bool HasExpandRecommendationSignal { get; set; }
+        public bool HasNarrowRefinementSignal { get; set; }
 
+        // tiện cho debug/log
+        public string? RecommendationContextActionHint { get; set; }
         public string? LookupTargetType { get; set; }
 
         /// <summary>
@@ -64,5 +69,69 @@
         /// Cho phép ChatService biết đây là câu phải ưu tiên deterministic trước AI.
         /// </summary>
         public bool HasDeterministicProductIntent { get; set; }
+        public ParsedIntent Clone()
+        {
+            return new ParsedIntent
+            {
+                Category = Category,
+                PriceMin = PriceMin,
+                PriceMax = PriceMax,
+                Brand = Brand,
+                Target = Target,
+                RawMessage = RawMessage,
+
+                FilterType = FilterType,
+                TargetPrice = TargetPrice,
+
+                ExcludedCategories = new HashSet<string>(ExcludedCategories, StringComparer.OrdinalIgnoreCase),
+                ExcludedBrands = new HashSet<string>(ExcludedBrands, StringComparer.OrdinalIgnoreCase),
+
+                HeightCm = HeightCm,
+                NeedsLowSeat = NeedsLowSeat,
+
+                ForSchool = ForSchool,
+                ForWork = ForWork,
+                ForCity = ForCity,
+                ForTour = ForTour,
+
+                WantsEasyControl = WantsEasyControl,
+                WantsFuelSaving = WantsFuelSaving,
+                WantsLargeStorage = WantsLargeStorage,
+
+                PrefersMaleStyle = PrefersMaleStyle,
+                PrefersFemaleStyle = PrefersFemaleStyle,
+
+                RequestedStyles = new HashSet<string>(RequestedStyles, StringComparer.OrdinalIgnoreCase),
+
+                IntentType = IntentType,
+                IsFollowUp = IsFollowUp,
+                FollowUpType = FollowUpType,
+
+                MentionedProducts = new List<string>(MentionedProducts),
+                ComparisonFeature = ComparisonFeature,
+
+                RouteFlow = RouteFlow,
+
+                IsGreeting = IsGreeting,
+                IsOutOfScope = IsOutOfScope,
+                IsOrderLookup = IsOrderLookup,
+                IsDirectProductLookup = IsDirectProductLookup,
+                IsProductSearch = IsProductSearch,
+                IsOpenRecommendation = IsOpenRecommendation,
+                IsDirectCompare = IsDirectCompare,
+                IsBrandSwitch = IsBrandSwitch,
+
+                HasFreshConsultationSignal = HasFreshConsultationSignal,
+                HasExpandRecommendationSignal = HasExpandRecommendationSignal,
+                HasNarrowRefinementSignal = HasNarrowRefinementSignal,
+
+                RecommendationContextActionHint = RecommendationContextActionHint,
+                LookupTargetType = LookupTargetType,
+                LookupField = LookupField,
+
+                HasDeterministicProductIntent = HasDeterministicProductIntent
+            };
+        }
     }
+
 }

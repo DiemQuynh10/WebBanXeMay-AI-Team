@@ -45,7 +45,8 @@
         const response = await fetch("/ai-chat/reset", {
             method: "POST",
             headers: {
-                "Content-Type": "application/json"
+                "Content-Type": "application/json; charset=utf-8",
+                "Accept": "application/json"
             },
             body: JSON.stringify({ conversationId })
         });
@@ -279,7 +280,8 @@ function addMessage(role, content, products = []) {
         const response = await fetch("/ai-chat/send", {
             method: "POST",
             headers: {
-                "Content-Type": "application/json"
+                "Content-Type": "application/json; charset=utf-8",
+                "Accept": "application/json"
             },
             body: JSON.stringify(payload)
         });

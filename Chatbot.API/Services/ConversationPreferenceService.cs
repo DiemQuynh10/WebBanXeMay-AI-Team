@@ -27,17 +27,51 @@ namespace Chatbot.API.Services
                 ConversationId = id
             });
 
-            if (intent.PriceMin.HasValue)
-                profile.PriceMin = intent.PriceMin;
-
-            if (intent.PriceMax.HasValue)
-                profile.PriceMax = intent.PriceMax;
-
-            if (intent.TargetPrice.HasValue)
-                profile.TargetPrice = intent.TargetPrice;
-
             if (intent.FilterType != PriceFilterType.None)
+            {
                 profile.FilterType = intent.FilterType;
+
+                switch (intent.FilterType)
+                {
+                    case PriceFilterType.Range:
+                        profile.PriceMin = intent.PriceMin;
+                        profile.PriceMax = intent.PriceMax;
+                        profile.TargetPrice = null;
+                        break;
+
+                    case PriceFilterType.MaxOnly:
+                        profile.PriceMin = null; 
+                        profile.PriceMax = intent.PriceMax;
+                        profile.TargetPrice = null;
+                        break;
+
+                    case PriceFilterType.MinOnly:
+                        profile.PriceMin = intent.PriceMin;
+                        profile.PriceMax = null; 
+                        profile.TargetPrice = null;
+                        break;
+
+                    case PriceFilterType.Around:
+                        profile.TargetPrice = intent.TargetPrice;
+                        profile.PriceMin = intent.PriceMin;
+                        profile.PriceMax = intent.PriceMax;
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+            else
+            {
+                if (intent.PriceMin.HasValue)
+                    profile.PriceMin = intent.PriceMin;
+
+                if (intent.PriceMax.HasValue)
+                    profile.PriceMax = intent.PriceMax;
+
+                if (intent.TargetPrice.HasValue)
+                    profile.TargetPrice = intent.TargetPrice;
+            }
 
             if (!string.IsNullOrWhiteSpace(intent.Category))
                 profile.PreferredCategory = intent.Category;
@@ -111,10 +145,10 @@ namespace Chatbot.API.Services
             return Task.FromResult(profile);
         }
 
-        public Task SetRecommendedProductsAsync(
-            string conversationId,
-            IEnumerable<ProductSummaryDto> products,
-            string answerMode = "fresh_consultation")
+        public Task UpdateCurrentRecommendedProductsAsync(
+    string conversationId,
+    IEnumerable<ProductSummaryDto> products,
+    string answerMode = "fresh_consultation")
         {
             var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
             {
@@ -146,8 +180,8 @@ namespace Chatbot.API.Services
                 "refine" => ChatFlowType.Refinement,
                 _ => ChatFlowType.Recommendation
             };
-            profile.UpdatedAtUtc = DateTime.UtcNow;
 
+            profile.UpdatedAtUtc = DateTime.UtcNow;
             return Task.CompletedTask;
         }
 
@@ -217,6 +251,8 @@ namespace Chatbot.API.Services
             profile.LastRecommendedProductIds.Clear();
             profile.LastMentionedProducts.Clear();
             profile.LastComparedProducts.Clear();
+            profile.BaseRecommendedProducts.Clear();
+            profile.BaseRecommendedProductIds.Clear();
 
             profile.LastLookupProductName = null;
             profile.LastLookupProductId = null;
@@ -408,6 +444,35 @@ namespace Chatbot.API.Services
             }
 
             return sb.ToString().Trim();
+        }
+        public Task SetBaseRecommendedProductsAsync(
+    string conversationId,
+    IEnumerable<ProductSummaryDto> products)
+        {
+            var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
+            {
+                ConversationId = id
+            });
+
+            var items = products?
+                .Where(x => x != null)
+                .GroupBy(x => x.Id)
+                .Select(g => g.First())
+                .ToList() ?? new List<ProductSummaryDto>();
+
+            profile.BaseRecommendedProductIds = items
+                .Select(x => x.Id)
+                .Distinct()
+                .ToList();
+
+            profile.BaseRecommendedProducts = items
+                .Select(x => x.Ten)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            profile.UpdatedAtUtc = DateTime.UtcNow;
+            return Task.CompletedTask;
         }
     }
 }

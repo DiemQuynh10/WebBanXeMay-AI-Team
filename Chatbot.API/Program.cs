@@ -58,6 +58,7 @@ builder.Services.AddScoped<IRefinementService, RefinementService>();
 builder.Services.AddScoped<IChatFlowRouter, ChatFlowRouter>();
 builder.Services.AddScoped<IProductLookupFlowService, ProductLookupFlowService>();
 builder.Services.AddScoped<IProductSearchFlowService, ProductSearchFlowService>();
+builder.Services.AddScoped<IInputTextSanitizer, InputTextSanitizer>();
 // Main chatbot services
 builder.Services.AddScoped<IChatService, ChatService>();
 

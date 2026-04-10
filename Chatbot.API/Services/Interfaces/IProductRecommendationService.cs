@@ -11,5 +11,7 @@ namespace Chatbot.API.Services.Interfaces
             CustomerPreferenceProfile profile,
             string normalizedMessage,
             int take = 5);
+
+        string BuildMainReason(ProductSummaryDto product, ParsedIntent intent);
     }
 }
