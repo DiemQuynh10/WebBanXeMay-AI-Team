@@ -60,6 +60,8 @@ namespace Chatbot.API.Services
             ParseComparisonFeature(text, result);
 
             ResolveBrandAndCategoryConflicts(result);
+            ParseRecommendationContextSignals(text, result);
+
 
             // 2. Parse flow-level signals
             ParseGreeting(text, result);
@@ -78,6 +80,101 @@ namespace Chatbot.API.Services
             if (MatchesWholeText(text, "hello", "hi", "alo", "chao", "xin chao", "ad oi", "shop oi"))
             {
                 result.IsGreeting = true;
+            }
+        }
+        private static void ParseRecommendationContextSignals(string text, ParsedIntent result)
+        {
+            bool hasBudgetSignal =
+                result.PriceMin.HasValue ||
+                result.PriceMax.HasValue ||
+                result.TargetPrice.HasValue ||
+                LooksLikeBudgetFragment(text);
+
+            bool hasUseCaseSignal =
+                !string.IsNullOrWhiteSpace(result.Target) ||
+                result.ForSchool ||
+                result.ForWork ||
+                result.ForCity ||
+                result.ForTour;
+
+            bool hasHardConstraintSignal =
+                !string.IsNullOrWhiteSpace(result.Brand) ||
+                !string.IsNullOrWhiteSpace(result.Category) ||
+                result.ExcludedBrands.Any() ||
+                result.ExcludedCategories.Any();
+
+            bool hasStrongPreferenceSignal =
+                result.WantsLargeStorage ||
+                result.WantsFuelSaving ||
+                result.NeedsLowSeat ||
+                result.WantsEasyControl ||
+                result.RequestedStyles.Any();
+
+            bool looksStandaloneFresh =
+                text.StartsWith("tu van") ||
+                text.StartsWith("xe ") ||
+                text.StartsWith("cho minh ") ||
+                text.StartsWith("minh can ") ||
+                text.StartsWith("toi muon ") ||
+                text.StartsWith("cho nu ") ||
+                text.StartsWith("cho nam ");
+
+            bool looksExpandFollowUp =
+                text.StartsWith("neu ") ||
+                text.StartsWith("uu tien ") ||
+                text.StartsWith("chi ") ||
+                text.StartsWith("bo ") ||
+                text.StartsWith("khong thich ") ||
+                text.StartsWith("khong muon ") ||
+                text.StartsWith("chi lay ") ||
+                text.StartsWith("xe ga ") ||
+                text.StartsWith("xe so ") ||
+                text.StartsWith("con tay ") ||
+                text.StartsWith("quanh ") ||
+                text.StartsWith("tam ") ||
+                text.StartsWith("khoang ");
+
+            bool looksNarrowFollowUp =
+                ContainsAny(text,
+                    "hon",
+                    "nao hon",
+                    "tot hon",
+                    "hop hon",
+                    "rong hon",
+                    "thap hon",
+                    "em hon",
+                    "gon hon",
+                    "nhe hon",
+                    "thi sao",
+                    "trong nhom nay",
+                    "trong may mau nay",
+                    "mau nao");
+
+            // 1. Fresh consultation:
+            // câu standalone + có use case / target / budget / category / brand
+            if (looksStandaloneFresh && (hasUseCaseSignal || hasBudgetSignal || hasHardConstraintSignal))
+            {
+                result.HasFreshConsultationSignal = true;
+                result.RecommendationContextActionHint = "fresh";
+                return;
+            }
+
+            // 2. Expand recommendation:
+            // follow-up nhưng có constraint làm đổi candidate set
+            if (looksExpandFollowUp && (hasBudgetSignal || hasHardConstraintSignal || hasStrongPreferenceSignal))
+            {
+                result.HasExpandRecommendationSignal = true;
+                result.RecommendationContextActionHint = "expand";
+                return;
+            }
+
+            // 3. Narrow refinement:
+            // câu hỏi chọn sâu hơn trong nhóm hiện có
+            if (looksNarrowFollowUp && (result.ComparisonFeature != null || hasStrongPreferenceSignal || result.MentionedProducts.Count <= 1))
+            {
+                result.HasNarrowRefinementSignal = true;
+                result.RecommendationContextActionHint = "narrow";
+                return;
             }
         }
 
@@ -258,6 +355,24 @@ namespace Chatbot.API.Services
                 return;
             }
 
+            if (result.HasExpandRecommendationSignal)
+            {
+                result.IntentType = "refine";
+                result.IsFollowUp = true;
+                result.FollowUpType = "expand_recommendation";
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
+
+            if (result.HasNarrowRefinementSignal)
+            {
+                result.IntentType = "followup";
+                result.IsFollowUp = true;
+                result.FollowUpType = "narrow_refinement";
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
+
             if (IsRefineIntent(text))
             {
                 result.IntentType = "refine";
@@ -279,6 +394,13 @@ namespace Chatbot.API.Services
             if (result.IsDirectProductLookup)
             {
                 result.IntentType = "product_lookup";
+                return;
+            }
+            if (result.HasFreshConsultationSignal)
+            {
+                result.IntentType = "recommend";
+                result.IsOpenRecommendation = true;
+                result.HasDeterministicProductIntent = false;
                 return;
             }
 
@@ -310,10 +432,15 @@ namespace Chatbot.API.Services
             }
 
             if (result.IntentType == "refine" ||
-                result.IntentType == "followup" ||
-                result.IntentType == "brand_switch")
+    result.IntentType == "followup" ||
+    result.IntentType == "brand_switch")
             {
                 result.IsFollowUp = true;
+            }
+
+            if (result.HasFreshConsultationSignal)
+            {
+                result.IsFollowUp = false;
             }
         }
 
@@ -372,7 +499,11 @@ namespace Chatbot.API.Services
                 result.RouteFlow = ChatFlowType.ProductSearch;
                 return;
             }
-
+            if (result.HasFreshConsultationSignal)
+            {
+                result.RouteFlow = ChatFlowType.Recommendation;
+                return;
+            }
             if (result.IsOpenRecommendation)
             {
                 result.RouteFlow = ChatFlowType.Recommendation;
@@ -616,7 +747,41 @@ namespace Chatbot.API.Services
                 result.ComparisonFeature = "school_fit";
             }
         }
+        private static bool LooksLikeBudgetFragment(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
 
+            return Regex.IsMatch(
+                       text,
+                       @"\b(tam|khoang|quanh)\s*\d+([.,]\d+)?\s*(trieu|tr|cu|chai)\b",
+                       RegexOptions.IgnoreCase)
+                   || Regex.IsMatch(
+                       text,
+                       @"^(duoi|tren|toi da|khong qua|it nhat|tro len)\s*\d+([.,]\d+)?\s*(trieu|tr|cu|chai)\b",
+                       RegexOptions.IgnoreCase)
+                   || Regex.IsMatch(
+                       text,
+                       @"^\d+([.,]\d+)?\s*(trieu|tr|cu|chai)\b",
+                       RegexOptions.IgnoreCase);
+        }
+
+        private static bool IsShortCategoryFragment(string text)
+        {
+            return text is "xe ga" or "ga" or "xe so" or "so" or "xe số" or "số" or "côn tay" or "xe côn" or "xe con";
+        }
+
+        private static bool IsShortBrandFragment(string text)
+        {
+            return text is "honda" or "yamaha" or "suzuki" or "sym" or "piaggio";
+        }
+
+        private static bool IsFeaturePreferenceFragment(string text)
+        {
+            return ContainsAny(text,
+                "cop rong", "de chong chan", "yen thap", "tiet kiem xang",
+                "di lam", "di hoc", "di pho", "nhe", "gon", "nu", "nam");
+        }
         private static int? ExtractHeightCm(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
@@ -656,43 +821,16 @@ namespace Chatbot.API.Services
             if (result.IsDirectProductLookup || result.IsOrderLookup || result.IsGreeting || result.IsOutOfScope)
                 return false;
 
-            bool hasSearchConstraint =
+            bool hasHardSearchConstraint =
                 !string.IsNullOrWhiteSpace(result.Brand)
                 || !string.IsNullOrWhiteSpace(result.Category)
                 || result.PriceMin.HasValue
                 || result.PriceMax.HasValue
                 || result.TargetPrice.HasValue;
 
-            bool hasOpenRecommendPhrase = ContainsAny(text, "tu van", "goi y", "phu hop", "nen mua", "xe nao");
-
             bool hasDirectLookupPhrase = !string.IsNullOrWhiteSpace(result.LookupField);
-
             if (hasDirectLookupPhrase)
                 return false;
-
-            if (hasSearchConstraint && !hasOpenRecommendPhrase)
-                return true;
-
-            // ví dụ: xe ga yamaha, xe honda dưới 40 triệu
-            if (ContainsAny(text, "xe ga", "xe so", "con tay", "honda", "yamaha", "suzuki", "sym", "piaggio") &&
-                (ContainsAny(text, "duoi", "tren", "tu", "den", "khoang", "tam", "quanh") || result.PriceMin.HasValue || result.PriceMax.HasValue || result.TargetPrice.HasValue))
-            {
-                return true;
-            }
-
-            if (!string.IsNullOrWhiteSpace(result.Brand) && !string.IsNullOrWhiteSpace(result.Category))
-                return true;
-
-            return false;
-        }
-
-        private static bool LooksLikeOpenRecommendation(string text, ParsedIntent result)
-        {
-            if (result.IsDirectProductLookup || result.IsOrderLookup || result.IsGreeting || result.IsOutOfScope)
-                return false;
-
-            if (ContainsAny(text, "tu van", "goi y", "phu hop", "nen mua", "xe nao"))
-                return true;
 
             bool hasHumanNeed =
                 !string.IsNullOrWhiteSpace(result.Target)
@@ -706,24 +844,81 @@ namespace Chatbot.API.Services
                 || result.NeedsLowSeat
                 || result.RequestedStyles.Count > 0;
 
-            bool hasBudgetOrFilter =
+            bool hasRecommendationCue =
+                ContainsAny(text,
+                    "tu van",
+                    "goi y",
+                    "phu hop",
+                    "nen mua",
+                    "xe nao",
+                    "cho nu",
+                    "cho nam",
+                    "sinh vien",
+                    "di hoc",
+                    "di lam",
+                    "tiet kiem xang",
+                    "cop rong",
+                    "de chong chan");
+            if (hasHardSearchConstraint && (hasHumanNeed || hasRecommendationCue))
+                return false;
+
+            if (hasHardSearchConstraint)
+                return true;
+
+            return false;
+        }
+
+        private static bool LooksLikeOpenRecommendation(string text, ParsedIntent result)
+        {
+            if (result.IsDirectProductLookup || result.IsOrderLookup || result.IsGreeting || result.IsOutOfScope)
+                return false;
+
+            bool hasHardSearchConstraint =
                 result.TargetPrice.HasValue
                 || result.PriceMin.HasValue
                 || result.PriceMax.HasValue
                 || !string.IsNullOrWhiteSpace(result.Brand)
                 || !string.IsNullOrWhiteSpace(result.Category);
 
-            // ví dụ: xe cho nữ khoảng 40 triệu
-            if (hasHumanNeed && hasBudgetOrFilter)
+            bool hasHumanNeed =
+                !string.IsNullOrWhiteSpace(result.Target)
+                || result.ForSchool
+                || result.ForWork
+                || result.ForCity
+                || result.ForTour
+                || result.WantsEasyControl
+                || result.WantsFuelSaving
+                || result.WantsLargeStorage
+                || result.NeedsLowSeat
+                || result.RequestedStyles.Count > 0;
+
+            bool hasRecommendationCue =
+                ContainsAny(text,
+                    "tu van",
+                    "goi y",
+                    "phu hop",
+                    "nen mua",
+                    "xe nao",
+                    "cho nu",
+                    "cho nam",
+                    "sinh vien",
+                    "di hoc",
+                    "di lam",
+                    "tiet kiem xang",
+                    "cop rong",
+                    "de chong chan");
+
+            if (hasHumanNeed && hasHardSearchConstraint)
                 return true;
 
-            // ví dụ: tư vấn xe đi làm
-            if (hasHumanNeed && ContainsAny(text, "xe", "mau xe"))
+            if (hasRecommendationCue)
+                return true;
+
+            if (hasHumanNeed)
                 return true;
 
             return false;
         }
-
         private static bool IsExplicitCompareIntent(string text, int mentionedProductCount)
         {
             if (mentionedProductCount >= 2)
@@ -740,6 +935,9 @@ namespace Chatbot.API.Services
 
         private static bool IsRefineIntent(string text)
         {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
             return ContainsAny(text,
                 "khong thich",
                 "khong muon",
@@ -748,7 +946,12 @@ namespace Chatbot.API.Services
                 "ghet",
                 "uu tien",
                 "bot",
-                "them dieu kien");
+                "them dieu kien")
+                || text.StartsWith("uu tien ")
+                || text.StartsWith("né ")
+                || text.StartsWith("ne ")
+                || text.StartsWith("khong thich ")
+                || text.StartsWith("khong muon ");
         }
 
         private static bool IsSwitchBrandIntent(string text)
@@ -783,7 +986,12 @@ namespace Chatbot.API.Services
                     "thap hon",
                     "em hon",
                     "gon hon",
-                    "nhe hon");
+                    "nhe hon",
+                    "thi sao",
+                    "neu",
+                    "uu tien",
+                    "chi lay",
+                    "bo ");
 
             bool hasFeature =
                 ContainsAny(text,
@@ -798,7 +1006,23 @@ namespace Chatbot.API.Services
                     "gon",
                     "nhe");
 
+            bool looksLikeShortFollowUp =
+                text.StartsWith("neu ") ||
+                text.StartsWith("uu tien ") ||
+                text.StartsWith("chi lay ") ||
+                text.StartsWith("bo ") ||
+                text.StartsWith("con ") ||
+                text.StartsWith("the ") ||
+                text.StartsWith("vay ");
+
+            bool budgetOnlyFragment =
+                LooksLikeBudgetFragment(text) &&
+                (looksLikeShortFollowUp || text.StartsWith("quanh ") || text.StartsWith("tam ") || text.StartsWith("khoang "));
+
             if (hasComparativeTone && hasFeature)
+                return true;
+
+            if (budgetOnlyFragment)
                 return true;
 
             return ContainsAny(text,

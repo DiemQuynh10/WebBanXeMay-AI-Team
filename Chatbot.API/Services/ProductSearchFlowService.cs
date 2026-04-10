@@ -11,25 +11,35 @@ namespace Chatbot.API.Services
     {
         private readonly IWebBanXeMayToolClient _toolClient;
         private readonly IConversationPreferenceService _conversationPreferenceService;
+        private readonly IProductRecommendationService _productRecommendationService;
         private readonly ILogger<ProductSearchFlowService> _logger;
 
         public ProductSearchFlowService(
-            IWebBanXeMayToolClient toolClient,
-            IConversationPreferenceService conversationPreferenceService,
-            ILogger<ProductSearchFlowService> logger)
+    IWebBanXeMayToolClient toolClient,
+    IConversationPreferenceService conversationPreferenceService,
+    IProductRecommendationService productRecommendationService,
+    ILogger<ProductSearchFlowService> logger)
         {
             _toolClient = toolClient;
             _conversationPreferenceService = conversationPreferenceService;
+            _productRecommendationService = productRecommendationService;
             _logger = logger;
         }
-
         public async Task<ChatResponse?> HandleAsync(
             string conversationId,
             string normalizedMessage,
             ParsedIntent intent,
             CustomerPreferenceProfile profile)
         {
-            if (!intent.IsProductSearch)
+            bool hasSearchSignals =
+    intent.IsProductSearch ||
+    intent.PriceMin.HasValue ||
+    intent.PriceMax.HasValue ||
+    intent.TargetPrice.HasValue ||
+    !string.IsNullOrWhiteSpace(intent.Brand) ||
+    !string.IsNullOrWhiteSpace(intent.Category);
+
+            if (!hasSearchSignals)
             {
                 return null;
             }
@@ -38,7 +48,15 @@ namespace Chatbot.API.Services
             var effectiveCategory = intent.Category ?? profile.PreferredCategory;
             var effectiveMinPrice = intent.PriceMin ?? profile.PriceMin;
             var effectiveMaxPrice = intent.PriceMax ?? profile.PriceMax;
-
+            _logger.LogInformation(
+    "ProductSearch effective filters. ConversationId: {ConversationId}, Brand: {Brand}, Category: {Category}, MinPrice: {MinPrice}, MaxPrice: {MaxPrice}, IntentType: {IntentType}, FilterType: {FilterType}",
+    conversationId,
+    effectiveBrand,
+    effectiveCategory,
+    effectiveMinPrice,
+    effectiveMaxPrice,
+    intent.IntentType,
+    intent.FilterType);
             ProductSearchResponseDto? result;
 
             // Ưu tiên gọi đúng tool theo độ đặc hiệu
@@ -75,13 +93,21 @@ namespace Chatbot.API.Services
 
             if (items.Count == 0)
             {
+                var nearMatches = await FindNearMatchProductsAsync(
+                    effectiveBrand,
+                    effectiveCategory,
+                    effectiveMinPrice,
+                    effectiveMaxPrice,
+                    normalizedMessage);
+
                 return new ChatResponse
                 {
                     Success = true,
                     ConversationId = conversationId,
                     UsedAI = false,
                     UsedTool = ResolveToolName(effectiveBrand, effectiveCategory, effectiveMinPrice, effectiveMaxPrice),
-                    Reply = BuildEmptyReply(intent, effectiveBrand, effectiveCategory, effectiveMinPrice, effectiveMaxPrice)
+                    Reply = BuildEmptyReply(intent, effectiveBrand, effectiveCategory, effectiveMinPrice, effectiveMaxPrice, nearMatches),
+                    Products = nearMatches.Take(4).Select(MapToCard).ToList()
                 };
             }
 
@@ -93,7 +119,14 @@ namespace Chatbot.API.Services
                 ConversationId = conversationId,
                 UsedAI = false,
                 UsedTool = ResolveToolName(effectiveBrand, effectiveCategory, effectiveMinPrice, effectiveMaxPrice),
-                Reply = BuildSearchReply(items, intent, effectiveBrand, effectiveCategory, effectiveMinPrice, effectiveMaxPrice),
+                Reply = BuildSearchReply(
+    items,
+    intent,
+    effectiveBrand,
+    effectiveCategory,
+    effectiveMinPrice,
+    effectiveMaxPrice,
+    _productRecommendationService),
                 Products = items.Take(5).Select(MapToCard).ToList()
             };
         }
@@ -118,8 +151,59 @@ namespace Chatbot.API.Services
 
             latestProfile.ActiveFlow = ChatFlowType.ProductSearch;
             latestProfile.UpdatedAtUtc = DateTime.UtcNow;
-        }
+            await _conversationPreferenceService.SetBaseRecommendedProductsAsync(
+    conversationId,
+    items.Take(5).ToList());
 
+            await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
+                conversationId,
+                items.Take(5).ToList(),
+                "search");
+            await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
+    conversationId,
+    items.Take(5).ToList(),
+    "search");
+        }
+        private async Task<List<ProductSummaryDto>> FindNearMatchProductsAsync(
+    string? brand,
+    string? category,
+    decimal? minPrice,
+    decimal? maxPrice,
+    string normalizedMessage)
+        {
+            decimal? relaxedMin = minPrice;
+            decimal? relaxedMax = maxPrice;
+
+            if (maxPrice.HasValue)
+                relaxedMax = maxPrice.Value + 5_000_000m;
+
+            if (minPrice.HasValue)
+                relaxedMin = Math.Max(0, minPrice.Value - 5_000_000m);
+
+            ProductSearchResponseDto? result;
+
+            if (!string.IsNullOrWhiteSpace(brand) ||
+                !string.IsNullOrWhiteSpace(category) ||
+                relaxedMin.HasValue ||
+                relaxedMax.HasValue)
+            {
+                result = await _toolClient.GetProductsByFiltersAsync(
+                    brand,
+                    relaxedMin,
+                    relaxedMax,
+                    category,
+                    5);
+            }
+            else
+            {
+                result = await _toolClient.SearchProductsAsync(normalizedMessage, 5);
+            }
+
+            return result?.Items?
+                .Where(x => x != null)
+                .Take(5)
+                .ToList() ?? new List<ProductSummaryDto>();
+        }
         private static string ResolveToolName(
             string? brand,
             string? category,
@@ -143,11 +227,12 @@ namespace Chatbot.API.Services
         }
 
         private static string BuildEmptyReply(
-            ParsedIntent intent,
-            string? brand,
-            string? category,
-            decimal? minPrice,
-            decimal? maxPrice)
+    ParsedIntent intent,
+    string? brand,
+    string? category,
+    decimal? minPrice,
+    decimal? maxPrice,
+    List<ProductSummaryDto> nearMatches)
         {
             var parts = new List<string>();
 
@@ -164,24 +249,37 @@ namespace Chatbot.API.Services
             else if (minPrice.HasValue)
                 parts.Add($"giá từ {minPrice.Value:N0} VNĐ trở lên");
 
-            if (parts.Count == 0)
+            var filterText = parts.Count == 0
+                ? "tiêu chí này"
+                : string.Join(", ", parts);
+
+            if (nearMatches == null || nearMatches.Count == 0)
             {
-                return "Mình chưa tìm thấy sản phẩm phù hợp trong dữ liệu hiện tại.";
+                return $"Hiện mình chưa tìm thấy mẫu xe nào khớp hoàn toàn với {filterText} trong dữ liệu.";
             }
 
-            return $"Mình chưa tìm thấy mẫu xe phù hợp với bộ lọc: {string.Join(", ", parts)}.";
-        }
+            var sb = new StringBuilder();
+            sb.AppendLine($"Hiện chưa có mẫu nào khớp hoàn toàn với {filterText} trong dữ liệu.");
+            sb.AppendLine("Tuy vậy, nếu nới điều kiện một chút, bạn có thể tham khảo:");
+            sb.AppendLine();
 
+            foreach (var item in nearMatches.Take(3))
+            {
+                sb.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ)");
+            }
+
+            return sb.ToString().Trim();
+        }
         private static string BuildSearchReply(
-            List<ProductSummaryDto> items,
-            ParsedIntent intent,
-            string? brand,
-            string? category,
-            decimal? minPrice,
-            decimal? maxPrice)
+    List<ProductSummaryDto> items,
+    ParsedIntent intent,
+    string? brand,
+    string? category,
+    decimal? minPrice,
+    decimal? maxPrice,
+    IProductRecommendationService productRecommendationService)
         {
             var shown = items.Take(5).ToList();
-
             var intro = BuildIntro(shown.Count, brand, category, minPrice, maxPrice);
 
             var sb = new StringBuilder();
@@ -190,7 +288,8 @@ namespace Chatbot.API.Services
 
             foreach (var item in shown)
             {
-                sb.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ) - {BuildShortReason(item, intent, brand, category)}");
+                var reason = BuildShortReason(item, intent, brand, category, productRecommendationService);
+                sb.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ) - {reason}");
             }
 
             if (items.Count > shown.Count)
@@ -198,6 +297,9 @@ namespace Chatbot.API.Services
                 sb.AppendLine();
                 sb.AppendLine($"Hiện mình đang thấy tổng cộng khoảng **{items.Count}** mẫu phù hợp trong dữ liệu, trên đây là các mẫu nổi bật trước.");
             }
+
+            sb.AppendLine();
+            sb.AppendLine("Bạn có thể lọc tiếp theo hãng, loại xe hoặc mức giá sát hơn.");
 
             return sb.ToString().Trim();
         }
@@ -231,23 +333,31 @@ namespace Chatbot.API.Services
         }
 
         private static string BuildShortReason(
-            ProductSummaryDto item,
-            ParsedIntent intent,
-            string? brand,
-            string? category)
+    ProductSummaryDto item,
+    ParsedIntent intent,
+    string? brand,
+    string? category,
+    IProductRecommendationService productRecommendationService)
         {
             var reasons = new List<string>();
 
             if (!string.IsNullOrWhiteSpace(category) &&
-                item.Loai.Contains(category, StringComparison.OrdinalIgnoreCase))
+                (item.Loai ?? string.Empty).Contains(category, StringComparison.OrdinalIgnoreCase))
             {
                 reasons.Add($"đúng nhóm {item.Loai.ToLowerInvariant()}");
             }
 
             if (!string.IsNullOrWhiteSpace(brand) &&
-                item.ThuongHieu.Equals(brand, StringComparison.OrdinalIgnoreCase))
+                (item.ThuongHieu ?? string.Empty).Equals(brand, StringComparison.OrdinalIgnoreCase))
             {
                 reasons.Add($"đúng hãng {brand}");
+            }
+
+            var mainReason = productRecommendationService.BuildMainReason(item, intent);
+            if (!string.IsNullOrWhiteSpace(mainReason) &&
+                mainReason != "là một phương án khá cân bằng trong nhóm đang lọc")
+            {
+                reasons.Add(mainReason);
             }
 
             if (item.SoLuong > 0)
@@ -259,9 +369,8 @@ namespace Chatbot.API.Services
                 reasons.Add("đang hết hàng");
             }
 
-            return string.Join(", ", reasons.Take(2));
+            return string.Join(", ", reasons.Distinct().Take(3));
         }
-
         private static ChatProductCard MapToCard(ProductSummaryDto product)
         {
             return new ChatProductCard

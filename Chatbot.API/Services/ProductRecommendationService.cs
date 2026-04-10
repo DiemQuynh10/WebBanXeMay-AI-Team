@@ -1,4 +1,5 @@
 ﻿using System.Text.RegularExpressions;
+using Chatbot.API.Helpers;
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.ToolApi;
 using Chatbot.API.Services.Interfaces;
@@ -65,7 +66,13 @@ namespace Chatbot.API.Services
         private const int ScooterForFemaleBonus = 12;
         private const int UnderboneForStudentBonus = 5;
         private const int ManualAgainstSoftNeedsPenalty = -12;
-
+        private const int ScooterForWorkBonus = 14;
+        private const int ScooterForUrbanCommuteBonus = 10;
+        private const int UnderboneAgainstSoftWorkPenalty = -12;
+        private const int UnderboneAgainstFemaleUrbanPenalty = -14;
+        private const int ManualAgainstWorkPenalty = -18;
+        private const int TooCheapMismatchPenalty = -10;
+        private const int ContextCoherenceBonus = 8;
         public List<ProductSummaryDto> RankProducts(
             IEnumerable<ProductSummaryDto> products,
             ParsedIntent intent,
@@ -145,6 +152,41 @@ namespace Chatbot.API.Services
             else
             {
                 score += followUpFeatureScore;
+            }
+
+            score += ScoreByContextCoherence(product, profile);
+
+            return score;
+        }
+        private static int ScoreByContextCoherence(ProductContext product, RequestProfile profile)
+        {
+            var score = 0;
+
+            // Nếu cùng lúc hợp đi làm + đi phố + dễ đi thì thưởng thêm
+            if (profile.ForWork &&
+                (profile.ForCity || profile.WantsEasyControl) &&
+                ContainsAny(product.Tags, "di pho", "linh hoat", "de di", "de dieu khien", "thuc dung"))
+            {
+                score += ContextCoherenceBonus;
+            }
+
+            // Nếu nữ + dễ điều khiển + scooter thì thưởng thêm
+            if (profile.PrefersFemaleStyle &&
+                (profile.WantsEasyControl || profile.NeedsLowSeat || profile.NeedsCompactFit) &&
+                product.VehicleType == VehicleType.Scooter)
+            {
+                score += 8;
+            }
+
+            // Nếu đi làm nhưng mẫu quá rẻ và thiên học sinh/xe số thì phạt nhẹ để tránh lọc giá thuần
+            if (profile.ForWork &&
+                !profile.IsStudent &&
+                product.VehicleType == VehicleType.Underbone &&
+                product.Price <= 32_000_000m &&
+                ContainsAny(product.Tags, "di hoc", "tiet kiem") &&
+                !ContainsAny(product.Tags, "cop rong"))
+            {
+                score += TooCheapMismatchPenalty;
             }
 
             return score;
@@ -377,7 +419,30 @@ namespace Chatbot.API.Services
 
             return false;
         }
+        public string BuildMainReason(ProductSummaryDto product, ParsedIntent intent)
+        {
+            var feature = ProductHeuristicProfileMapper.Map(product);
 
+            if ((intent.PrefersFemaleStyle || (intent.Target?.Contains("nữ") ?? false)) && feature.FemaleFit)
+                return "dáng xe gọn và khá hợp nhu cầu nữ";
+
+            if (intent.WantsFuelSaving && feature.FuelSavingLike)
+                return "thiên về tiết kiệm xăng và chi phí sử dụng";
+
+            if ((intent.WantsEasyControl || intent.NeedsLowSeat) && feature.EasyControl)
+                return "dễ làm quen và hợp đi hằng ngày";
+
+            if (intent.WantsLargeStorage && feature.LargeStorageLike)
+                return "khá tiện nếu bạn hay mang đồ";
+
+            if (intent.ForWork && feature.WorkFit)
+                return "khá hợp với nhu cầu đi làm";
+
+            if (intent.ForSchool && feature.SchoolFit)
+                return "khá hợp với nhu cầu đi học";
+
+            return "là một phương án khá cân bằng trong nhóm đang lọc";
+        }
         private static int ScoreByCategory(ProductContext product, RequestProfile profile)
         {
             if (string.IsNullOrWhiteSpace(profile.PreferredCategory))
@@ -627,29 +692,63 @@ namespace Chatbot.API.Services
                     score += WorkUsageBonus;
                 }
 
-                if (product.VehicleType == VehicleType.Scooter || product.VehicleType == VehicleType.Underbone)
+                // đi làm hiện đại / đi phố hằng ngày: ưu tiên scooter rõ hơn underbone
+                if (product.VehicleType == VehicleType.Scooter)
                 {
-                    score += 4;
+                    score += ScooterForWorkBonus;
+                }
+                else if (product.VehicleType == VehicleType.Underbone)
+                {
+                    score += 2;
+                }
+                else if (product.VehicleType == VehicleType.Manual)
+                {
+                    score += ManualAgainstWorkPenalty;
                 }
 
+                // nếu đi làm + đi phố / linh hoạt / dễ đi thì xe ga nên nổi hơn
+                if (profile.ForCity || profile.WantsEasyControl || profile.WantsLargeStorage)
+                {
+                    if (product.VehicleType == VehicleType.Scooter)
+                    {
+                        score += ScooterForUrbanCommuteBonus;
+                    }
+                    else if (product.VehicleType == VehicleType.Underbone)
+                    {
+                        score += UnderboneAgainstSoftWorkPenalty;
+                    }
+                }
+
+                // nam đi làm: giảm xe quá nữ tính
                 if (profile.PrefersMaleStyle && ContainsAny(product.Tags, "nu tinh", "nhe nhang"))
                 {
                     score -= 18;
                 }
+
                 if (profile.PrefersMaleStyle &&
-    ContainsAny(product.Tags, "trung tinh", "dam chac", "di lam", "thuc dung"))
+                    ContainsAny(product.Tags, "trung tinh", "dam chac", "di lam", "thuc dung"))
                 {
                     score += 12;
                 }
 
+                // nữ đi làm: ưu tiên dễ đi, linh hoạt; hạn chế xe số nếu không có tín hiệu xe số rõ ràng
                 if (profile.PrefersFemaleStyle && ContainsAny(product.Tags, "ham ho", "manh me", "dam chac"))
                 {
                     score -= 12;
                 }
+
                 if (profile.PrefersFemaleStyle &&
-    ContainsAny(product.Tags, "de di", "de dieu khien", "linh hoat", "di pho"))
+                    ContainsAny(product.Tags, "de di", "de dieu khien", "linh hoat", "di pho"))
                 {
                     score += 8;
+                }
+
+                if (profile.PrefersFemaleStyle &&
+                    product.VehicleType == VehicleType.Underbone &&
+                    !profile.WantsUnderbone &&
+                    !profile.IsStudent)
+                {
+                    score += UnderboneAgainstFemaleUrbanPenalty;
                 }
             }
 
@@ -852,11 +951,19 @@ namespace Chatbot.API.Services
             {
                 score += ScooterForFemaleBonus;
             }
+
             if (profile.PrefersFemaleStyle &&
-    product.VehicleType == VehicleType.Underbone &&
-    !profile.WantsUnderbone)
+                product.VehicleType == VehicleType.Underbone &&
+                !profile.WantsUnderbone)
             {
-                score -= 8;
+                score -= 18;
+            }
+
+            if (profile.PrefersFemaleStyle &&
+                product.VehicleType == VehicleType.Scooter &&
+                !profile.WantsUnderbone)
+            {
+                score += 10;
             }
 
             if ((profile.NeedsCompactFit || profile.NeedsLowSeat) &&
@@ -864,6 +971,38 @@ namespace Chatbot.API.Services
                 !profile.PrefersFemaleStyle)
             {
                 score += 4;
+            }
+
+            // NEW: đi làm mà không yêu cầu xe số/côn thì nên ưu tiên scooter hơn
+            if (profile.ForWork && !profile.WantsUnderbone && !profile.WantsManual)
+            {
+                if (product.VehicleType == VehicleType.Scooter)
+                {
+                    score += 10;
+                }
+                else if (product.VehicleType == VehicleType.Underbone)
+                {
+                    score -= 8;
+                }
+                else if (product.VehicleType == VehicleType.Manual)
+                {
+                    score -= 14;
+                }
+            }
+
+            // NEW: đi phố / dễ điều khiển / cốp rộng là các tín hiệu mềm nghiêng scooter
+            if ((profile.ForCity || profile.WantsEasyControl || profile.WantsLargeStorage) &&
+                !profile.WantsUnderbone &&
+                !profile.WantsManual)
+            {
+                if (product.VehicleType == VehicleType.Scooter)
+                {
+                    score += 8;
+                }
+                else if (product.VehicleType == VehicleType.Underbone)
+                {
+                    score -= 6;
+                }
             }
 
             return score;
@@ -934,10 +1073,11 @@ namespace Chatbot.API.Services
                     "xe thap", "de cham chan", "yen khong cao", "de dung chan");
 
             var wantsEasyControl =
-                conversationProfile.WantsEasyControl ||
-                ContainsAny(message,
-                    "de di", "de dieu khien", "nhe", "linh hoat", "de xoay tro",
-                    "de quay dau", "de dat", "de dung", "de lam quen");
+    conversationProfile.WantsEasyControl ||
+    ContainsAny(message,
+        "de di", "de dieu khien", "nhe", "linh hoat", "de xoay tro",
+        "de quay dau", "de dat", "de dung", "de lam quen",
+        "di pho", "di lai hang ngay");
 
             var requestedStyles = MergeStyles(conversationProfile.RequestedStyles, ExtractRequestedStyles(message));
 
@@ -953,7 +1093,7 @@ namespace Chatbot.API.Services
 
                 ForSchool = conversationProfile.ForSchool || ContainsAny(message, "di hoc", "den truong", "hoc hang ngay"),
                 ForWork = conversationProfile.ForWork || ContainsAny(message, "di lam", "cong so", "di lam hang ngay"),
-                ForCity = conversationProfile.ForCity || ContainsAny(message, "di pho", "trong pho", "do thi", "hang ngay"),
+                ForCity = conversationProfile.ForCity || ContainsAny(message, "di pho", "trong pho", "do thi", "hang ngay", "di lam hang ngay", "linh hoat", "di lai hang ngay"),
                 ForTour = conversationProfile.ForTour || ContainsAny(message, "di tour", "duong dai", "di xa", "phuot"),
                 ExplicitlyWants50cc = explicitlyWants50cc,
                 WantsEasyControl = wantsEasyControl,
@@ -1440,6 +1580,7 @@ namespace Chatbot.API.Services
         {
             var selected = new List<ScoredCandidate>();
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var vehicleTypeCount = new Dictionary<VehicleType, int>();
 
             foreach (var candidate in rankedCandidates)
             {
@@ -1453,8 +1594,31 @@ namespace Chatbot.API.Services
                     continue;
                 }
 
+                vehicleTypeCount.TryGetValue(candidate.Context.VehicleType, out var currentTypeCount);
+
+                // tránh top bị dồn quá nhiều cùng 1 kiểu xe khi còn lựa chọn khác tốt gần tương đương
+                if (selected.Count >= 2 && currentTypeCount >= 2)
+                {
+                    var alternativeExists = rankedCandidates.Any(x =>
+                        !usedNames.Contains(x.Context.Name) &&
+                        x.Context.VehicleType != candidate.Context.VehicleType &&
+                        x.Score >= candidate.Score - 6);
+
+                    if (alternativeExists)
+                    {
+                        continue;
+                    }
+                }
+
                 selected.Add(candidate);
                 usedNames.Add(candidate.Context.Name);
+
+                if (!vehicleTypeCount.ContainsKey(candidate.Context.VehicleType))
+                {
+                    vehicleTypeCount[candidate.Context.VehicleType] = 0;
+                }
+
+                vehicleTypeCount[candidate.Context.VehicleType]++;
             }
 
             return selected;

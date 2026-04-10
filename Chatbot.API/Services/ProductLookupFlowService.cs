@@ -29,7 +29,16 @@ namespace Chatbot.API.Services
             ParsedIntent intent,
             CustomerPreferenceProfile profile)
         {
-            if (!intent.IsDirectProductLookup || !intent.MentionedProducts.Any())
+            bool hasLookupField = !string.IsNullOrWhiteSpace(intent.LookupField);
+            bool hasMentionedProduct = intent.MentionedProducts.Any();
+            bool hasLookupContext = !string.IsNullOrWhiteSpace(profile.LastLookupProductName);
+
+            if (!intent.IsDirectProductLookup && !(hasLookupField && hasLookupContext))
+            {
+                return null;
+            }
+
+            if (!hasMentionedProduct && !hasLookupContext)
             {
                 return null;
             }

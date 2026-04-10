@@ -40,7 +40,7 @@ namespace Chatbot.API.Services
 
                 return null;
             }
-            if (profile.LastRecommendedProducts == null || profile.LastRecommendedProducts.Count == 0)
+            if (profile.BaseRecommendedProducts == null || profile.BaseRecommendedProducts.Count == 0)
             {
                 _logger.LogInformation(
                     "Follow-up rerank skipped because no last recommended products. ConversationId: {ConversationId}",
@@ -49,7 +49,11 @@ namespace Chatbot.API.Services
                 return null;
             }
 
-            var allowedNames = profile.LastRecommendedProducts
+            if (!LooksLikeFollowUp(normalizedMessage))
+            {
+                return null;
+            }
+            var allowedNames = profile.BaseRecommendedProducts
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -99,9 +103,60 @@ namespace Chatbot.API.Services
             {
                 return null;
             }
+            if (!string.IsNullOrWhiteSpace(intent.Brand))
+            {
+                products = products
+                    .Where(x => string.Equals(x.ThuongHieu, intent.Brand, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+
+            if (!string.IsNullOrWhiteSpace(intent.Category))
+            {
+                products = products
+                    .Where(x => (x.Loai ?? string.Empty).Contains(intent.Category, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+
+            if (intent.ExcludedBrands.Any())
+            {
+                products = products
+                    .Where(x => !intent.ExcludedBrands.Any(ex =>
+                        string.Equals(x.ThuongHieu, ex, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+            }
+
+            if (intent.ExcludedCategories.Any())
+            {
+                products = products
+                    .Where(x => !intent.ExcludedCategories.Any(ex =>
+                        (x.Loai ?? string.Empty).Contains(ex, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+            }
+            if (products.Count == 0)
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    Reply = BuildNoMatchReply(intent)
+                };
+            }
+            products = ApplyStrictPriceFilter(products, intent);
+
+            if (products.Count == 0)
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    Reply = BuildNoMatchReply(intent)
+                };
+            }
 
             var reranked = _productRecommendationService.RankProducts(
-                products,
+                            products,
                 intent,
                 profile,
                 normalizedMessage,
@@ -112,8 +167,8 @@ namespace Chatbot.API.Services
                 return null;
             }
 
-            var reply = BuildReply(reranked, intent);
-            await _conversationPreferenceService.SetRecommendedProductsAsync(
+            var reply = BuildReply(reranked, intent, _productRecommendationService);
+            await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
     conversationId,
     reranked,
     "followup");
@@ -126,8 +181,36 @@ namespace Chatbot.API.Services
                 Products = ChatProductCardMapper.MapMany(reranked, 4)
             };
         }
+        private static bool LooksLikeFollowUp(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return false;
 
-        private static string BuildReply(IReadOnlyList<ProductSummaryDto> items, ParsedIntent intent)
+            var text = message.Trim().ToLowerInvariant();
+
+            return text.StartsWith("nếu ") ||
+                   text.StartsWith("neu ") ||
+                   text.StartsWith("còn ") ||
+                   text.StartsWith("con ") ||
+                   text.StartsWith("thế ") ||
+                   text.StartsWith("the ") ||
+                   text.StartsWith("vậy ") ||
+                   text.StartsWith("vay ") ||
+                   text.StartsWith("ưu tiên ") ||
+                   text.StartsWith("uu tien ") ||
+                   text.StartsWith("chỉ lấy ") ||
+                   text.StartsWith("chi lay ") ||
+                   text.StartsWith("bỏ ") ||
+                   text.StartsWith("bo ") ||
+                   text.Contains(" hơn") ||
+                   text.Contains(" hon") ||
+                   text.Contains("thì sao") ||
+                   text.Contains("thi sao");
+        }
+        private static string BuildReply(
+     IReadOnlyList<ProductSummaryDto> items,
+     ParsedIntent intent,
+     IProductRecommendationService productRecommendationService)
         {
             var top = items[0];
             var backups = items.Skip(1).Take(2).ToList();
@@ -144,19 +227,42 @@ namespace Chatbot.API.Services
                 _ => null
             };
 
-            var topReason = BuildTopReason(top, intent.ComparisonFeature);
+            var topReason = productRecommendationService.BuildMainReason(top, intent);
 
-            var intro = focusLabel switch
+            string intro;
+
+            if (intent.FilterType == PriceFilterType.MaxOnly && intent.PriceMax.HasValue)
             {
-                "cốp rộng" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ){topReason}.",
-                "dễ chống chân" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ){topReason}.",
-                "tiết kiệm xăng" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ){topReason}.",
-                "hợp nữ" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ){topReason}.",
-                "thực dụng / đi làm hằng ngày" => $"Nếu chọn trong nhóm này theo hướng **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ){topReason}.",
-                "đi học / sinh viên" => $"Nếu xét trong nhóm này theo hướng **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ){topReason}.",
-                "đi êm" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ){topReason}.",
-                _ => $"Trong các mẫu vừa rồi, mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ){topReason}."
-            };
+                intro = $"Trong các mẫu vừa rồi, nếu giữ mức **dưới {intent.PriceMax.Value:N0} VNĐ** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.";
+            }
+            else if (intent.FilterType == PriceFilterType.MinOnly && intent.PriceMin.HasValue)
+            {
+                intro = $"Trong các mẫu vừa rồi, nếu xét các mẫu **từ {intent.PriceMin.Value:N0} VNĐ trở lên** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.";
+            }
+            else if (intent.FilterType == PriceFilterType.Range &&
+                     intent.PriceMin.HasValue &&
+                     intent.PriceMax.HasValue)
+            {
+                intro = $"Trong các mẫu vừa rồi, nếu lọc trong khoảng **{intent.PriceMin.Value:N0} - {intent.PriceMax.Value:N0} VNĐ** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.";
+            }
+            else if (intent.FilterType == PriceFilterType.Around && intent.TargetPrice.HasValue)
+            {
+                intro = $"Trong các mẫu vừa rồi, nếu ưu tiên quanh mức **{intent.TargetPrice.Value:N0} VNĐ** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.";
+            }
+            else
+            {
+                intro = focusLabel switch
+                {
+                    "cốp rộng" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                    "dễ chống chân" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                    "tiết kiệm xăng" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                    "hợp nữ" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                    "thực dụng / đi làm hằng ngày" => $"Nếu chọn trong nhóm này theo hướng **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                    "đi học / sinh viên" => $"Nếu xét trong nhóm này theo hướng **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                    "đi êm" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                    _ => $"Trong các mẫu vừa rồi, mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}."
+                };
+            }
 
             var sb = new StringBuilder();
             sb.AppendLine(intro);
@@ -165,74 +271,105 @@ namespace Chatbot.API.Services
             {
                 sb.AppendLine();
                 sb.AppendLine("Các phương án phụ bạn vẫn có thể cân nhắc thêm:");
+
                 foreach (var item in backups)
                 {
-                    sb.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ)");
+                    var reason = productRecommendationService.BuildMainReason(item, intent);
+                    sb.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ): {reason}");
                 }
             }
 
             return sb.ToString().Trim();
         }
 
-        private static string BuildTopReason(ProductSummaryDto item, string? feature)
+        private static List<ProductSummaryDto> ApplyStrictPriceFilter(
+    List<ProductSummaryDto> items,
+    ParsedIntent intent)
+{
+    if (items == null || items.Count == 0)
+        return new List<ProductSummaryDto>();
+
+    IEnumerable<ProductSummaryDto> query = items;
+
+    if (intent.FilterType == PriceFilterType.Range &&
+        intent.PriceMin.HasValue &&
+        intent.PriceMax.HasValue)
+    {
+        query = query.Where(x => x.Gia >= intent.PriceMin.Value && x.Gia <= intent.PriceMax.Value);
+        return query.ToList();
+    }
+
+    if (intent.FilterType == PriceFilterType.MaxOnly &&
+        intent.PriceMax.HasValue)
+    {
+        query = query.Where(x => x.Gia <= intent.PriceMax.Value);
+        return query.ToList();
+    }
+
+    if (intent.FilterType == PriceFilterType.MinOnly &&
+        intent.PriceMin.HasValue)
+    {
+        query = query.Where(x => x.Gia >= intent.PriceMin.Value);
+        return query.ToList();
+    }
+
+    if (intent.FilterType == PriceFilterType.Around &&
+        intent.TargetPrice.HasValue)
+    {
+        var target = intent.TargetPrice.Value;
+        var delta = GetAroundDelta(target);
+
+        query = query.Where(x => x.Gia >= target - delta && x.Gia <= target + delta);
+
+        var filtered = query.ToList();
+
+        if (filtered.Count == 0)
         {
-            var name = item.Ten ?? string.Empty;
+            var relaxedDelta = delta + 2_000_000m;
+            filtered = items
+                .Where(x => x.Gia >= target - relaxedDelta && x.Gia <= target + relaxedDelta)
+                .ToList();
+        }
 
-            return feature switch
+        return filtered;
+    }
+
+    return query.ToList();
+}
+
+private static decimal GetAroundDelta(decimal target)
+{
+    if (target <= 20_000_000m) return 2_000_000m;
+    if (target <= 35_000_000m) return 3_000_000m;
+    if (target <= 50_000_000m) return 4_000_000m;
+    return 5_000_000m;
+}
+        private static string BuildNoMatchReply(ParsedIntent intent)
+        {
+            if (intent.FilterType == PriceFilterType.MaxOnly && intent.PriceMax.HasValue)
             {
-                "storage" when name.Contains("Freego", StringComparison.OrdinalIgnoreCase)
-                    => " vì mẫu này thiên về nhóm tiện ích và khá hợp nếu bạn hay mang đồ",
-                "storage" when name.Contains("Lead", StringComparison.OrdinalIgnoreCase)
-                    => " vì đây là mẫu nổi bật hơn về hướng tiện dụng và chứa đồ",
-                "storage" when name.Contains("Latte", StringComparison.OrdinalIgnoreCase)
-                    => " vì mẫu này cân bằng khá tốt giữa dáng xe và tính tiện dụng",
+                return $"Trong nhóm mình vừa gợi ý, hiện chưa có mẫu nào thật sự nằm **dưới {intent.PriceMax.Value:N0} VNĐ**.";
+            }
 
-                "low_seat" when name.Contains("Vision", StringComparison.OrdinalIgnoreCase)
-                    => " vì dáng xe gọn và khá dễ làm quen",
-                "low_seat" when name.Contains("Zip", StringComparison.OrdinalIgnoreCase)
-                    => " vì mẫu này thiên về nhóm nhỏ gọn, dễ chống chân hơn",
-                "low_seat" when name.Contains("Latte", StringComparison.OrdinalIgnoreCase)
-                    => " vì đi theo hướng mềm, dễ đi và khá thân thiện với người vóc dáng nhỏ",
+            if (intent.FilterType == PriceFilterType.MinOnly && intent.PriceMin.HasValue)
+            {
+                return $"Trong nhóm mình vừa gợi ý, hiện chưa có mẫu nào thật sự nằm **từ {intent.PriceMin.Value:N0} VNĐ trở lên**.";
+            }
 
-                "fuel_saving" when name.Contains("Vision", StringComparison.OrdinalIgnoreCase)
-                    => " vì đây là mẫu khá cân bằng giữa dễ đi và chi phí sử dụng",
-                "fuel_saving" when name.Contains("Wave", StringComparison.OrdinalIgnoreCase)
-                    => " vì mẫu này thiên về chi phí dùng lâu dài thấp",
-                "fuel_saving" when name.Contains("Future", StringComparison.OrdinalIgnoreCase)
-                    => " vì khá hợp nếu bạn ưu tiên sự bền bỉ và thực dụng",
+            if (intent.FilterType == PriceFilterType.Range &&
+                intent.PriceMin.HasValue &&
+                intent.PriceMax.HasValue)
+            {
+                return $"Trong nhóm mình vừa gợi ý, hiện chưa có mẫu nào thật sự nằm trong khoảng **{intent.PriceMin.Value:N0} - {intent.PriceMax.Value:N0} VNĐ**.";
+            }
 
-                "female_fit" when name.Contains("Latte", StringComparison.OrdinalIgnoreCase)
-                    => " vì dáng xe mềm và hợp hơn nếu bạn thích phong cách nữ tính",
-                "female_fit" when name.Contains("Vision", StringComparison.OrdinalIgnoreCase)
-                    => " vì mẫu này gọn, dễ đi và dễ làm quen",
-                "female_fit" when name.Contains("Grande", StringComparison.OrdinalIgnoreCase)
-                    => " vì thiên về phong cách mềm mại và thanh lịch hơn",
-                "female_fit" when name.Contains("Attila", StringComparison.OrdinalIgnoreCase)
-=> " vì mẫu này thiên về kiểu dáng nữ tính và mềm mại hơn",
-                "female_fit" when name.Contains("Venus", StringComparison.OrdinalIgnoreCase)
-                    => " vì mẫu này thiên về kiểu dáng nữ tính và thanh lịch hơn",
+            if (intent.FilterType == PriceFilterType.Around && intent.TargetPrice.HasValue)
+            {
+                return $"Trong nhóm mình vừa gợi ý, hiện chưa có mẫu nào thật sự đủ sát mức **khoảng {intent.TargetPrice.Value:N0} VNĐ**.";
+            }
 
-                "work_fit" when name.Contains("Air Blade", StringComparison.OrdinalIgnoreCase)
-                    => " vì đi theo hướng đầm xe và đi làm hằng ngày khá ổn",
-                "work_fit" when name.Contains("Freego", StringComparison.OrdinalIgnoreCase)
-                    => " vì khá thực dụng cho nhu cầu đi lại mỗi ngày",
-                "work_fit" when name.Contains("Future", StringComparison.OrdinalIgnoreCase)
-                    => " vì thiên về độ bền và tính thực dụng",
-
-                "school_fit" when name.Contains("Vision", StringComparison.OrdinalIgnoreCase)
-                    => " vì gọn, dễ đi và khá hợp nhu cầu đi học",
-                "school_fit" when name.Contains("Wave", StringComparison.OrdinalIgnoreCase)
-                    => " vì chi phí sử dụng thường mềm hơn",
-                "school_fit" when name.Contains("Sirius", StringComparison.OrdinalIgnoreCase)
-                    => " vì đây là mẫu phổ thông dễ dùng hằng ngày",
-                "ride_comfort" when name.Contains("Latte", StringComparison.OrdinalIgnoreCase)
-    => " vì mẫu này thiên về cảm giác lái nhẹ nhàng và đi phố khá êm",
-                "ride_comfort" when name.Contains("Grande", StringComparison.OrdinalIgnoreCase)
-                    => " vì mẫu này thiên về cảm giác vận hành êm và khá thư thái khi đi phố",
-                "ride_comfort" when name.Contains("Vision", StringComparison.OrdinalIgnoreCase)
-                    => " vì mẫu này khá dễ đi và cho cảm giác vận hành nhẹ nhàng",
-                _ => string.Empty
-            };
+            return "Trong nhóm mình vừa gợi ý, hiện chưa còn mẫu nào thật sự phù hợp với tiêu chí này.";
         }
     }
+
 }

@@ -37,12 +37,16 @@ namespace Chatbot.API.Services
                 return null;
             }
 
-            if (!profile.HasActiveRecommendationContext || profile.LastRecommendedProducts == null || profile.LastRecommendedProducts.Count == 0)
+            if (!profile.HasActiveRecommendationContext || profile.BaseRecommendedProducts == null || profile.BaseRecommendedProducts.Count == 0)
             {
                 return null;
             }
 
-            var allowedNames = profile.LastRecommendedProducts
+            if (!LooksLikeFollowUp(normalizedMessage))
+            {
+                return null;
+            }
+            var allowedNames = profile.BaseRecommendedProducts
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -85,7 +89,7 @@ namespace Chatbot.API.Services
             if (intent.ExcludedCategories.Any())
             {
                 filtered = filtered.Where(x =>
-                    !intent.ExcludedCategories.Any(ex => x.Loai.Contains(ex, StringComparison.OrdinalIgnoreCase)));
+                    !intent.ExcludedCategories.Any(ex => IsSameCategory(x.Loai, ex)));
             }
 
             if (intent.ExcludedBrands.Any())
@@ -95,7 +99,6 @@ namespace Chatbot.API.Services
             }
 
             var filteredList = filtered.ToList();
-
             if (filteredList.Count == 0)
             {
                 return new ChatResponse
@@ -103,13 +106,18 @@ namespace Chatbot.API.Services
                     Success = true,
                     ConversationId = conversationId,
                     UsedAI = false,
-                    Reply = !string.IsNullOrWhiteSpace(intent.Brand)
-    ? $"Trong nhóm mình vừa gợi ý thì hiện không còn mẫu **{intent.Brand}** nào thật sự phù hợp nữa."
-    : intent.ExcludedBrands.Any()
-        ? $"Trong nhóm mình vừa gợi ý, sau khi bỏ **{string.Join(", ", intent.ExcludedBrands)}** thì hiện chưa còn mẫu nào thật sự phù hợp."
-        : intent.ExcludedCategories.Any()
-            ? $"Trong nhóm mình vừa gợi ý, sau khi bỏ **{string.Join(", ", intent.ExcludedCategories)}** thì hiện chưa còn mẫu nào thật sự phù hợp."
-            : "Trong nhóm mình vừa gợi ý thì sau khi lọc theo tiêu chí này hiện chưa còn mẫu nào thật sự phù hợp."
+                    Reply = BuildNoMatchReply(intent)
+                };
+            }
+            filteredList = ApplyStrictPriceFilter(filteredList, intent);
+            if (filteredList.Count == 0)
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    Reply = BuildNoMatchReply(intent)
                 };
             }
             if ((intent.WantsLargeStorage || intent.WantsFuelSaving || intent.NeedsLowSeat || !string.IsNullOrWhiteSpace(intent.ComparisonFeature))
@@ -152,12 +160,12 @@ namespace Chatbot.API.Services
                 return null;
             }
 
-            await _conversationPreferenceService.SetRecommendedProductsAsync(
-                conversationId,
-                ranked,
-                "refine");
+            await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
+    conversationId,
+    ranked,
+    "refine");
 
-            var reply = BuildRefineReply(ranked, intent);
+            var reply = BuildRefineReply(ranked, intent, _productRecommendationService);
 
             return new ChatResponse
             {
@@ -168,42 +176,227 @@ namespace Chatbot.API.Services
                 Products = ChatProductCardMapper.MapMany(ranked, 4)
             };
         }
-        private static string BuildRefineReply(IReadOnlyList<ProductSummaryDto> ranked, ParsedIntent intent)
+        private static bool LooksLikeFollowUp(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return false;
+
+            var text = message.Trim().ToLowerInvariant();
+
+            return text.StartsWith("nếu ") ||
+                   text.StartsWith("neu ") ||
+                   text.StartsWith("còn ") ||
+                   text.StartsWith("con ") ||
+                   text.StartsWith("thế ") ||
+                   text.StartsWith("the ") ||
+                   text.StartsWith("vậy ") ||
+                   text.StartsWith("vay ") ||
+                   text.StartsWith("ưu tiên ") ||
+                   text.StartsWith("uu tien ") ||
+                   text.StartsWith("chỉ lấy ") ||
+                   text.StartsWith("chi lay ") ||
+                   text.StartsWith("bỏ ") ||
+                   text.StartsWith("bo ") ||
+                   text.Contains(" hơn") ||
+                   text.Contains(" hon") ||
+                   text.Contains("thì sao") ||
+                   text.Contains("thi sao");
+        }
+        private static string BuildRefineReply(
+    IReadOnlyList<ProductSummaryDto> ranked,
+    ParsedIntent intent,
+    IProductRecommendationService productRecommendationService)
         {
             var top = ranked[0];
             var others = ranked.Skip(1).Take(2).ToList();
 
+            var topReason = productRecommendationService.BuildMainReason(top, intent);
+
             var sb = new StringBuilder();
 
-            if (!string.IsNullOrWhiteSpace(intent.Brand))
+            if (intent.FilterType == PriceFilterType.MaxOnly && intent.PriceMax.HasValue)
             {
-                sb.AppendLine($"Nếu chỉ xét theo **{intent.Brand}** trong nhóm mình vừa gợi ý thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ).");
+                sb.AppendLine($"Trong nhóm mình vừa gợi ý, nếu giữ mức **dưới {intent.PriceMax.Value:N0} VNĐ** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.");
+            }
+            else if (intent.FilterType == PriceFilterType.MinOnly && intent.PriceMin.HasValue)
+            {
+                sb.AppendLine($"Trong nhóm mình vừa gợi ý, nếu xét các mẫu **từ {intent.PriceMin.Value:N0} VNĐ trở lên** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.");
+            }
+            else if (intent.FilterType == PriceFilterType.Range &&
+                     intent.PriceMin.HasValue &&
+                     intent.PriceMax.HasValue)
+            {
+                sb.AppendLine($"Trong nhóm mình vừa gợi ý, nếu lọc trong khoảng **{intent.PriceMin.Value:N0} - {intent.PriceMax.Value:N0} VNĐ** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.");
+            }
+            else if (intent.FilterType == PriceFilterType.Around && intent.TargetPrice.HasValue)
+            {
+                sb.AppendLine($"Trong nhóm mình vừa gợi ý, nếu ưu tiên quanh mức **{intent.TargetPrice.Value:N0} VNĐ** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.");
+            }
+            else if (!string.IsNullOrWhiteSpace(intent.Brand))
+            {
+                sb.AppendLine($"Nếu chỉ xét theo **{intent.Brand}** trong nhóm mình vừa gợi ý thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.");
             }
             else if (intent.ExcludedBrands.Any())
             {
-                sb.AppendLine($"Trong nhóm mình vừa gợi ý, sau khi bỏ **{string.Join(", ", intent.ExcludedBrands)}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ).");
+                sb.AppendLine($"Trong nhóm mình vừa gợi ý, sau khi bỏ **{string.Join(", ", intent.ExcludedBrands)}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.");
             }
             else if (intent.ExcludedCategories.Any())
             {
-                sb.AppendLine($"Trong nhóm mình vừa gợi ý, sau khi bỏ **{string.Join(", ", intent.ExcludedCategories)}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ).");
+                sb.AppendLine($"Trong nhóm mình vừa gợi ý, sau khi bỏ **{string.Join(", ", intent.ExcludedCategories)}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.");
+            }
+            else if (!string.IsNullOrWhiteSpace(intent.ComparisonFeature))
+            {
+                sb.AppendLine($"Trong nhóm mình vừa gợi ý, nếu chỉ xét theo tiêu chí này thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.");
             }
             else
             {
-                sb.AppendLine($"Trong nhóm mình vừa gợi ý, nếu lọc theo tiêu chí mới thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ).");
+                sb.AppendLine($"Trong nhóm mình vừa gợi ý, nếu lọc theo tiêu chí mới thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.");
             }
 
             if (others.Count > 0)
             {
                 sb.AppendLine();
                 sb.AppendLine("Các phương án phụ bạn vẫn có thể cân nhắc:");
+
                 foreach (var item in others)
                 {
-                    sb.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ)");
+                    var reason = productRecommendationService.BuildMainReason(item, intent);
+                    sb.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ): {reason}");
                 }
             }
 
             return sb.ToString().Trim();
         }
+        private static bool IsSameCategory(string? actualCategory, string excludedCategory)
+        {
+            var actual = NormalizeCategory(actualCategory);
+            var excluded = NormalizeCategory(excludedCategory);
 
+            return string.Equals(actual, excluded, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeCategory(string? category)
+        {
+            var text = (category ?? string.Empty).Trim().ToLowerInvariant();
+
+            if (text.Contains("ga"))
+                return "xe ga";
+
+            if (text.Contains("số") || text.Contains("so"))
+                return "xe số";
+
+            if (text.Contains("côn") || text.Contains("con"))
+                return "côn tay";
+
+            return text;
+        }
+        private static List<ProductSummaryDto> ApplyStrictPriceFilter(
+    List<ProductSummaryDto> items,
+    ParsedIntent intent)
+        {
+            if (items == null || items.Count == 0)
+                return new List<ProductSummaryDto>();
+
+            IEnumerable<ProductSummaryDto> query = items;
+
+            // 1. Khoảng giá cứng: từ X đến Y
+            if (intent.FilterType == PriceFilterType.Range &&
+                intent.PriceMin.HasValue &&
+                intent.PriceMax.HasValue)
+            {
+                query = query.Where(x => x.Gia >= intent.PriceMin.Value && x.Gia <= intent.PriceMax.Value);
+                return query.ToList();
+            }
+
+            // 2. Giá tối đa cứng: dưới / tối đa / không quá
+            if (intent.FilterType == PriceFilterType.MaxOnly &&
+                intent.PriceMax.HasValue)
+            {
+                query = query.Where(x => x.Gia <= intent.PriceMax.Value);
+                return query.ToList();
+            }
+
+            // 3. Giá tối thiểu cứng: trên / từ ... trở lên
+            if (intent.FilterType == PriceFilterType.MinOnly &&
+                intent.PriceMin.HasValue)
+            {
+                query = query.Where(x => x.Gia >= intent.PriceMin.Value);
+                return query.ToList();
+            }
+
+            // 4. Giá "tầm / khoảng / quanh"
+            if (intent.FilterType == PriceFilterType.Around &&
+                intent.TargetPrice.HasValue)
+            {
+                var target = intent.TargetPrice.Value;
+                var delta = GetAroundDelta(target);
+
+                query = query.Where(x => x.Gia >= target - delta && x.Gia <= target + delta);
+
+                var filtered = query.ToList();
+
+                // nếu lọc quá chặt mà không còn gì thì nới nhẹ
+                if (filtered.Count == 0)
+                {
+                    var relaxedDelta = delta + 2_000_000m;
+                    filtered = items
+                        .Where(x => x.Gia >= target - relaxedDelta && x.Gia <= target + relaxedDelta)
+                        .ToList();
+                }
+
+                return filtered;
+            }
+
+            return query.ToList();
+        }
+
+        private static decimal GetAroundDelta(decimal target)
+        {
+            if (target <= 20_000_000m) return 2_000_000m;
+            if (target <= 35_000_000m) return 3_000_000m;
+            if (target <= 50_000_000m) return 4_000_000m;
+            return 5_000_000m;
+        }
+        private static string BuildNoMatchReply(ParsedIntent intent)
+        {
+            if (intent.FilterType == PriceFilterType.MaxOnly && intent.PriceMax.HasValue)
+            {
+                return $"Trong nhóm mình vừa gợi ý, hiện chưa có mẫu nào thật sự nằm **dưới {intent.PriceMax.Value:N0} VNĐ**.";
+            }
+
+            if (intent.FilterType == PriceFilterType.MinOnly && intent.PriceMin.HasValue)
+            {
+                return $"Trong nhóm mình vừa gợi ý, hiện chưa có mẫu nào thật sự nằm **từ {intent.PriceMin.Value:N0} VNĐ trở lên**.";
+            }
+
+            if (intent.FilterType == PriceFilterType.Range &&
+                intent.PriceMin.HasValue &&
+                intent.PriceMax.HasValue)
+            {
+                return $"Trong nhóm mình vừa gợi ý, hiện chưa có mẫu nào thật sự nằm trong khoảng **{intent.PriceMin.Value:N0} - {intent.PriceMax.Value:N0} VNĐ**.";
+            }
+
+            if (intent.FilterType == PriceFilterType.Around && intent.TargetPrice.HasValue)
+            {
+                return $"Trong nhóm mình vừa gợi ý, hiện chưa có mẫu nào thật sự đủ sát mức **khoảng {intent.TargetPrice.Value:N0} VNĐ**.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(intent.Brand))
+            {
+                return $"Trong nhóm mình vừa gợi ý thì hiện không còn mẫu **{intent.Brand}** nào thật sự phù hợp nữa.";
+            }
+
+            if (intent.ExcludedBrands.Any())
+            {
+                return $"Trong nhóm mình vừa gợi ý, sau khi bỏ **{string.Join(", ", intent.ExcludedBrands)}** thì hiện chưa còn mẫu nào thật sự phù hợp.";
+            }
+
+            if (intent.ExcludedCategories.Any())
+            {
+                return $"Trong nhóm mình vừa gợi ý, sau khi bỏ **{string.Join(", ", intent.ExcludedCategories)}** thì hiện chưa còn mẫu nào thật sự phù hợp.";
+            }
+
+            return "Trong nhóm mình vừa gợi ý thì sau khi lọc theo tiêu chí này hiện chưa còn mẫu nào thật sự phù hợp.";
+        }
     }
 }
