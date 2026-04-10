@@ -270,6 +270,19 @@ IProductSearchFlowService productSearchFlowService)
     parsedIntent.TargetPrice,
     parsedIntent.PriceMin,
     parsedIntent.PriceMax);
+                if (LooksLikeDirectProductLookup(normalizedMessage, parsedIntent))
+                {
+                    parsedIntent.IntentType = "product_lookup";
+                    parsedIntent.IsProductSearch = false;
+                    parsedIntent.IsFollowUp = false;
+                    parsedIntent.RouteFlow = ChatFlowType.ProductLookup;
+                    parsedIntent.HasDeterministicProductIntent = true;
+
+                    _logger.LogInformation(
+                        "Hard override to product lookup. ConversationId: {ConversationId}, Message: {Message}",
+                        conversationId,
+                        normalizedMessage);
+                }
 
                 bool hasPriceSignals =
                     parsedIntent.PriceMin.HasValue ||
@@ -392,6 +405,14 @@ IProductSearchFlowService productSearchFlowService)
    normalizedMessage,
    effectiveIntent,
    conversationProfile);
+                if (LooksLikeDirectProductLookup(normalizedMessage, effectiveIntent))
+                {
+                    routing.FlowType = ChatFlowType.ProductLookup;
+                    routing.ShouldUseDeterministicFlow = true;
+                    routing.ShouldUseAiFallback = false;
+                    routing.ShouldUseRag = false;
+                    routing.Reason = "Forced by direct product lookup phrase";
+                }
                 if (contextDecision == RecommendationContextDecision.StartFreshRecommendation)
                 {
                     routing.FlowType = ChatFlowType.Recommendation;
@@ -490,8 +511,9 @@ IProductSearchFlowService productSearchFlowService)
                         ElapsedMs = stopwatch.ElapsedMilliseconds
                     };
                 }
-                if (contextDecision == RecommendationContextDecision.NarrowWithinCurrentSet &&
-     ShouldForcePriceRefinement(parsedIntent, conversationProfile))
+                if (!LooksLikeDirectProductLookup(normalizedMessage, parsedIntent) &&
+    contextDecision == RecommendationContextDecision.NarrowWithinCurrentSet &&
+    ShouldForcePriceRefinement(parsedIntent, conversationProfile))
                 {
                     _logger.LogInformation(
                         "Hard override force price refinement. ConversationId: {ConversationId}, Message: {Message}, FilterType: {FilterType}, Min: {Min}, Max: {Max}, Target: {Target}",
@@ -2305,7 +2327,37 @@ IProductSearchFlowService productSearchFlowService)
 
             return ragKeywords.Any(k => text.Contains(k)) && !ShouldUseTool(message);
         }
+        private static bool LooksLikeDirectProductLookup(
+    string message,
+    ParsedIntent parsedIntent)
+        {
+            if (string.IsNullOrWhiteSpace(message) || parsedIntent == null)
+                return false;
 
+            var text = message.Trim().ToLowerInvariant();
+
+            bool hasLookupKeyword =
+                text.Contains("giá") ||
+                text.Contains("gia") ||
+                text.Contains("bao nhiêu") ||
+                text.Contains("bao nhieu") ||
+                text.Contains("còn hàng") ||
+                text.Contains("con hang") ||
+                text.Contains("tồn kho") ||
+                text.Contains("ton kho") ||
+                text.Contains("có sẵn") ||
+                text.Contains("co san");
+
+            bool hasMentionedProduct =
+                parsedIntent.MentionedProducts != null &&
+                parsedIntent.MentionedProducts.Count > 0;
+
+            bool looksLikeSpecificModelPhrase =
+                Regex.IsMatch(text, @"\b(vision|air blade|freego|latte|grande|vario|future|wave|sirius|impulse|freego|burgman|zip|attila)\b",
+                    RegexOptions.IgnoreCase);
+
+            return hasLookupKeyword && (hasMentionedProduct || looksLikeSpecificModelPhrase);
+        }
         private bool ShouldUseTool(string message)
         {
             if (string.IsNullOrWhiteSpace(message))
