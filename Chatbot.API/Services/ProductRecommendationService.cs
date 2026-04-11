@@ -1189,7 +1189,7 @@ namespace Chatbot.API.Services
         "di pho", "di lai hang ngay");
 
             var requestedStyles = MergeStyles(conversationProfile.RequestedStyles, ExtractRequestedStyles(message));
-
+            var genderPreference = ResolveGenderPreference(message, target, conversationProfile);
             return new RequestProfile
             {
                 RawMessage = message,
@@ -1222,15 +1222,8 @@ namespace Chatbot.API.Services
                 DislikesScooter = dislikesScooter,
                 DislikesUnderbone = dislikesUnderbone,
 
-                PrefersMaleStyle =
-                    conversationProfile.PrefersMaleStyle ||
-                    ContainsAny(target, "nam") ||
-                    ContainsAny(message, "cho nam", "nam di lam", "nam di pho"),
-
-                PrefersFemaleStyle =
-                    conversationProfile.PrefersFemaleStyle ||
-                    ContainsAny(target, "nu") ||
-                    ContainsAny(message, "cho nu", "nu di lam", "nu di pho", "cho phai nu"),
+                PrefersMaleStyle = genderPreference.PrefersMaleStyle,
+                PrefersFemaleStyle = genderPreference.PrefersFemaleStyle,
 
                 IsOpenConsultation = true,
 
@@ -1747,6 +1740,60 @@ namespace Chatbot.API.Services
             }
 
             return false;
+        }
+        private static (bool PrefersMaleStyle, bool PrefersFemaleStyle) ResolveGenderPreference(
+    string message,
+    string? target,
+    CustomerPreferenceProfile? profile)
+        {
+            var normalizedMessage = Normalize(message);
+            var normalizedTarget = Normalize(target);
+            var normalizedProfileTarget = Normalize(profile?.Target);
+
+            bool explicitMale =
+                ContainsAny(normalizedTarget, "nam") ||
+                ContainsAny(normalizedMessage,
+                    "cho nam",
+                    "xe cho nam",
+                    "tu van xe cho nam",
+                    "tu van cho nam",
+                    "nam di lam",
+                    "nam di pho");
+
+            bool explicitFemale =
+                ContainsAny(normalizedTarget, "nu") ||
+                ContainsAny(normalizedMessage,
+                    "cho nu",
+                    "xe cho nu",
+                    "tu van xe cho nu",
+                    "tu van cho nu",
+                    "nu di lam",
+                    "nu di pho",
+                    "cho phai nu");
+
+            // ưu tiên target mới nếu câu có dạng phủ định rồi đổi sang target mới
+            if (normalizedMessage.Contains("khong phai nu") && explicitMale)
+                return (true, false);
+
+            if (normalizedMessage.Contains("khong phai nam") && explicitFemale)
+                return (false, true);
+
+            if (explicitMale && !explicitFemale)
+                return (true, false);
+
+            if (explicitFemale && !explicitMale)
+                return (false, true);
+
+            if (ContainsAny(normalizedProfileTarget, "nam"))
+                return (true, false);
+
+            if (ContainsAny(normalizedProfileTarget, "nu"))
+                return (false, true);
+
+            return (
+                profile?.PrefersMaleStyle == true,
+                profile?.PrefersFemaleStyle == true
+            );
         }
 
         private static bool ContainsAny(IEnumerable<string> texts, params string[] keywords)

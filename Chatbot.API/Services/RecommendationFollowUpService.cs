@@ -25,8 +25,7 @@ namespace Chatbot.API.Services
             _conversationPreferenceService = conversationPreferenceService;
             _logger = logger;
         }
-
-        public async Task<ChatResponse?> HandleAsync(
+            public async Task<ChatResponse?> HandleAsync(
     string conversationId,
     string normalizedMessage,
     ParsedIntent intent,
@@ -40,6 +39,7 @@ namespace Chatbot.API.Services
 
                 return null;
             }
+
             if (profile.BaseRecommendedProducts == null || profile.BaseRecommendedProducts.Count == 0)
             {
                 _logger.LogInformation(
@@ -49,10 +49,6 @@ namespace Chatbot.API.Services
                 return null;
             }
 
-            if (!LooksLikeFollowUp(normalizedMessage))
-            {
-                return null;
-            }
             var allowedNames = profile.BaseRecommendedProducts
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -180,32 +176,6 @@ namespace Chatbot.API.Services
                 Reply = reply,
                 Products = ChatProductCardMapper.MapMany(reranked, 4)
             };
-        }
-        private static bool LooksLikeFollowUp(string message)
-        {
-            if (string.IsNullOrWhiteSpace(message))
-                return false;
-
-            var text = message.Trim().ToLowerInvariant();
-
-            return text.StartsWith("nếu ") ||
-                   text.StartsWith("neu ") ||
-                   text.StartsWith("còn ") ||
-                   text.StartsWith("con ") ||
-                   text.StartsWith("thế ") ||
-                   text.StartsWith("the ") ||
-                   text.StartsWith("vậy ") ||
-                   text.StartsWith("vay ") ||
-                   text.StartsWith("ưu tiên ") ||
-                   text.StartsWith("uu tien ") ||
-                   text.StartsWith("chỉ lấy ") ||
-                   text.StartsWith("chi lay ") ||
-                   text.StartsWith("bỏ ") ||
-                   text.StartsWith("bo ") ||
-                   text.Contains(" hơn") ||
-                   text.Contains(" hon") ||
-                   text.Contains("thì sao") ||
-                   text.Contains("thi sao");
         }
         private static string BuildReply(
      IReadOnlyList<ProductSummaryDto> items,

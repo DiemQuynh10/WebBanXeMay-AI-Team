@@ -27,31 +27,29 @@ namespace Chatbot.API.Services
         }
 
         public async Task<ChatResponse?> HandleAsync(
-     string conversationId,
-     string normalizedMessage,
-     ParsedIntent intent,
-     CustomerPreferenceProfile profile)
+    string conversationId,
+    string normalizedMessage,
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile)
         {
             if (profile.HasActiveCompareContext && profile.LastComparedProducts.Count >= 2)
             {
                 return null;
             }
 
-            if (!profile.HasActiveRecommendationContext || profile.BaseRecommendedProducts == null || profile.BaseRecommendedProducts.Count == 0)
+            if (!profile.HasActiveRecommendationContext ||
+                profile.BaseRecommendedProducts == null ||
+                profile.BaseRecommendedProducts.Count == 0)
             {
                 return null;
             }
 
-            if (!LooksLikeFollowUp(normalizedMessage))
-            {
-                return null;
-            }
             var allowedNames = profile.BaseRecommendedProducts
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            var previousProducts = new List<ProductSummaryDto>();
+        var previousProducts = new List<ProductSummaryDto>();
 
             foreach (var name in allowedNames)
             {
@@ -236,46 +234,7 @@ namespace Chatbot.API.Services
                 Products = ChatProductCardMapper.MapMany(ranked, 4)
             };
         }
-        private static bool LooksLikeFollowUp(string message)
-        {
-            if (string.IsNullOrWhiteSpace(message))
-                return false;
-
-            var text = message.Trim().ToLowerInvariant();
-
-            return text.StartsWith("nếu ") ||
-                   text.StartsWith("neu ") ||
-                   text.StartsWith("còn ") ||
-                   text.StartsWith("con ") ||
-                   text.StartsWith("thế ") ||
-                   text.StartsWith("the ") ||
-                   text.StartsWith("vậy ") ||
-                   text.StartsWith("vay ") ||
-                   text.StartsWith("ưu tiên ") ||
-                   text.StartsWith("uu tien ") ||
-                   text.StartsWith("chỉ lấy ") ||
-                   text.StartsWith("chi lay ") ||
-                   text.StartsWith("bỏ ") ||
-                   text.StartsWith("bo ") ||
-                   text.Contains(" hơn") ||
-                   text.Contains(" hon") ||
-                   text.Contains("thì sao") ||
-                   text.Contains("thi sao") ||
-                   text.Contains("rẻ hơn") ||
-                   text.Contains("re hon") ||
-                   text.Contains("đẹp hơn") ||
-                   text.Contains("dep hon") ||
-                   text.Contains("loại khác") ||
-                   text.Contains("loai khac") ||
-                   text.Contains("xe khác") ||
-                   text.Contains("xe khac") ||
-                   text.Contains("mẫu khác") ||
-                   text.Contains("mau khac") ||
-                   text.Contains("tăng budget") ||
-                   text.Contains("tang budget") ||
-                   text.Contains("thêm ngân sách") ||
-                   text.Contains("them ngan sach");
-        }
+      
         private static string BuildRefineReply(
     IReadOnlyList<ProductSummaryDto> ranked,
     ParsedIntent intent,

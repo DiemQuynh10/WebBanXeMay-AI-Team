@@ -159,10 +159,6 @@ namespace Chatbot.API.Services
                 conversationId,
                 items.Take(5).ToList(),
                 "search");
-            await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
-    conversationId,
-    items.Take(5).ToList(),
-    "search");
         }
         private async Task<List<ProductSummaryDto>> FindNearMatchProductsAsync(
     string? brand,
