@@ -79,6 +79,14 @@ namespace Chatbot.API.Services
                     return result;
                 }
 
+                bool asksAlternativeChoice =
+        (intent.RawMessage ?? string.Empty).Contains("loại khác", StringComparison.OrdinalIgnoreCase) ||
+        (intent.RawMessage ?? string.Empty).Contains("loai khac", StringComparison.OrdinalIgnoreCase) ||
+        (intent.RawMessage ?? string.Empty).Contains("xe khác", StringComparison.OrdinalIgnoreCase) ||
+        (intent.RawMessage ?? string.Empty).Contains("xe khac", StringComparison.OrdinalIgnoreCase) ||
+        (intent.RawMessage ?? string.Empty).Contains("mẫu khác", StringComparison.OrdinalIgnoreCase) ||
+        (intent.RawMessage ?? string.Empty).Contains("mau khac", StringComparison.OrdinalIgnoreCase);
+
                 bool hasHardRefinementSignals =
                     intent.PriceMin.HasValue ||
                     intent.PriceMax.HasValue ||
@@ -90,7 +98,8 @@ namespace Chatbot.API.Services
                     intent.WantsLargeStorage ||
                     intent.WantsFuelSaving ||
                     intent.NeedsLowSeat ||
-                    intent.WantsEasyControl;
+                    intent.WantsEasyControl ||
+                    asksAlternativeChoice;
 
                 if (profile?.HasActiveRecommendationContext == true &&
                     profile.LastRecommendedProducts.Count > 0 &&

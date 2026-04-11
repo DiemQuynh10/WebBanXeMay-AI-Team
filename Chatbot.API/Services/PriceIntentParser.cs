@@ -18,17 +18,35 @@ namespace Chatbot.API.Services
                 return result;
 
             var text = Normalize(message);
+            text = NormalizeSpelledPriceWords(text);
 
             if (LooksLikeHeightOrPhysicalPreference(text))
                 return result;
-            if (TryParseNumericRangeLoosely(text, out var looseMin, out var looseMax))
+            if (TryParseRestartOverrideTargetPrice(text, out var overrideTarget))
             {
-                result.FilterType = PriceFilterType.Range;
-                result.MinPrice = looseMin;
-                result.MaxPrice = looseMax;
+                var delta = GetAroundDelta(overrideTarget);
+
+                result.FilterType = PriceFilterType.Around;
+                result.TargetPrice = overrideTarget;
+                result.MinPrice = Math.Max(0, overrideTarget - delta);
+                result.MaxPrice = overrideTarget + delta;
+                return result;
+            }
+            if (ContainsAny(text, "gia mem", "re thoi", "re re", "mem thoi", "gia de chiu"))
+            {
+                result.FilterType = PriceFilterType.MaxOnly;
+                result.MaxPrice = 30_000_000m;
                 result.TargetPrice = null;
                 return result;
             }
+            //if (TryParseNumericRangeLoosely(text, out var looseMin, out var looseMax))
+            //{
+            //    result.FilterType = PriceFilterType.Range;
+            //    result.MinPrice = looseMin;
+            //    result.MaxPrice = looseMax;
+            //    result.TargetPrice = null;
+            //    return result;
+            //}
 
             if (TryParseRange(text, out var minPrice, out var maxPrice))
             {
@@ -125,6 +143,33 @@ namespace Chatbot.API.Services
 
             return result;
         }
+        private static bool TryParseRestartOverrideTargetPrice(string text, out decimal targetPrice)
+        {
+            targetPrice = 0;
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var match = Regex.Match(
+                text,
+                @"(?:khong phai\s+\d+(?:[.,]\d+)?\s*(?:trieu|tr|cu|chai)?\s*(?:nua)?[, ]*)?(?:gio|bay gio|y la|doi y|h t muon|vay h t muon)?\s*(?:quanh|khoang|tam)\s+(\d+(?:[.,]\d+)?)\s*(trieu|tr|cu|chai)?",
+                RegexOptions.IgnoreCase);
+
+            if (!match.Success)
+                return false;
+
+            if (!decimal.TryParse(
+                    match.Groups[1].Value.Replace(",", "."),
+                    NumberStyles.Any,
+                    CultureInfo.InvariantCulture,
+                    out var value))
+            {
+                return false;
+            }
+
+            targetPrice = value * 1_000_000m;
+            return true;
+        }
         private static bool TryParseNumericRangeLoosely(string text, out decimal minPrice, out decimal maxPrice)
         {
             minPrice = 0;
@@ -160,6 +205,8 @@ namespace Chatbot.API.Services
 
             minPrice = Math.Min(v1, v2) * 1_000_000m;
             maxPrice = Math.Max(v1, v2) * 1_000_000m;
+            if (Math.Abs(v1 - v2) > 30)
+                return false;
             return true;
         }
         private static bool TryParseRange(string text, out decimal minPrice, out decimal maxPrice)
@@ -207,7 +254,41 @@ namespace Chatbot.API.Services
             text = Regex.Replace(text, @"\s+", " ");
             return text;
         }
+        private static string NormalizeSpelledPriceWords(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return text;
 
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["mười"] = "10",
+                ["muoi"] = "10",
+                ["hai mươi"] = "20",
+                ["hai muoi"] = "20",
+                ["ba mươi"] = "30",
+                ["ba muoi"] = "30",
+                ["bốn mươi"] = "40",
+                ["bon muoi"] = "40",
+                ["bốn mươi"] = "40",
+                ["năm mươi"] = "50",
+                ["nam muoi"] = "50",
+                ["sáu mươi"] = "60",
+                ["sau muoi"] = "60",
+                ["bảy mươi"] = "70",
+                ["bay muoi"] = "70",
+                ["tám mươi"] = "80",
+                ["tam muoi"] = "80",
+                ["chín mươi"] = "90",
+                ["chin muoi"] = "90"
+            };
+
+            foreach (var kv in map.OrderByDescending(x => x.Key.Length))
+            {
+                text = Regex.Replace(text, $@"\b{Regex.Escape(kv.Key)}\b", kv.Value, RegexOptions.IgnoreCase);
+            }
+
+            return text;
+        }
         private static decimal GetAroundDelta(decimal amount)
         {
             if (amount <= 20_000_000m) return 2_000_000m;

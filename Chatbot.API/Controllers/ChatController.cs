@@ -47,7 +47,10 @@ namespace Chatbot.API.Controllers
                     });
                 }
 
+                _logger.LogInformation("ChatController BEFORE sanitize: {Message}", request.Message);
+
                 request.Message = _inputTextSanitizer.Sanitize(request.Message);
+
                 _logger.LogInformation("ChatController AFTER sanitize: {Message}", request.Message);
 
                 var result = await _chatService.ProcessMessageAsync(request);

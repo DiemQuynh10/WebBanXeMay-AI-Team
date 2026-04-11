@@ -356,6 +356,8 @@ function addMessage(role, content, products = []) {
         addTyping();
 
         try {
+            console.log("RAW INPUT VALUE:", input.value);
+            console.log("MESSAGE SENT:", message);
             const result = await sendChatMessage({
                 message: message,
                 conversationId: state.currentConversationId,

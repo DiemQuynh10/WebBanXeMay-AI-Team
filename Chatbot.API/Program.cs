@@ -61,7 +61,7 @@ builder.Services.AddScoped<IProductSearchFlowService, ProductSearchFlowService>(
 builder.Services.AddScoped<IInputTextSanitizer, InputTextSanitizer>();
 // Main chatbot services
 builder.Services.AddScoped<IChatService, ChatService>();
-
+builder.Services.AddScoped<ILLMIntentUnderstandingService, LLMIntentUnderstandingService>();
 builder.Services.AddHttpClient<IOpenAIService, OpenAIService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(45);
