@@ -26,7 +26,22 @@ namespace Chatbot.API.Services
             {
                 ConversationId = id
             });
+            var rawMessage = NormalizeGenderText(intent.RawMessage);
 
+            bool messageExplicitlyMentionsMale =
+                rawMessage.Contains(" nam ") ||
+                rawMessage.StartsWith("nam ") ||
+                rawMessage.EndsWith(" nam") ||
+                rawMessage.Contains("cho nam") ||
+                rawMessage.Contains("phai nam");
+
+            bool messageExplicitlyMentionsFemale =
+                rawMessage.Contains(" nu ") ||
+                rawMessage.StartsWith("nu ") ||
+                rawMessage.EndsWith(" nu") ||
+                rawMessage.Contains("cho nu") ||
+                rawMessage.Contains("phai nu") ||
+                rawMessage.Contains("phu nu");
             if (intent.FilterType != PriceFilterType.None)
             {
                 profile.FilterType = intent.FilterType;
@@ -74,14 +89,36 @@ namespace Chatbot.API.Services
             }
 
             if (!string.IsNullOrWhiteSpace(intent.Category))
+            {
                 profile.PreferredCategory = intent.Category;
+                profile.ExcludedCategories.RemoveWhere(x =>
+                    string.Equals(x, intent.Category, StringComparison.OrdinalIgnoreCase));
+            }
 
             if (!string.IsNullOrWhiteSpace(intent.Brand))
+            {
                 profile.PreferredBrand = intent.Brand;
+                profile.ExcludedBrands.RemoveWhere(x =>
+                    string.Equals(x, intent.Brand, StringComparison.OrdinalIgnoreCase));
+            }
 
             if (!string.IsNullOrWhiteSpace(intent.Target))
-                profile.Target = intent.Target;
+            {
+                var normalizedTarget = NormalizeGenderText(intent.Target);
 
+                if (messageExplicitlyMentionsMale && normalizedTarget.Contains("nam"))
+                {
+                    profile.Target = "nam";
+                    profile.PrefersMaleStyle = true;
+                    profile.PrefersFemaleStyle = false;
+                }
+                else if (messageExplicitlyMentionsFemale && normalizedTarget.Contains("nu"))
+                {
+                    profile.Target = "nữ";
+                    profile.PrefersFemaleStyle = true;
+                    profile.PrefersMaleStyle = false;
+                }
+            }
             foreach (var item in intent.ExcludedCategories)
                 profile.ExcludedCategories.Add(item);
 
@@ -103,8 +140,16 @@ namespace Chatbot.API.Services
             if (intent.WantsFuelSaving) profile.WantsFuelSaving = true;
             if (intent.WantsLargeStorage) profile.WantsLargeStorage = true;
 
-            if (intent.PrefersMaleStyle) profile.PrefersMaleStyle = true;
-            if (intent.PrefersFemaleStyle) profile.PrefersFemaleStyle = true;
+            if (messageExplicitlyMentionsMale && intent.PrefersMaleStyle && !intent.PrefersFemaleStyle)
+            {
+                profile.PrefersMaleStyle = true;
+                profile.PrefersFemaleStyle = false;
+            }
+            else if (messageExplicitlyMentionsFemale && intent.PrefersFemaleStyle && !intent.PrefersMaleStyle)
+            {
+                profile.PrefersFemaleStyle = true;
+                profile.PrefersMaleStyle = false;
+            }
 
             foreach (var style in intent.RequestedStyles)
                 profile.RequestedStyles.Add(style);
@@ -141,7 +186,16 @@ namespace Chatbot.API.Services
             profile.TurnCount++;
             profile.LastUserMessage = intent.RawMessage;
             profile.UpdatedAtUtc = DateTime.UtcNow;
-
+            Console.WriteLine(
+    $"[ConversationPreferenceService] Merge result | RawMessage={intent.RawMessage} | " +
+    $"messageExplicitlyMentionsMale={messageExplicitlyMentionsMale} | " +
+    $"messageExplicitlyMentionsFemale={messageExplicitlyMentionsFemale} | " +
+    $"intent.Target={intent.Target} | " +
+    $"intent.PrefersMaleStyle={intent.PrefersMaleStyle} | " +
+    $"intent.PrefersFemaleStyle={intent.PrefersFemaleStyle} | " +
+    $"profile.Target={profile.Target} | " +
+    $"profile.PrefersMaleStyle={profile.PrefersMaleStyle} | " +
+    $"profile.PrefersFemaleStyle={profile.PrefersFemaleStyle}");
             return Task.FromResult(profile);
         }
 
@@ -473,6 +527,97 @@ namespace Chatbot.API.Services
 
             profile.UpdatedAtUtc = DateTime.UtcNow;
             return Task.CompletedTask;
+        }
+        private static string NormalizeGenderText(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            var value = text.Trim().ToLowerInvariant();
+
+            value = value
+                .Replace("đ", "d")
+                .Replace("nữ", "nu");
+
+            var map = new Dictionary<char, char>
+            {
+                ['à'] = 'a',
+                ['á'] = 'a',
+                ['ạ'] = 'a',
+                ['ả'] = 'a',
+                ['ã'] = 'a',
+                ['â'] = 'a',
+                ['ầ'] = 'a',
+                ['ấ'] = 'a',
+                ['ậ'] = 'a',
+                ['ẩ'] = 'a',
+                ['ẫ'] = 'a',
+                ['ă'] = 'a',
+                ['ằ'] = 'a',
+                ['ắ'] = 'a',
+                ['ặ'] = 'a',
+                ['ẳ'] = 'a',
+                ['ẵ'] = 'a',
+                ['è'] = 'e',
+                ['é'] = 'e',
+                ['ẹ'] = 'e',
+                ['ẻ'] = 'e',
+                ['ẽ'] = 'e',
+                ['ê'] = 'e',
+                ['ề'] = 'e',
+                ['ế'] = 'e',
+                ['ệ'] = 'e',
+                ['ể'] = 'e',
+                ['ễ'] = 'e',
+                ['ì'] = 'i',
+                ['í'] = 'i',
+                ['ị'] = 'i',
+                ['ỉ'] = 'i',
+                ['ĩ'] = 'i',
+                ['ò'] = 'o',
+                ['ó'] = 'o',
+                ['ọ'] = 'o',
+                ['ỏ'] = 'o',
+                ['õ'] = 'o',
+                ['ô'] = 'o',
+                ['ồ'] = 'o',
+                ['ố'] = 'o',
+                ['ộ'] = 'o',
+                ['ổ'] = 'o',
+                ['ỗ'] = 'o',
+                ['ơ'] = 'o',
+                ['ờ'] = 'o',
+                ['ớ'] = 'o',
+                ['ợ'] = 'o',
+                ['ở'] = 'o',
+                ['ỡ'] = 'o',
+                ['ù'] = 'u',
+                ['ú'] = 'u',
+                ['ụ'] = 'u',
+                ['ủ'] = 'u',
+                ['ũ'] = 'u',
+                ['ư'] = 'u',
+                ['ừ'] = 'u',
+                ['ứ'] = 'u',
+                ['ự'] = 'u',
+                ['ử'] = 'u',
+                ['ữ'] = 'u',
+                ['ỳ'] = 'y',
+                ['ý'] = 'y',
+                ['ỵ'] = 'y',
+                ['ỷ'] = 'y',
+                ['ỹ'] = 'y'
+            };
+
+            var chars = value.Select(c => map.ContainsKey(c) ? map[c] : c).ToArray();
+            value = new string(chars);
+
+            while (value.Contains("  "))
+            {
+                value = value.Replace("  ", " ");
+            }
+
+            return value;
         }
     }
 }

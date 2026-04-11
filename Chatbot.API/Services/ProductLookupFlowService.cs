@@ -135,7 +135,7 @@ namespace Chatbot.API.Services
                 case "stock":
                     if (product.SoLuong > 0)
                     {
-                        return $"**{product.Ten}** hiện vẫn còn hàng, số lượng trong hệ thống là **{product.SoLuong}** chiếc.";
+                        return $"**{product.Ten}** hiện vẫn còn hàng. Số lượng trong hệ thống là **{product.SoLuong}** chiếc.";
                     }
 
                     return $"**{product.Ten}** hiện đang hết hàng trong dữ liệu hệ thống.";

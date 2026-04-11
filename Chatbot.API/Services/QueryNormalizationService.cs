@@ -100,22 +100,46 @@ namespace Chatbot.API.Services
                 ["khoong muon"] = "không muốn",
                 ["hong muon"] = "không muốn",
                 ["ko muon"] = "không muốn",
-                ["k muon"] = "không muốn"
+                ["k muon"] = "không muốn",
+
+                ["tư ván"] = "tư vấn",
+                ["tu vans"] = "tư vấn",
+                ["tu ván"] = "tư vấn",
+                ["tuvan"] = "tư vấn",
+                ["goi y"] = "gợi ý",
+                ["goi ys"] = "gợi ý",
+                ["phu hp"] = "phù hợp",
+                ["phù hp"] = "phù hợp",
+                ["phu hơp"] = "phù hợp",
+                ["xee"] = "xe",
+                ["khoarng"] = "khoảng",
+                ["khoan"] = "khoảng",
+                ["tamf"] = "tầm",
+                ["namm"] = "nam",
+                ["nux"] = "nữ",
+                ["nuw"] = "nữ"
             };
 
         private static readonly HashSet<string> HighRiskTokens =
-            new(StringComparer.OrdinalIgnoreCase)
-            {
-                "vison",
-                "visionn",
-                "air blaed",
-                "ab",
-                "honad",
-                "yahama",
-                "snh",
-                "vin"
-            };
-        
+     new(StringComparer.OrdinalIgnoreCase)
+     {
+        "vison",
+        "visionn",
+        "air blaed",
+        "ab",
+        "honad",
+        "yahama",
+        "snh",
+        "vin",
+        "tư ván",
+        "tu ván",
+        "tu vans",
+        "tuvan",
+        "goi y",
+        "phu hp",
+        "phù hp",
+        "phu hơp"
+     };
         public NormalizationResult Analyze(string input)
         {
             if (string.IsNullOrWhiteSpace(input))
@@ -194,7 +218,23 @@ namespace Chatbot.API.Services
 
             normalized = string.Join(' ', newWords);
             normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+            normalized = Regex.Replace(
+    normalized,
+    @"\b(tu|tư)\s*v[aăâ]n[sx]?\b",
+    "tư vấn",
+    RegexOptions.IgnoreCase);
 
+            normalized = Regex.Replace(
+                normalized,
+                @"\bgoi\s*y\b",
+                "gợi ý",
+                RegexOptions.IgnoreCase);
+
+            normalized = Regex.Replace(
+                normalized,
+                @"\bphu\s*h[opơơp]+\b",
+                "phù hợp",
+                RegexOptions.IgnoreCase);
             var hasChanges = !string.Equals(original, normalized, StringComparison.OrdinalIgnoreCase);
             var riskyChange = riskyChangedWords.Any();
             var needsConfirmation = hasChanges && riskyChange;

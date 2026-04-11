@@ -21,8 +21,8 @@ namespace Chatbot.API.Services
         private const int PriceLooseScore = 12;
         private const int PriceFarPenalty = -8;
         private const int PriceVeryFarPenalty = -20;
-        private const int PriceTooCheapPenalty = -10;
-        private const int PriceWayTooCheapPenalty = -22;
+        private const int PriceTooCheapPenalty = -14;
+        private const int PriceWayTooCheapPenalty = -30;
         private const int PriceTooExpensivePenalty = -14;
         private const int PriceWayTooExpensivePenalty = -28;
 
@@ -249,20 +249,27 @@ namespace Chatbot.API.Services
             var score = 0;
 
             if (ContainsAny(product.Tags, "nu tinh", "thanh lich", "nhe nhang", "de di"))
-                score += 28;
+                score += 24;
 
             if (product.VehicleType == VehicleType.Scooter)
-                score += 8;
+                score += 6;
 
             if (ContainsAny(product.Name, "latte", "grande", "attila", "venus"))
-                score += 12;
+                score += 18;
 
             if (ContainsAny(product.Name, "vision", "zip"))
-                score += 8;
+                score += 10;
 
             if (ContainsAny(product.Tags, "ham ho", "manh me", "dam chac"))
-                score -= 10;
+                score -= 16;
 
+            if (ContainsAny(product.Tags, "trung tinh"))
+                score += 4;
+            if (product.VehicleType == VehicleType.Scooter &&
+    ContainsAny(product.Tags, "trung tinh", "de di", "linh hoat"))
+            {
+                score += 4;
+            }
             return score;
         }
 
@@ -306,8 +313,6 @@ namespace Chatbot.API.Services
             if (ContainsAny(product.Name, "freego", "future"))
                 score += 10;
 
-            if (ContainsAny(product.Name, "latte"))
-                score += 4;
 
             return score;
         }
@@ -416,7 +421,29 @@ namespace Chatbot.API.Services
             {
                 return true;
             }
-
+            if (profile.PrefersFemaleStyle &&
+    !profile.RequestedStyles.Contains(StyleTag.Sporty) &&
+    !profile.RequestedStyles.Contains(StyleTag.Aggressive) &&
+    product.VehicleType == VehicleType.Manual)
+            {
+                return true;
+            }
+            // Nam + đi làm + không yêu cầu nữ tính/thanh lịch thì loại bớt các mẫu quá thiên nữ
+            if (profile.PrefersMaleStyle &&
+                profile.ForWork &&
+                !profile.RequestedStyles.Contains(StyleTag.Elegant) &&
+                ContainsAny(product.Tags, "nu tinh", "nhe nhang", "thanh lich") &&
+                !ContainsAny(product.Tags, "trung tinh", "thuc dung", "dam chac"))
+            {
+                return true;
+            }
+            if (profile.PrefersMaleStyle &&
+    profile.ForWork &&
+    !profile.RequestedStyles.Contains(StyleTag.Elegant) &&
+    ContainsAny(product.Name, "latte", "grande", "attila", "venus"))
+            {
+                return true;
+            }
             return false;
         }
         public string BuildMainReason(ProductSummaryDto product, ParsedIntent intent)
@@ -490,8 +517,9 @@ namespace Chatbot.API.Services
 
                 if (price < target)
                 {
-                    if (ratio < 0.78m) score += PriceWayTooCheapPenalty;
-                    else if (ratio < 0.88m) score += PriceTooCheapPenalty;
+                    if (ratio < 0.75m) score += PriceWayTooCheapPenalty;
+                    else if (ratio < 0.85m) score += PriceTooCheapPenalty;
+                    else if (ratio < 0.93m) score -= 4;
                     else score += 3;
                 }
                 else
@@ -692,10 +720,14 @@ namespace Chatbot.API.Services
                     score += WorkUsageBonus;
                 }
 
-                // đi làm hiện đại / đi phố hằng ngày: ưu tiên scooter rõ hơn underbone
                 if (product.VehicleType == VehicleType.Scooter)
                 {
                     score += ScooterForWorkBonus;
+
+                    if (ContainsAny(product.Tags, "trung tinh", "thuc dung", "di lam", "linh hoat"))
+                    {
+                        score += 10;
+                    }
                 }
                 else if (product.VehicleType == VehicleType.Underbone)
                 {
@@ -722,7 +754,7 @@ namespace Chatbot.API.Services
                 // nam đi làm: giảm xe quá nữ tính
                 if (profile.PrefersMaleStyle && ContainsAny(product.Tags, "nu tinh", "nhe nhang"))
                 {
-                    score -= 18;
+                    score -= 22;
                 }
 
                 if (profile.PrefersMaleStyle &&
@@ -730,7 +762,13 @@ namespace Chatbot.API.Services
                 {
                     score += 12;
                 }
-
+                if (profile.PrefersMaleStyle &&
+    profile.ForWork &&
+    product.VehicleType == VehicleType.Scooter &&
+    ContainsAny(product.Name, "air blade", "burgman", "freego", "lead"))
+                {
+                    score += 10;
+                }
                 // nữ đi làm: ưu tiên dễ đi, linh hoạt; hạn chế xe số nếu không có tín hiệu xe số rõ ràng
                 if (profile.PrefersFemaleStyle && ContainsAny(product.Tags, "ham ho", "manh me", "dam chac"))
                 {
@@ -750,6 +788,20 @@ namespace Chatbot.API.Services
                 {
                     score += UnderboneAgainstFemaleUrbanPenalty;
                 }
+                if (profile.PrefersMaleStyle &&
+    product.VehicleType == VehicleType.Scooter &&
+    ContainsAny(product.Tags, "trung tinh", "dam chac", "di lam", "thuc dung", "linh hoat"))
+                {
+                    score += 12;
+                }
+                if (profile.PrefersMaleStyle &&
+    profile.ForWork &&
+    product.VehicleType == VehicleType.Scooter &&
+    ContainsAny(product.Tags, "nu tinh", "nhe nhang", "thanh lich") &&
+    !ContainsAny(product.Tags, "trung tinh", "dam chac", "thuc dung"))
+                {
+                    score -= 14;
+                }
             }
 
             if (profile.ForCity && ContainsAny(product.Tags, "di pho", "linh hoat", "nho gon", "trung tinh"))
@@ -761,7 +813,19 @@ namespace Chatbot.API.Services
             {
                 score += TourUsageBonus;
             }
-
+            if (profile.ForWork &&
+    profile.PrefersMaleStyle &&
+    product.VehicleType == VehicleType.Scooter &&
+    ContainsAny(product.Tags, "trung tinh", "dam chac", "di lam", "thuc dung", "linh hoat"))
+            {
+                score += 10;
+            }
+            if (profile.PrefersMaleStyle &&
+    profile.ForWork &&
+    ContainsAny(product.Name, "latte", "grande", "attila", "venus"))
+            {
+                score -= 24;
+            }
             return score;
         }
 
@@ -822,32 +886,63 @@ namespace Chatbot.API.Services
 
             if (profile.PrefersMaleStyle)
             {
-                if (ContainsAny(product.Tags, "nam tinh", "the thao", "trung tinh", "dam chac"))
+                if (ContainsAny(product.Tags, "nam tinh", "the thao", "trung tinh", "dam chac", "thuc dung"))
                 {
-                    score += MaleStyleBonus;
+                    score += 16;
                 }
 
+                // phạt mạnh hơn với xe quá nữ tính
                 if (ContainsAny(product.Tags, "nu tinh", "nhe nhang", "thanh lich"))
                 {
-                    score -= 16;
+                    score -= 32;
                 }
-
+                if (ContainsAny(product.Name, "attila", "venus") &&
+    profile.PrefersMaleStyle &&
+    !profile.RequestedStyles.Contains(StyleTag.Elegant))
+                {
+                    score -= 20;
+                }
+                // nếu là nam + đi làm thì phạt rất mạnh xe thiên nữ tính
                 if (profile.ForWork && ContainsAny(product.Tags, "nu tinh", "nhe nhang", "thanh lich"))
                 {
-                    score -= 24;
+                    score -= 34;
                 }
-
+                if (profile.ForWork &&
+    ContainsAny(product.Name, "latte", "grande", "attila", "venus"))
+                {
+                    score -= 26;
+                }
+                // nam + đi làm thì thưởng thêm xe trung tính / thực dụng / đầm chắc
                 if (profile.ForWork && ContainsAny(product.Tags, "trung tinh", "dam chac", "di lam", "thuc dung"))
                 {
-                    score += 10;
+                    score += 14;
                 }
+
                 if (profile.PrefersMaleStyle && profile.ForWork &&
-    product.VehicleType == VehicleType.Scooter &&
-    ContainsAny(product.Tags, "trung tinh", "dam chac", "di lam", "thuc dung"))
+                    product.VehicleType == VehicleType.Scooter &&
+                    ContainsAny(product.Tags, "trung tinh", "dam chac", "di lam", "thuc dung"))
                 {
-                    score += 10;
+                    score += 12;
+                }
+
+                // manual không phải lúc nào cũng tốt nếu không có tín hiệu sporty rõ
+                if (profile.ForWork &&
+                    product.VehicleType == VehicleType.Manual &&
+                    !profile.RequestedStyles.Contains(StyleTag.Sporty) &&
+                    !profile.RequestedStyles.Contains(StyleTag.Aggressive))
+                {
+                    score -= 10;
+                }
+
+                // underbone đi làm có thể chấp nhận nhưng không nên nổi hơn scooter trung tính
+                if (profile.ForWork &&
+                    product.VehicleType == VehicleType.Underbone &&
+                    !profile.WantsUnderbone)
+                {
+                    score -= 4;
                 }
             }
+    
 
             foreach (var style in profile.RequestedStyles)
             {
@@ -893,10 +988,16 @@ namespace Chatbot.API.Services
 
             if (profile.RequestedStyles.Contains(StyleTag.Sporty) || profile.RequestedStyles.Contains(StyleTag.Aggressive))
             {
-                if (ContainsAny(product.Tags, "nu tinh", "nhe nhang") &&
-                    !ContainsAny(product.Tags, "trung tinh"))
+                if (ContainsAny(product.Tags, "nu tinh", "nhe nhang", "thanh lich"))
                 {
-                    score -= 10;
+                    if (profile.PrefersMaleStyle)
+                    {
+                        score -= 18;
+                    }
+                    else if (!ContainsAny(product.Tags, "trung tinh", "thuc dung"))
+                    {
+                        score -= 10;
+                    }
                 }
             }
             if (profile.PrefersMaleStyle && profile.ForWork)
@@ -986,7 +1087,15 @@ namespace Chatbot.API.Services
                 }
                 else if (product.VehicleType == VehicleType.Manual)
                 {
-                    score -= 14;
+                    score -= 20;
+                }
+                if (profile.ForWork &&
+    !profile.RequestedStyles.Contains(StyleTag.Sporty) &&
+    !profile.RequestedStyles.Contains(StyleTag.Aggressive) &&
+    product.VehicleType == VehicleType.Manual &&
+    ContainsAny(product.Tags, "the thao", "ham ho", "manh me"))
+                {
+                    score -= 12;
                 }
             }
 
@@ -1254,6 +1363,7 @@ namespace Chatbot.API.Services
                 tags.Add("de di");
                 tags.Add("nho gon");
                 tags.Add("thuc dung");
+                tags.Add("di pho");
                 tags.Add("yen thap");
                 tags.Add("de chong chan");
             }
@@ -1274,7 +1384,6 @@ namespace Chatbot.API.Services
                 tags.Add("thanh lich");
                 tags.Add("de di");
                 tags.Add("di pho");
-                tags.Add("trung tinh");
                 tags.Add("gon");
             }
 

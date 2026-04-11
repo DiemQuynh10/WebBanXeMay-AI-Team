@@ -120,6 +120,47 @@ namespace Chatbot.API.Services
                     Reply = BuildNoMatchReply(intent)
                 };
             }
+            var text = normalizedMessage.Trim().ToLowerInvariant();
+
+            if (text.Contains("rẻ hơn") || text.Contains("re hon"))
+            {
+                filteredList = filteredList
+                    .OrderBy(x => x.Gia)
+                    .ThenByDescending(x => x.SoLuong)
+                    .ToList();
+            }
+
+            if (text.Contains("đẹp hơn") || text.Contains("dep hon"))
+            {
+                filteredList = filteredList
+                    .OrderByDescending(x =>
+                        (x.Ten ?? "").Contains("Latte", StringComparison.OrdinalIgnoreCase) ||
+                        (x.Ten ?? "").Contains("Grande", StringComparison.OrdinalIgnoreCase) ||
+                        (x.Ten ?? "").Contains("Vision", StringComparison.OrdinalIgnoreCase) ||
+                        (x.Ten ?? "").Contains("Lead", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                    .ThenByDescending(x => x.Gia)
+                    .ToList();
+            }
+
+            if (text.Contains("loại khác") || text.Contains("loai khac") ||
+                text.Contains("xe khác") || text.Contains("xe khac") ||
+                text.Contains("mẫu khác") || text.Contains("mau khac"))
+            {
+                var currentTopNames = profile.LastRecommendedProducts
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                filteredList = filteredList
+                    .Where(x => !currentTopNames.Contains(x.Ten))
+                    .ToList();
+
+                if (filteredList.Count == 0)
+                {
+                    filteredList = previousProducts
+                        .Where(x => !currentTopNames.Contains(x.Ten))
+                        .ToList();
+                }
+            }
             if ((intent.WantsLargeStorage || intent.WantsFuelSaving || intent.NeedsLowSeat || !string.IsNullOrWhiteSpace(intent.ComparisonFeature))
     && !intent.ExcludedCategories.Any()
     && !intent.ExcludedBrands.Any()
@@ -148,12 +189,31 @@ namespace Chatbot.API.Services
                             ? 1 : 0)
                     .ToList();
             }
-            var ranked = _productRecommendationService.RankProducts(
-                filteredList,
-                intent,
-                profile,
-                normalizedMessage,
-                take: Math.Min(3, filteredList.Count));
+            List<ProductSummaryDto> ranked;
+
+            bool preferCheaper =
+                text.Contains("rẻ hơn") || text.Contains("re hon");
+
+            bool preferDifferent =
+                text.Contains("loại khác") || text.Contains("loai khac") ||
+                text.Contains("xe khác") || text.Contains("xe khac") ||
+                text.Contains("mẫu khác") || text.Contains("mau khac");
+
+            if (preferCheaper || preferDifferent)
+            {
+                ranked = filteredList
+                    .Take(Math.Min(3, filteredList.Count))
+                    .ToList();
+            }
+            else
+            {
+                ranked = _productRecommendationService.RankProducts(
+                    filteredList,
+                    intent,
+                    profile,
+                    normalizedMessage,
+                    take: Math.Min(3, filteredList.Count));
+            }
 
             if (ranked == null || ranked.Count == 0)
             {
@@ -200,7 +260,21 @@ namespace Chatbot.API.Services
                    text.Contains(" hơn") ||
                    text.Contains(" hon") ||
                    text.Contains("thì sao") ||
-                   text.Contains("thi sao");
+                   text.Contains("thi sao") ||
+                   text.Contains("rẻ hơn") ||
+                   text.Contains("re hon") ||
+                   text.Contains("đẹp hơn") ||
+                   text.Contains("dep hon") ||
+                   text.Contains("loại khác") ||
+                   text.Contains("loai khac") ||
+                   text.Contains("xe khác") ||
+                   text.Contains("xe khac") ||
+                   text.Contains("mẫu khác") ||
+                   text.Contains("mau khac") ||
+                   text.Contains("tăng budget") ||
+                   text.Contains("tang budget") ||
+                   text.Contains("thêm ngân sách") ||
+                   text.Contains("them ngan sach");
         }
         private static string BuildRefineReply(
     IReadOnlyList<ProductSummaryDto> ranked,
@@ -213,8 +287,17 @@ namespace Chatbot.API.Services
             var topReason = productRecommendationService.BuildMainReason(top, intent);
 
             var sb = new StringBuilder();
-
-            if (intent.FilterType == PriceFilterType.MaxOnly && intent.PriceMax.HasValue)
+            if ((intent.RawMessage ?? string.Empty).Contains("rẻ hơn", StringComparison.OrdinalIgnoreCase) ||
+    (intent.RawMessage ?? string.Empty).Contains("re hon", StringComparison.OrdinalIgnoreCase))
+            {
+                sb.AppendLine($"Nếu ưu tiên **rẻ hơn trong nhóm đang gợi ý** thì mình nghiêng về **{top.Ten}** ({top.Gia:N0} VNĐ).");
+            }
+            else if ((intent.RawMessage ?? string.Empty).Contains("đẹp hơn", StringComparison.OrdinalIgnoreCase) ||
+                     (intent.RawMessage ?? string.Empty).Contains("dep hon", StringComparison.OrdinalIgnoreCase))
+            {
+                sb.AppendLine($"Nếu ưu tiên **đẹp hơn / hợp gu hơn** trong nhóm đang gợi ý thì mình nghiêng về **{top.Ten}** ({top.Gia:N0} VNĐ).");
+            }
+            else if (intent.FilterType == PriceFilterType.MaxOnly && intent.PriceMax.HasValue)
             {
                 sb.AppendLine($"Trong nhóm mình vừa gợi ý, nếu giữ mức **dưới {intent.PriceMax.Value:N0} VNĐ** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.");
             }
