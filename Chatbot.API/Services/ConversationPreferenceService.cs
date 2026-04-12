@@ -75,6 +75,18 @@ namespace Chatbot.API.Services
                     default:
                         break;
                 }
+                if (messageExplicitlyMentionsMale)
+                {
+                    profile.Target = "nam";
+                    profile.PrefersMaleStyle = true;
+                    profile.PrefersFemaleStyle = false;
+                }
+                else if (messageExplicitlyMentionsFemale)
+                {
+                    profile.Target = "nữ";
+                    profile.PrefersFemaleStyle = true;
+                    profile.PrefersMaleStyle = false;
+                }
             }
             else
             {
@@ -113,6 +125,18 @@ namespace Chatbot.API.Services
                     profile.PrefersFemaleStyle = false;
                 }
                 else if (messageExplicitlyMentionsFemale && normalizedTarget.Contains("nu"))
+                {
+                    profile.Target = "nữ";
+                    profile.PrefersFemaleStyle = true;
+                    profile.PrefersMaleStyle = false;
+                }
+                if (messageExplicitlyMentionsMale)
+                {
+                    profile.Target = "nam";
+                    profile.PrefersMaleStyle = true;
+                    profile.PrefersFemaleStyle = false;
+                }
+                else if (messageExplicitlyMentionsFemale)
                 {
                     profile.Target = "nữ";
                     profile.PrefersFemaleStyle = true;
@@ -234,7 +258,27 @@ namespace Chatbot.API.Services
                 "refine" => ChatFlowType.Refinement,
                 _ => ChatFlowType.Recommendation
             };
+            if (items.Count > 0 &&
+    (string.Equals(answerMode, "fresh_consultation", StringComparison.OrdinalIgnoreCase) ||
+     string.Equals(answerMode, "followup", StringComparison.OrdinalIgnoreCase)))
+            {
+                profile.BaseRecommendedProductIds = items
+                    .Select(x => x.Id)
+                    .Distinct()
+                    .ToList();
 
+                profile.BaseRecommendedProducts = items
+                    .Select(x => x.Ten)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            // khi recommendation mới được tạo, không nên giữ lookup flow cũ là flow hiện hành
+            if (!string.IsNullOrWhiteSpace(profile.LastLookupProductName) &&
+                !string.Equals(profile.ActiveFlow, ChatFlowType.ProductLookup, StringComparison.OrdinalIgnoreCase))
+            {
+                // giữ dữ liệu lookup để tham khảo, nhưng recommendation là flow chính hiện tại
+            }
             profile.UpdatedAtUtc = DateTime.UtcNow;
             return Task.CompletedTask;
         }

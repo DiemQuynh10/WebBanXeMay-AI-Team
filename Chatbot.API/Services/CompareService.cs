@@ -11,18 +11,20 @@ namespace Chatbot.API.Services
     {
         private readonly IWebBanXeMayToolClient _toolClient;
         private readonly IRagService _ragService;
+        private readonly IConversationPreferenceService _conversationPreferenceService;
         private readonly ILogger<CompareService> _logger;
 
         public CompareService(
             IWebBanXeMayToolClient toolClient,
             IRagService ragService,
+            IConversationPreferenceService conversationPreferenceService,
             ILogger<CompareService> logger)
         {
             _toolClient = toolClient;
             _ragService = ragService;
+            _conversationPreferenceService = conversationPreferenceService;
             _logger = logger;
         }
-
         public async Task<ChatResponse?> CompareAsync(
             string conversationId,
             string normalizedMessage,
@@ -60,6 +62,7 @@ namespace Chatbot.API.Services
                     Reply = "Mình chưa tìm đủ 2 mẫu xe phù hợp để so sánh từ dữ liệu hiện tại. Bạn thử ghi rõ tên mẫu xe hơn giúp mình nhé."
                 };
             }
+            var questionKind = DetectCompareQuestionKind(normalizedMessage, intent);
 
             string? ragContext = null;
             try
@@ -75,14 +78,44 @@ namespace Chatbot.API.Services
             {
                 _logger.LogWarning(ex, "RAG compare failed. ConversationId: {ConversationId}", conversationId);
             }
+            var resolvedFeature = ResolveComparisonFeature(intent, normalizedMessage)
+    ?? InferFeatureFromMessageOnly(normalizedMessage);
 
-            var reply = BuildDeterministicCompareReply(
-    first,
-    second,
-    intent,
-    profile,
-    ragContext,
-    isFollowUpCompare);
+            _logger.LogInformation(
+                "Compare feature resolved. ConversationId: {ConversationId}, Message: {Message}, RawComparisonFeature: {RawComparisonFeature}, ResolvedFeature: {ResolvedFeature}",
+                conversationId,
+                normalizedMessage,
+                intent?.ComparisonFeature,
+                resolvedFeature);
+            string reply = questionKind == CompareQuestionKind.Price
+     ? BuildPriceCompareReply(first, second)
+     : BuildDeterministicCompareReply(first, second, intent, profile, normalizedMessage, ragContext, isFollowUpCompare);
+
+            var comparedTargets = new List<string>
+{
+    first.Ten,
+    second.Ten
+}
+ .Where(x => !string.IsNullOrWhiteSpace(x))
+ .Distinct(StringComparer.OrdinalIgnoreCase)
+ .ToList();
+
+            await _conversationPreferenceService.SetComparedProductsAsync(
+                conversationId,
+                comparedTargets);
+
+            var latestProfile = await _conversationPreferenceService.GetAsync(conversationId);
+            latestProfile.LastComparedProducts.Clear();
+            latestProfile.LastComparedProducts.AddRange(comparedTargets);
+            latestProfile.HasActiveCompareContext = comparedTargets.Count >= 2;
+            latestProfile.ActiveFlow = ChatFlowType.Compare;
+            latestProfile.HasActiveRecommendationContext = false;
+            latestProfile.UpdatedAtUtc = DateTime.UtcNow;
+
+            if (!string.IsNullOrWhiteSpace(resolvedFeature))
+            {
+                latestProfile.LastComparisonFeature = resolvedFeature;
+            }
 
             return new ChatResponse
             {
@@ -155,7 +188,113 @@ namespace Chatbot.API.Services
 
             return new List<string>();
         }
+        private static CompareQuestionKind DetectCompareQuestionKind(string message, ParsedIntent intent)
+        {
+            var text = (message ?? string.Empty).Trim().ToLowerInvariant();
 
+            bool isPriceQuestion =
+                text.Contains("giá") ||
+                text.Contains("gia") ||
+                text.Contains("bao nhiêu") ||
+                text.Contains("bao nhieu") ||
+                text.Contains("mức giá");
+
+            bool isFeatureQuestion =
+                !string.IsNullOrWhiteSpace(intent?.ComparisonFeature) ||
+                text.Contains("cốp") ||
+                text.Contains("cop") ||
+                text.Contains("chống chân") ||
+                text.Contains("chong chan") ||
+                text.Contains("tiết kiệm") ||
+                text.Contains("tiet kiem") ||
+                text.Contains("êm") ||
+                text.Contains("em") ||
+                text.Contains("đẹp") ||
+                text.Contains("dep") ||
+                text.Contains("hợp nữ") ||
+                text.Contains("hop nu");
+
+            if (isPriceQuestion)
+                return CompareQuestionKind.Price;
+
+            if (isFeatureQuestion)
+                return CompareQuestionKind.Feature;
+
+            return CompareQuestionKind.General;
+        }
+        private static string? ResolveComparisonFeature(ParsedIntent intent, string message)
+        {
+            var text = (message ?? string.Empty).Trim().ToLowerInvariant();
+            var rawFeature = intent?.ComparisonFeature?.Trim().ToLowerInvariant();
+
+            // 1. Ưu tiên tín hiệu explicit ngay từ câu user
+            if (text.Contains("đẹp hơn") || text.Contains("dep hon") ||
+                text.Contains("thanh lịch hơn") || text.Contains("thanh lich hon") ||
+                text.Contains("mềm mại hơn") || text.Contains("mem mai hon") ||
+                text.Contains("kiểu dáng") || text.Contains("kieu dang"))
+                return "design_fit";
+
+            if (text.Contains("cốp rộng") || text.Contains("cop rong"))
+                return "storage";
+
+            if (text.Contains("dễ chống chân") || text.Contains("de chong chan") ||
+                text.Contains("yên thấp") || text.Contains("yen thap"))
+                return "low_seat";
+
+            if (text.Contains("tiết kiệm xăng") || text.Contains("tiet kiem xang"))
+                return "fuel_saving";
+
+            if (text.Contains("hợp nữ") || text.Contains("hop nu") ||
+                text.Contains("nữ tính hơn") || text.Contains("nu tinh hon"))
+                return "female_fit";
+
+            if (text.Contains("đi làm") || text.Contains("di lam"))
+                return "work_fit";
+
+            if (text.Contains("đi học") || text.Contains("di hoc") ||
+                text.Contains("sinh viên") || text.Contains("sinh vien"))
+                return "school_fit";
+
+            // 2. Sau đó mới normalize giá trị từ parser/LLM
+            return rawFeature switch
+            {
+                "storage" => "storage",
+                "large_storage" => "storage",
+                "cop_rong" => "storage",
+
+                "low_seat" => "low_seat",
+                "easy_control" => "low_seat",
+                "de_chong_chan" => "low_seat",
+
+                "fuel_saving" => "fuel_saving",
+                "tiet_kiem_xang" => "fuel_saving",
+
+                "female_fit" => "female_fit",
+                "hop_nu" => "female_fit",
+                "nu_tinh" => "female_fit",
+
+                "work_fit" => "work_fit",
+                "di_lam" => "work_fit",
+
+                "school_fit" => "school_fit",
+                "di_hoc" => "school_fit",
+                "sinh_vien" => "school_fit",
+
+                "design_fit" => "design_fit",
+                "style_fit" => "design_fit",
+                "beauty" => "design_fit",
+                "dep" => "design_fit",
+                "thanh_lich" => "design_fit",
+
+                _ => null
+            };
+        }
+        private enum CompareQuestionKind
+        {
+            General = 0,
+            Price = 1,
+            Feature = 2
+        }
         private static string BuildRagCompareQuery(
             ProductSummaryDto first,
             ProductSummaryDto second,
@@ -194,14 +333,16 @@ namespace Chatbot.API.Services
         }
 
         private static string BuildDeterministicCompareReply(
-    ProductSummaryDto first,
-    ProductSummaryDto second,
-    ParsedIntent intent,
-    CustomerPreferenceProfile profile,
-    string? ragContext,
-    bool isFollowUpCompare)
+     ProductSummaryDto first,
+     ProductSummaryDto second,
+     ParsedIntent intent,
+     CustomerPreferenceProfile profile,
+     string normalizedMessage,
+     string? ragContext,
+     bool isFollowUpCompare)
         {
-            var feature = intent.ComparisonFeature ?? InferFeatureFromProfile(profile);
+            var feature = ResolveComparisonFeature(intent, normalizedMessage)
+               ?? InferFeatureFromMessageOnly(normalizedMessage);
 
             var verdict = feature switch
             {
@@ -211,9 +352,9 @@ namespace Chatbot.API.Services
                 "female_fit" => BuildFemaleVerdict(first, second, isFollowUpCompare),
                 "work_fit" => BuildWorkVerdict(first, second, isFollowUpCompare),
                 "school_fit" => BuildSchoolVerdict(first, second, isFollowUpCompare),
+                "design_fit" => BuildDesignVerdict(first, second, isFollowUpCompare),
                 _ => BuildGeneralVerdict(first, second, isFollowUpCompare)
             };
-
             // Nếu là follow-up thì trả lời ngắn, không lặp lại giá/tồn kho
             if (isFollowUpCompare)
             {
@@ -247,6 +388,17 @@ namespace Chatbot.API.Services
             }
 
             return string.Join("\n", fullLines).Trim();
+        }
+        private static string? InferFeatureFromMessageOnly(string message)
+        {
+            var text = (message ?? string.Empty).Trim().ToLowerInvariant();
+
+            if (text.Contains("đẹp") || text.Contains("dep") ||
+                text.Contains("thanh lịch") || text.Contains("thanh lich") ||
+                text.Contains("mềm mại") || text.Contains("mem mai"))
+                return "design_fit";
+
+            return null;
         }
 
         private static string BuildStorageVerdict(ProductSummaryDto first, ProductSummaryDto second, bool isFollowUpCompare)
@@ -381,6 +533,20 @@ namespace Chatbot.API.Services
                 : "Về tiêu chí **dễ chống chân**, mình sẽ ưu tiên mẫu có dáng gọn hơn trong hai xe này.";
         }
 
+        private static string BuildPriceCompareReply(ProductSummaryDto first, ProductSummaryDto second)
+        {
+            var cheaper = first.Gia <= second.Gia ? first : second;
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Hai mẫu này hiện có mức giá như sau:");
+            sb.AppendLine();
+            sb.AppendLine($"- {first.Ten}: {first.Gia:N0} VNĐ");
+            sb.AppendLine($"- {second.Ten}: {second.Gia:N0} VNĐ");
+            sb.AppendLine();
+            sb.Append($"Nếu bạn ưu tiên giá mềm hơn thì mình nghiêng về {cheaper.Ten}.");
+
+            return sb.ToString();
+        }
         private static string BuildFemaleVerdict(ProductSummaryDto first, ProductSummaryDto second, bool isFollowUpCompare)
         {
             bool firstIsFemaleFit = ContainsAny(first.Ten, "Latte", "Grande", "Vision", "Zip");
@@ -415,6 +581,62 @@ namespace Chatbot.API.Services
             return isFollowUpCompare
                 ? "Nếu chỉ chốt nhanh theo hướng **hợp nữ** thì mình sẽ nghiêng về mẫu có dáng mềm và dễ làm quen hơn."
                 : "Nếu chỉ chốt nhanh theo hướng **hợp nữ** thì mình nghiêng hơn về mẫu có dáng mềm và dễ làm quen hơn trong hai xe này.";
+        }
+        private static string BuildDesignVerdict(ProductSummaryDto first, ProductSummaryDto second, bool isFollowUpCompare)
+        {
+            bool firstElegant = ContainsAny(first.Ten, "Latte", "Grande", "Zip", "Attila");
+            bool secondElegant = ContainsAny(second.Ten, "Latte", "Grande", "Zip", "Attila");
+
+            bool firstNeutralPractical = ContainsAny(first.Ten, "Vision", "Air Blade", "Future", "Freego");
+            bool secondNeutralPractical = ContainsAny(second.Ten, "Vision", "Air Blade", "Future", "Freego");
+
+            if (first.Ten.Contains("Vision", StringComparison.OrdinalIgnoreCase) &&
+                second.Ten.Contains("Latte", StringComparison.OrdinalIgnoreCase))
+            {
+                return isFollowUpCompare
+                    ? "Nếu xét theo hướng **đẹp / thanh lịch hơn** thì mình nghiêng về **Yamaha Latte**; còn **Honda Vision** sẽ thiên về gọn và thực dụng hơn."
+                    : "Nếu xét theo hướng **đẹp / thanh lịch hơn** thì mình nghiêng về **Yamaha Latte**, vì mẫu này có dáng mềm và thiên về cảm giác thanh lịch hơn. Còn **Honda Vision** sẽ mạnh hơn ở sự gọn gàng và thực dụng.";
+            }
+
+            if (first.Ten.Contains("Latte", StringComparison.OrdinalIgnoreCase) &&
+                second.Ten.Contains("Vision", StringComparison.OrdinalIgnoreCase))
+            {
+                return isFollowUpCompare
+                    ? "Nếu xét theo hướng **đẹp / thanh lịch hơn** thì mình nghiêng về **Yamaha Latte**; còn **Honda Vision** sẽ thiên về gọn và thực dụng hơn."
+                    : "Nếu xét theo hướng **đẹp / thanh lịch hơn** thì mình nghiêng về **Yamaha Latte**, vì mẫu này có dáng mềm và thiên về cảm giác thanh lịch hơn. Còn **Honda Vision** sẽ mạnh hơn ở sự gọn gàng và thực dụng.";
+            }
+
+            if (firstElegant && !secondElegant)
+            {
+                return isFollowUpCompare
+                    ? $"Nếu xét riêng về **kiểu dáng / độ thanh lịch** thì mình nghiêng hơn về **{first.Ten}**."
+                    : $"Nếu xét riêng về **kiểu dáng / độ thanh lịch** thì mình nghiêng hơn về **{first.Ten}**, vì mẫu này thiên về dáng mềm và cảm giác thanh lịch hơn.";
+            }
+
+            if (secondElegant && !firstElegant)
+            {
+                return isFollowUpCompare
+                    ? $"Nếu xét riêng về **kiểu dáng / độ thanh lịch** thì mình nghiêng hơn về **{second.Ten}**."
+                    : $"Nếu xét riêng về **kiểu dáng / độ thanh lịch** thì mình nghiêng hơn về **{second.Ten}**, vì mẫu này thiên về dáng mềm và cảm giác thanh lịch hơn.";
+            }
+
+            if (firstNeutralPractical && !secondNeutralPractical)
+            {
+                return isFollowUpCompare
+                    ? $"Nếu xét theo hướng **đẹp kiểu gọn gàng, trung tính** thì **{first.Ten}** dễ hợp hơn."
+                    : $"Nếu xét theo hướng **đẹp kiểu gọn gàng, trung tính** thì **{first.Ten}** dễ hợp hơn.";
+            }
+
+            if (secondNeutralPractical && !firstNeutralPractical)
+            {
+                return isFollowUpCompare
+                    ? $"Nếu xét theo hướng **đẹp kiểu gọn gàng, trung tính** thì **{second.Ten}** dễ hợp hơn."
+                    : $"Nếu xét theo hướng **đẹp kiểu gọn gàng, trung tính** thì **{second.Ten}** dễ hợp hơn.";
+            }
+
+            return isFollowUpCompare
+                ? "Nếu xét riêng về **kiểu dáng** thì hai mẫu này khá gần nhau, chỉ khác ở việc một mẫu thiên thanh lịch hơn còn mẫu kia thiên thực dụng hơn."
+                : "Nếu xét riêng về **kiểu dáng** thì hai mẫu này khá gần nhau, và thường sẽ khác nhau ở gu: một bên thiên thanh lịch hơn, một bên thiên thực dụng hơn.";
         }
         private static string BuildWorkVerdict(ProductSummaryDto first, ProductSummaryDto second, bool isFollowUpCompare)
         {

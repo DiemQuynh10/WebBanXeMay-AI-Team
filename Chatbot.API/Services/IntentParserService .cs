@@ -1046,6 +1046,14 @@ namespace Chatbot.API.Services
                     "cop rong",
                     "de chong chan");
 
+            bool isHardFilterOnly =
+     hasHardSearchConstraint &&
+     !hasHumanNeed &&
+     !hasRecommendationCue;
+
+            if (isHardFilterOnly)
+                return false;
+
             if (hasHumanNeed && hasHardSearchConstraint)
                 return true;
 

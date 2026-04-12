@@ -24,16 +24,31 @@ namespace Chatbot.API.Services
         }
 
         public async Task<ChatResponse?> HandleAsync(
-            string conversationId,
-            string normalizedMessage,
-            ParsedIntent intent,
-            CustomerPreferenceProfile profile)
+    string conversationId,
+    string normalizedMessage,
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile)
         {
-            bool hasLookupField = !string.IsNullOrWhiteSpace(intent.LookupField);
+            var effectiveLookupField = !string.IsNullOrWhiteSpace(intent.LookupField)
+                ? intent.LookupField
+                : InferLookupField(normalizedMessage);
+
+            bool hasLookupField = !string.IsNullOrWhiteSpace(effectiveLookupField);
             bool hasMentionedProduct = intent.MentionedProducts.Any();
             bool hasLookupContext = !string.IsNullOrWhiteSpace(profile.LastLookupProductName);
 
-            if (!intent.IsDirectProductLookup && !(hasLookupField && hasLookupContext))
+            bool isLookupFollowUp =
+                hasLookupField &&
+                !hasMentionedProduct &&
+                hasLookupContext &&
+                string.Equals(profile.ActiveFlow, ChatFlowType.ProductLookup, StringComparison.OrdinalIgnoreCase);
+
+            bool routeAlreadyLookup =
+    string.Equals(profile.ActiveFlow, ChatFlowType.ProductLookup, StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(intent.RouteFlow, ChatFlowType.ProductLookup, StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(intent.IntentType, "product_lookup", StringComparison.OrdinalIgnoreCase);
+
+            if (!routeAlreadyLookup && !intent.IsDirectProductLookup && !isLookupFollowUp)
             {
                 return null;
             }
@@ -59,7 +74,10 @@ namespace Chatbot.API.Services
 
             await SaveLookupContextAsync(conversationId, resolvedProduct);
 
-            var reply = await BuildLookupReplyAsync(resolvedProduct, intent);
+            var lookupIntent = intent.Clone();
+            lookupIntent.LookupField = effectiveLookupField;
+
+            var reply = await BuildLookupReplyAsync(resolvedProduct, lookupIntent);
 
             return new ChatResponse
             {
@@ -69,9 +87,9 @@ namespace Chatbot.API.Services
                 UsedTool = ToolNames.SearchProducts,
                 Reply = reply,
                 Products = new List<ChatProductCard>
-                {
-                    MapToCard(resolvedProduct)
-                }
+        {
+            MapToCard(resolvedProduct)
+        }
             };
         }
 
@@ -119,7 +137,11 @@ namespace Chatbot.API.Services
             var latestProfile = await _conversationPreferenceService.GetAsync(conversationId);
             latestProfile.LastLookupProductId = product.Id;
             latestProfile.LastLookupProductName = product.Ten;
+            latestProfile.LastMentionedProducts = new List<string> { product.Ten };
             latestProfile.ActiveFlow = ChatFlowType.ProductLookup;
+            latestProfile.HasActiveCompareContext = false;
+            latestProfile.LastComparedProducts.Clear();
+            latestProfile.LastComparisonFeature = null;
             latestProfile.UpdatedAtUtc = DateTime.UtcNow;
         }
 
@@ -162,7 +184,32 @@ namespace Chatbot.API.Services
                     return BuildDetailReply(product);
             }
         }
+        private static string? InferLookupField(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return null;
 
+            var text = message.Trim().ToLowerInvariant();
+
+            if (text.Contains("giá") || text.Contains("gia") || text.Contains("bao nhiêu") || text.Contains("bao nhieu"))
+                return "price";
+
+            if (text.Contains("còn hàng") || text.Contains("con hang") ||
+    text.Contains("còn hàng không") || text.Contains("con hang khong") ||
+    text.Contains("tồn kho") || text.Contains("ton kho") ||
+    text.Contains("hết hàng") || text.Contains("het hang") ||
+    text.Contains("còn không") || text.Contains("con khong") ||
+    text.Contains("còn không vậy") || text.Contains("con khong vay") ||
+    text.Contains("còn ko") || text.Contains("con ko") ||
+    text.Contains("còn mấy chiếc") || text.Contains("con may chiec") ||
+    text.Contains("bao nhiêu chiếc") || text.Contains("bao nhieu chiec"))
+                return "stock";
+
+            if (text.Contains("cc"))
+                return "cc";
+
+            return "detail";
+        }
         private static string BuildDetailReply(ProductSummaryDto product)
         {
             var sb = new StringBuilder();

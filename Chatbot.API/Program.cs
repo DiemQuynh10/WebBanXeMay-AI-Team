@@ -3,6 +3,7 @@ using Chatbot.API.Clients;
 using Chatbot.API.Configurations;
 using Chatbot.API.Data;
 using Chatbot.API.Services;
+using Chatbot.API.Services.Conversation;
 using Chatbot.API.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -59,6 +60,11 @@ builder.Services.AddScoped<IChatFlowRouter, ChatFlowRouter>();
 builder.Services.AddScoped<IProductLookupFlowService, ProductLookupFlowService>();
 builder.Services.AddScoped<IProductSearchFlowService, ProductSearchFlowService>();
 builder.Services.AddScoped<IInputTextSanitizer, InputTextSanitizer>();
+builder.Services.AddScoped<IConversationContextResolver, ConversationContextResolver>();
+builder.Services.AddScoped<IFlowDecisionService, FlowDecisionService>();
+builder.Services.AddScoped<IRecommendationClarificationService, RecommendationClarificationService>();
+builder.Services.AddScoped<IChatFlowOrchestrator, ChatFlowOrchestrator>();
+builder.Services.AddScoped<IRecommendationFlowService, RecommendationFlowService>();
 // Main chatbot services
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<ILLMIntentUnderstandingService, LLMIntentUnderstandingService>();

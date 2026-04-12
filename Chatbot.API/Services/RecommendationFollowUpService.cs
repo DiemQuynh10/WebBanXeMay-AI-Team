@@ -25,8 +25,7 @@ namespace Chatbot.API.Services
             _conversationPreferenceService = conversationPreferenceService;
             _logger = logger;
         }
-
-        public async Task<ChatResponse?> HandleAsync(
+            public async Task<ChatResponse?> HandleAsync(
     string conversationId,
     string normalizedMessage,
     ParsedIntent intent,
@@ -40,6 +39,7 @@ namespace Chatbot.API.Services
 
                 return null;
             }
+
             if (profile.BaseRecommendedProducts == null || profile.BaseRecommendedProducts.Count == 0)
             {
                 _logger.LogInformation(
@@ -49,10 +49,6 @@ namespace Chatbot.API.Services
                 return null;
             }
 
-            if (!LooksLikeFollowUp(normalizedMessage))
-            {
-                return null;
-            }
             var allowedNames = profile.BaseRecommendedProducts
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -142,7 +138,7 @@ namespace Chatbot.API.Services
                     Reply = BuildNoMatchReply(intent)
                 };
             }
-            products = ApplyStrictPriceFilter(products, intent);
+            products = ProductPriceFilterHelper.ApplyStrictPriceFilter(products, intent);
 
             if (products.Count == 0)
             {
@@ -180,32 +176,6 @@ namespace Chatbot.API.Services
                 Reply = reply,
                 Products = ChatProductCardMapper.MapMany(reranked, 4)
             };
-        }
-        private static bool LooksLikeFollowUp(string message)
-        {
-            if (string.IsNullOrWhiteSpace(message))
-                return false;
-
-            var text = message.Trim().ToLowerInvariant();
-
-            return text.StartsWith("nếu ") ||
-                   text.StartsWith("neu ") ||
-                   text.StartsWith("còn ") ||
-                   text.StartsWith("con ") ||
-                   text.StartsWith("thế ") ||
-                   text.StartsWith("the ") ||
-                   text.StartsWith("vậy ") ||
-                   text.StartsWith("vay ") ||
-                   text.StartsWith("ưu tiên ") ||
-                   text.StartsWith("uu tien ") ||
-                   text.StartsWith("chỉ lấy ") ||
-                   text.StartsWith("chi lay ") ||
-                   text.StartsWith("bỏ ") ||
-                   text.StartsWith("bo ") ||
-                   text.Contains(" hơn") ||
-                   text.Contains(" hon") ||
-                   text.Contains("thì sao") ||
-                   text.Contains("thi sao");
         }
         private static string BuildReply(
      IReadOnlyList<ProductSummaryDto> items,
@@ -281,69 +251,6 @@ namespace Chatbot.API.Services
 
             return sb.ToString().Trim();
         }
-
-        private static List<ProductSummaryDto> ApplyStrictPriceFilter(
-    List<ProductSummaryDto> items,
-    ParsedIntent intent)
-{
-    if (items == null || items.Count == 0)
-        return new List<ProductSummaryDto>();
-
-    IEnumerable<ProductSummaryDto> query = items;
-
-    if (intent.FilterType == PriceFilterType.Range &&
-        intent.PriceMin.HasValue &&
-        intent.PriceMax.HasValue)
-    {
-        query = query.Where(x => x.Gia >= intent.PriceMin.Value && x.Gia <= intent.PriceMax.Value);
-        return query.ToList();
-    }
-
-    if (intent.FilterType == PriceFilterType.MaxOnly &&
-        intent.PriceMax.HasValue)
-    {
-        query = query.Where(x => x.Gia <= intent.PriceMax.Value);
-        return query.ToList();
-    }
-
-    if (intent.FilterType == PriceFilterType.MinOnly &&
-        intent.PriceMin.HasValue)
-    {
-        query = query.Where(x => x.Gia >= intent.PriceMin.Value);
-        return query.ToList();
-    }
-
-    if (intent.FilterType == PriceFilterType.Around &&
-        intent.TargetPrice.HasValue)
-    {
-        var target = intent.TargetPrice.Value;
-        var delta = GetAroundDelta(target);
-
-        query = query.Where(x => x.Gia >= target - delta && x.Gia <= target + delta);
-
-        var filtered = query.ToList();
-
-        if (filtered.Count == 0)
-        {
-            var relaxedDelta = delta + 2_000_000m;
-            filtered = items
-                .Where(x => x.Gia >= target - relaxedDelta && x.Gia <= target + relaxedDelta)
-                .ToList();
-        }
-
-        return filtered;
-    }
-
-    return query.ToList();
-}
-
-private static decimal GetAroundDelta(decimal target)
-{
-    if (target <= 20_000_000m) return 2_000_000m;
-    if (target <= 35_000_000m) return 3_000_000m;
-    if (target <= 50_000_000m) return 4_000_000m;
-    return 5_000_000m;
-}
         private static string BuildNoMatchReply(ParsedIntent intent)
         {
             if (intent.FilterType == PriceFilterType.MaxOnly && intent.PriceMax.HasValue)
