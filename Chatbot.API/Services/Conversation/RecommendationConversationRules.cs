@@ -6,6 +6,14 @@ namespace Chatbot.API.Services.Conversation
 {
     public static class RecommendationConversationRules
     {
+        public static bool HasActiveRecommendationContext(CustomerPreferenceProfile? profile)
+        {
+            return profile != null
+                && profile.HasActiveRecommendationContext
+                && profile.LastRecommendedProducts != null
+                && profile.LastRecommendedProducts.Count > 0;
+        }
+
         public static bool LooksLikeBudgetPivotFollowUp(string message)
         {
             if (string.IsNullOrWhiteSpace(message))
@@ -19,7 +27,11 @@ namespace Chatbot.API.Services.Conversation
                 text.Contains("khoang") ||
                 text.Contains("tầm") ||
                 text.Contains("tam") ||
-                text.Contains("quanh");
+                text.Contains("quanh") ||
+                text.Contains("dưới") ||
+                text.Contains("duoi") ||
+                text.Contains("trên") ||
+                text.Contains("tren");
 
             bool startsLikeFollowUp =
                 text.StartsWith("còn ") ||
@@ -33,23 +45,45 @@ namespace Chatbot.API.Services.Conversation
                 text.Contains("thì sao") ||
                 text.Contains("thi sao");
 
-            return hasBudgetSignal && startsLikeFollowUp && asksFollowUpStyle;
+            return hasBudgetSignal && (startsLikeFollowUp || asksFollowUpStyle);
         }
 
-        public static bool LooksLikeRecommendationFollowUp(
+        public static bool LooksLikeExpandFromCurrentGoal(
             string message,
             ParsedIntent parsedIntent,
             CustomerPreferenceProfile? profile)
         {
-            if (string.IsNullOrWhiteSpace(message) || parsedIntent == null || profile == null)
+            if (string.IsNullOrWhiteSpace(message) || parsedIntent == null || !HasActiveRecommendationContext(profile))
                 return false;
 
-            bool hasRecommendationContext =
-                profile.HasActiveRecommendationContext &&
-                profile.LastRecommendedProducts != null &&
-                profile.LastRecommendedProducts.Count > 0;
+            var text = message.Trim().ToLowerInvariant();
 
-            if (!hasRecommendationContext)
+            bool hasExpandSignal =
+                !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
+                !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
+                parsedIntent.IsBrandSwitch;
+
+            bool looksLikeFollowUpPhrase =
+                text.StartsWith("còn ") ||
+                text.StartsWith("con ") ||
+                text.StartsWith("thế ") ||
+                text.StartsWith("the ") ||
+                text.StartsWith("vậy ") ||
+                text.StartsWith("vay ") ||
+                text.Contains("thì sao") ||
+                text.Contains("thi sao");
+
+            bool isNotFreshRestart = !LooksLikeFreshRecommendationRestart(message, parsedIntent);
+
+            return hasExpandSignal && looksLikeFollowUpPhrase && isNotFreshRestart;
+        }
+
+        public static bool LooksLikeRefineWithinCurrentRecommendation(
+            string message,
+            ParsedIntent parsedIntent,
+            CustomerPreferenceProfile? profile)
+        {
+            if (string.IsNullOrWhiteSpace(message) || parsedIntent == null || !HasActiveRecommendationContext(profile))
                 return false;
 
             var text = message.Trim().ToLowerInvariant();
@@ -58,20 +92,23 @@ namespace Chatbot.API.Services.Conversation
                 parsedIntent.PriceMin.HasValue ||
                 parsedIntent.PriceMax.HasValue ||
                 parsedIntent.TargetPrice.HasValue ||
-                parsedIntent.FilterType != PriceFilterType.None;
+                parsedIntent.FilterType != PriceFilterType.None ||
+                text.Contains("dưới") ||
+                text.Contains("duoi") ||
+                text.Contains("trên") ||
+                text.Contains("tren") ||
+                text.Contains("rẻ hơn") ||
+                text.Contains("re hon") ||
+                text.Contains("đắt hơn") ||
+                text.Contains("dat hon") ||
+                text.Contains("tầm") ||
+                text.Contains("tam") ||
+                text.Contains("khoảng") ||
+                text.Contains("khoang");
 
-            bool hasUseCaseSignal =
-                !string.IsNullOrWhiteSpace(parsedIntent.Target) ||
-                parsedIntent.ForWork ||
-                parsedIntent.ForSchool ||
-                parsedIntent.ForCity ||
-                parsedIntent.ForTour;
-
-            bool hasHardConstraintSignal =
+            bool hasConstraintSignal =
                 !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
-                !string.IsNullOrWhiteSpace(parsedIntent.Category);
-
-            bool hasStrongPreferenceSignal =
+                !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
                 parsedIntent.WantsLargeStorage ||
                 parsedIntent.WantsFuelSaving ||
                 parsedIntent.WantsEasyControl ||
@@ -80,87 +117,32 @@ namespace Chatbot.API.Services.Conversation
                 parsedIntent.ExcludedCategories.Any() ||
                 parsedIntent.RequestedStyles.Any();
 
-            bool looksFreshStandaloneRecommendation =
+            bool looksLikeShortFollowUp =
+                text.Length <= 80 ||
+                parsedIntent.IsFollowUp ||
+                string.Equals(parsedIntent.FollowUpType, "refine", StringComparison.OrdinalIgnoreCase);
+
+            bool looksLikeFreshStandaloneRecommendation =
                 text.StartsWith("tư vấn ") ||
                 text.StartsWith("tu van ") ||
-                text.StartsWith("xe ") ||
                 text.StartsWith("mình muốn ") ||
                 text.StartsWith("minh muon ") ||
                 text.StartsWith("mình cần ") ||
-                text.StartsWith("minh can ") ||
-                text.StartsWith("cho nam") ||
-                text.StartsWith("cho nữ") ||
-                text.StartsWith("cho nu") ||
-                text.StartsWith("đi làm") ||
-                text.StartsWith("di lam") ||
-                text.StartsWith("đi học") ||
-                text.StartsWith("di hoc");
+                text.StartsWith("minh can ");
 
-            bool hasEnoughFreshSignals =
-                hasBudgetSignal ||
-                hasUseCaseSignal ||
-                hasHardConstraintSignal ||
-                hasStrongPreferenceSignal;
-            bool looksDirectBudgetConsultation =
-    hasBudgetSignal &&
-    (
-        text.StartsWith("tư vấn xe") ||
-        text.StartsWith("tu van xe") ||
-        text.StartsWith("xe ") ||
-        text.StartsWith("mua xe") ||
-        text.StartsWith("mua một xe") ||
-        text.StartsWith("mua 1 xe")
-    );
-            if ((looksFreshStandaloneRecommendation && hasEnoughFreshSignals) || looksDirectBudgetConsultation)
+            if (looksLikeFreshStandaloneRecommendation && !string.IsNullOrWhiteSpace(parsedIntent.Target))
                 return false;
-            bool startsLikeFollowUp =
-                text.StartsWith("còn ") ||
-                text.StartsWith("con ") ||
-                text.StartsWith("rẻ hơn") ||
-                text.StartsWith("re hon") ||
-                text.StartsWith("đắt hơn") ||
-                text.StartsWith("dat hon") ||
-                text.StartsWith("ưu tiên ") ||
-                text.StartsWith("uu tien ") ||
-                text.StartsWith("đừng ") ||
-                text.StartsWith("dung ") ||
-                text.StartsWith("không thích ") ||
-                text.StartsWith("khong thich ") ||
-                text.StartsWith("không muốn ") ||
-                text.StartsWith("khong muon ") ||
-                text.StartsWith("xe ga") ||
-                text.StartsWith("xe số") ||
-                text.StartsWith("xe so") ||
-                text.StartsWith("honda") ||
-                text.StartsWith("yamaha") ||
-                text.StartsWith("suzuki") ||
-                text.StartsWith("sym") ||
-                text.StartsWith("piaggio");
 
-            bool containsSoftFollowUpPhrase =
-                text.Contains("thì sao") ||
-                text.Contains("thi sao") ||
-                text.Contains("hơn chút") ||
-                text.Contains("hon chut") ||
-                text.Contains("rộng hơn") ||
-                text.Contains("rong hon") ||
-                text.Contains("gọn hơn") ||
-                text.Contains("gon hon") ||
-                text.Contains("mềm hơn") ||
-                text.Contains("mem hon") ||
-                text.Contains("tiết kiệm hơn") ||
-                text.Contains("tiet kiem hon");
+            return looksLikeShortFollowUp && (hasBudgetSignal || hasConstraintSignal);
+        }
 
-            bool looksShortFollowUpFragment =
-                text.Length <= 80 &&
-                (
-                    startsLikeFollowUp ||
-                    containsSoftFollowUpPhrase ||
-                    parsedIntent.IsFollowUp ||
-                    string.Equals(parsedIntent.FollowUpType, "refine", StringComparison.OrdinalIgnoreCase)
-                );
-
-            return looksShortFollowUpFragment;
+        public static bool LooksLikeRecommendationFollowUp(
+            string message,
+            ParsedIntent parsedIntent,
+            CustomerPreferenceProfile? profile)
+        {
+            return LooksLikeExpandFromCurrentGoal(message, parsedIntent, profile)
+                || LooksLikeRefineWithinCurrentRecommendation(message, parsedIntent, profile);
         }
 
         public static bool LooksLikeFreshRecommendationRestart(

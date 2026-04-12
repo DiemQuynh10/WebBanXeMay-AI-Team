@@ -286,21 +286,40 @@ namespace Chatbot.API.Services.Conversation
     text.Contains("xe khác") ||
     text.Contains("xe khac") ||
     text.Contains("mẫu khác") ||
-    text.Contains("mau khac");
+    text.Contains("mau khac") ||
+    text.StartsWith("còn honda") ||
+    text.StartsWith("con honda") ||
+    text.StartsWith("còn yamaha") ||
+    text.StartsWith("con yamaha") ||
+    text.StartsWith("còn sym") ||
+    text.StartsWith("con sym") ||
+    text.StartsWith("còn suzuki") ||
+    text.StartsWith("con suzuki") ||
+    text.StartsWith("xe ga thôi") ||
+    text.StartsWith("xe số thôi") ||
+    text.StartsWith("xe so thoi");
 
                 if (asksAlternativeChoice)
                 {
                     return RecommendationContextDecision.ExpandFromCurrentGoal;
                 }
                 bool hasNarrowSignal =
-                    parsedIntent.HasNarrowRefinementSignal ||
-                    !string.IsNullOrWhiteSpace(parsedIntent.ComparisonFeature) ||
-                    (
-                        (text.Contains("hơn") || text.Contains("hon")) &&
-                        !parsedIntent.PriceMin.HasValue &&
-                        !parsedIntent.PriceMax.HasValue &&
-                        !parsedIntent.TargetPrice.HasValue
-                    );
+    parsedIntent.HasNarrowRefinementSignal ||
+    !string.IsNullOrWhiteSpace(parsedIntent.ComparisonFeature) ||
+    text.Contains("rẻ hơn") ||
+    text.Contains("re hon") ||
+    text.Contains("dưới ") ||
+    text.Contains("duoi ") ||
+    text.Contains("cốp rộng") ||
+    text.Contains("cop rong") ||
+    text.Contains("dễ chống chân") ||
+    text.Contains("de chong chan") ||
+    (
+        (text.Contains("hơn") || text.Contains("hon")) &&
+        !parsedIntent.PriceMin.HasValue &&
+        !parsedIntent.PriceMax.HasValue &&
+        !parsedIntent.TargetPrice.HasValue
+    );
 
                 if (hasNarrowSignal)
                 {

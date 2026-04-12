@@ -34,39 +34,15 @@ namespace Chatbot.API.Services.Conversation
                         restartIntent.PrefersMaleStyle = false;
                     }
                 }
-                else if (string.IsNullOrWhiteSpace(restartIntent.Target))
-                {
-                    restartIntent.Target = existingProfile.Target;
-                    restartIntent.PrefersMaleStyle = existingProfile.PrefersMaleStyle;
-                    restartIntent.PrefersFemaleStyle = existingProfile.PrefersFemaleStyle;
-                }
 
-                if (!restartIntent.ForWork)
-                    restartIntent.ForWork = existingProfile.ForWork;
+                ApplyMissingContextFromProfile(
+                    restartIntent,
+                    existingProfile,
+                    includeBudget: false,
+                    includeBrandCategory: false,
+                    includeTarget: !hasExplicitRestartTarget);
 
-                if (!restartIntent.ForSchool)
-                    restartIntent.ForSchool = existingProfile.ForSchool;
-
-                if (!restartIntent.ForCity)
-                    restartIntent.ForCity = existingProfile.ForCity;
-
-                if (!restartIntent.ForTour)
-                    restartIntent.ForTour = existingProfile.ForTour;
-
-                if (!restartIntent.WantsFuelSaving)
-                    restartIntent.WantsFuelSaving = existingProfile.WantsFuelSaving;
-
-                if (!restartIntent.WantsLargeStorage)
-                    restartIntent.WantsLargeStorage = existingProfile.WantsLargeStorage;
-
-                if (!restartIntent.WantsEasyControl)
-                    restartIntent.WantsEasyControl = existingProfile.WantsEasyControl;
-
-                if (!restartIntent.NeedsLowSeat)
-                    restartIntent.NeedsLowSeat = existingProfile.NeedsLowSeat;
-
-                if (!restartIntent.HeightCm.HasValue && existingProfile.HeightCm.HasValue)
-                    restartIntent.HeightCm = existingProfile.HeightCm;
+                RemoveResolvedExclusions(restartIntent);
 
                 return new ContextResolutionResult
                 {
@@ -80,44 +56,20 @@ namespace Chatbot.API.Services.Conversation
             {
                 var pivotIntent = parsedIntent.Clone();
 
+                ApplyMissingContextFromProfile(
+                    pivotIntent,
+                    existingProfile,
+                    includeBudget: false,
+                    includeBrandCategory: true,
+                    includeTarget: true);
+
                 if (string.IsNullOrWhiteSpace(pivotIntent.Target))
                     pivotIntent.Target = existingProfile.Target;
 
                 pivotIntent.PrefersMaleStyle = pivotIntent.PrefersMaleStyle || existingProfile.PrefersMaleStyle;
                 pivotIntent.PrefersFemaleStyle = pivotIntent.PrefersFemaleStyle || existingProfile.PrefersFemaleStyle;
 
-                if (!pivotIntent.ForWork)
-                    pivotIntent.ForWork = existingProfile.ForWork;
-
-                if (!pivotIntent.ForSchool)
-                    pivotIntent.ForSchool = existingProfile.ForSchool;
-
-                if (!pivotIntent.ForCity)
-                    pivotIntent.ForCity = existingProfile.ForCity;
-
-                if (!pivotIntent.ForTour)
-                    pivotIntent.ForTour = existingProfile.ForTour;
-
-                if (!pivotIntent.WantsFuelSaving)
-                    pivotIntent.WantsFuelSaving = existingProfile.WantsFuelSaving;
-
-                if (!pivotIntent.WantsLargeStorage)
-                    pivotIntent.WantsLargeStorage = existingProfile.WantsLargeStorage;
-
-                if (!pivotIntent.WantsEasyControl)
-                    pivotIntent.WantsEasyControl = existingProfile.WantsEasyControl;
-
-                if (!pivotIntent.NeedsLowSeat)
-                    pivotIntent.NeedsLowSeat = existingProfile.NeedsLowSeat;
-
-                if (!pivotIntent.HeightCm.HasValue && existingProfile.HeightCm.HasValue)
-                    pivotIntent.HeightCm = existingProfile.HeightCm;
-
-                if (string.IsNullOrWhiteSpace(pivotIntent.Brand))
-                    pivotIntent.Brand = existingProfile.PreferredBrand;
-
-                if (string.IsNullOrWhiteSpace(pivotIntent.Category))
-                    pivotIntent.Category = existingProfile.PreferredCategory;
+                RemoveResolvedExclusions(pivotIntent);
 
                 return new ContextResolutionResult
                 {
@@ -158,6 +110,18 @@ namespace Chatbot.API.Services.Conversation
     previousActiveFlow);
 
             var effectiveIntent = parsedIntent.Clone();
+
+            if (existingProfile != null)
+            {
+                ApplyMissingContextFromProfile(
+                    effectiveIntent,
+                    existingProfile,
+                    includeBudget: true,
+                    includeBrandCategory: true,
+                    includeTarget: true);
+
+                MergePreferenceCollectionsFromProfile(effectiveIntent, existingProfile);
+            }
             var explicitTarget = ResolveExplicitGenderTarget(normalizedMessage);
             bool hasExplicitTarget = !string.IsNullOrWhiteSpace(explicitTarget);
 
@@ -183,7 +147,7 @@ namespace Chatbot.API.Services.Conversation
                 effectiveIntent.PrefersMaleStyle = existingProfile.PrefersMaleStyle;
                 effectiveIntent.PrefersFemaleStyle = existingProfile.PrefersFemaleStyle;
             }
-
+            RemoveResolvedExclusions(effectiveIntent);
             if (!string.IsNullOrWhiteSpace(effectiveIntent.Category))
             {
                 effectiveIntent.ExcludedCategories.RemoveWhere(x =>
@@ -204,6 +168,13 @@ namespace Chatbot.API.Services.Conversation
                     parsedIntent.PriceMax.HasValue ||
                     parsedIntent.FilterType != PriceFilterType.None;
 
+                ApplyMissingContextFromProfile(
+                    effectiveIntent,
+                    existingProfile,
+                    includeBudget: !currentTurnHasBudgetSignal,
+                    includeBrandCategory: true,
+                    includeTarget: true);
+
                 if (currentTurnHasBudgetSignal)
                 {
                     effectiveIntent.TargetPrice = parsedIntent.TargetPrice;
@@ -215,61 +186,8 @@ namespace Chatbot.API.Services.Conversation
                 if (shouldPreserveContextForBudgetOnly)
                 {
                     effectiveIntent.Target = existingProfile.Target;
-                }
-                else if (string.IsNullOrWhiteSpace(effectiveIntent.Target))
-                {
-                    effectiveIntent.Target = existingProfile.Target;
-                }
-
-                if (!effectiveIntent.ForWork)
-                    effectiveIntent.ForWork = existingProfile.ForWork;
-
-                if (!effectiveIntent.ForSchool)
-                    effectiveIntent.ForSchool = existingProfile.ForSchool;
-
-                if (!effectiveIntent.ForCity)
-                    effectiveIntent.ForCity = existingProfile.ForCity;
-
-                if (!effectiveIntent.ForTour)
-                    effectiveIntent.ForTour = existingProfile.ForTour;
-
-                if (!effectiveIntent.WantsFuelSaving)
-                    effectiveIntent.WantsFuelSaving = existingProfile.WantsFuelSaving;
-
-                if (!effectiveIntent.WantsLargeStorage)
-                    effectiveIntent.WantsLargeStorage = existingProfile.WantsLargeStorage;
-
-                if (!effectiveIntent.WantsEasyControl)
-                    effectiveIntent.WantsEasyControl = existingProfile.WantsEasyControl;
-
-                if (!effectiveIntent.NeedsLowSeat)
-                    effectiveIntent.NeedsLowSeat = existingProfile.NeedsLowSeat;
-
-                if (!effectiveIntent.HeightCm.HasValue && existingProfile.HeightCm.HasValue)
-                    effectiveIntent.HeightCm = existingProfile.HeightCm;
-
-                if (string.IsNullOrWhiteSpace(effectiveIntent.Category))
-                    effectiveIntent.Category = existingProfile.PreferredCategory;
-
-                if (string.IsNullOrWhiteSpace(effectiveIntent.Brand))
-                    effectiveIntent.Brand = existingProfile.PreferredBrand;
-
-                if (!currentTurnHasBudgetSignal)
-                {
-                    if (!effectiveIntent.TargetPrice.HasValue && existingProfile.TargetPrice.HasValue)
-                        effectiveIntent.TargetPrice = existingProfile.TargetPrice;
-
-                    if (!effectiveIntent.PriceMin.HasValue && existingProfile.PriceMin.HasValue)
-                        effectiveIntent.PriceMin = existingProfile.PriceMin;
-
-                    if (!effectiveIntent.PriceMax.HasValue && existingProfile.PriceMax.HasValue)
-                        effectiveIntent.PriceMax = existingProfile.PriceMax;
-
-                    if (effectiveIntent.FilterType == PriceFilterType.None &&
-                        existingProfile.FilterType != PriceFilterType.None)
-                    {
-                        effectiveIntent.FilterType = existingProfile.FilterType;
-                    }
+                    effectiveIntent.PrefersMaleStyle = existingProfile.PrefersMaleStyle;
+                    effectiveIntent.PrefersFemaleStyle = existingProfile.PrefersFemaleStyle;
                 }
 
                 var preservedExcludedBrands = existingProfile.ExcludedBrands
@@ -283,6 +201,8 @@ namespace Chatbot.API.Services.Conversation
                 effectiveIntent.ExcludedBrands.UnionWith(preservedExcludedBrands);
                 effectiveIntent.ExcludedCategories.UnionWith(preservedExcludedCategories);
                 effectiveIntent.RequestedStyles.UnionWith(existingProfile.RequestedStyles);
+
+                RemoveResolvedExclusions(effectiveIntent);
             }
 
             bool shouldResetContext =
@@ -510,6 +430,105 @@ namespace Chatbot.API.Services.Conversation
             return (startsLikeBudgetPivot || containsBudgetPivotPhrase) &&
                    asksComparisonStyleQuestion &&
                    hasNoNewHardConstraint;
+        }
+        private static void ApplyMissingContextFromProfile(
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile,
+    bool includeBudget = true,
+    bool includeBrandCategory = true,
+    bool includeTarget = true)
+        {
+            if (intent == null || profile == null)
+                return;
+
+            if (includeBrandCategory)
+            {
+                if (string.IsNullOrWhiteSpace(intent.Brand))
+                    intent.Brand = profile.PreferredBrand;
+
+                if (string.IsNullOrWhiteSpace(intent.Category))
+                    intent.Category = profile.PreferredCategory;
+            }
+
+            if (includeTarget && string.IsNullOrWhiteSpace(intent.Target))
+            {
+                intent.Target = profile.Target;
+                intent.PrefersMaleStyle = profile.PrefersMaleStyle;
+                intent.PrefersFemaleStyle = profile.PrefersFemaleStyle;
+            }
+
+            if (!intent.ForWork)
+                intent.ForWork = profile.ForWork;
+
+            if (!intent.ForSchool)
+                intent.ForSchool = profile.ForSchool;
+
+            if (!intent.ForCity)
+                intent.ForCity = profile.ForCity;
+
+            if (!intent.ForTour)
+                intent.ForTour = profile.ForTour;
+
+            if (!intent.WantsFuelSaving)
+                intent.WantsFuelSaving = profile.WantsFuelSaving;
+
+            if (!intent.WantsLargeStorage)
+                intent.WantsLargeStorage = profile.WantsLargeStorage;
+
+            if (!intent.WantsEasyControl)
+                intent.WantsEasyControl = profile.WantsEasyControl;
+
+            if (!intent.NeedsLowSeat)
+                intent.NeedsLowSeat = profile.NeedsLowSeat;
+
+            if (!intent.HeightCm.HasValue && profile.HeightCm.HasValue)
+                intent.HeightCm = profile.HeightCm;
+
+            if (includeBudget)
+            {
+                if (!intent.TargetPrice.HasValue && profile.TargetPrice.HasValue)
+                    intent.TargetPrice = profile.TargetPrice;
+
+                if (!intent.PriceMin.HasValue && profile.PriceMin.HasValue)
+                    intent.PriceMin = profile.PriceMin;
+
+                if (!intent.PriceMax.HasValue && profile.PriceMax.HasValue)
+                    intent.PriceMax = profile.PriceMax;
+
+                if (intent.FilterType == PriceFilterType.None &&
+                    profile.FilterType != PriceFilterType.None)
+                {
+                    intent.FilterType = profile.FilterType;
+                }
+            }
+        }
+        private static void RemoveResolvedExclusions(ParsedIntent intent)
+        {
+            if (intent == null)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(intent.Category))
+            {
+                intent.ExcludedCategories.RemoveWhere(x =>
+                    string.Equals(x, intent.Category, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!string.IsNullOrWhiteSpace(intent.Brand))
+            {
+                intent.ExcludedBrands.RemoveWhere(x =>
+                    string.Equals(x, intent.Brand, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+        private static void MergePreferenceCollectionsFromProfile(
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile)
+        {
+            if (intent == null || profile == null)
+                return;
+
+            intent.ExcludedBrands.UnionWith(profile.ExcludedBrands);
+            intent.ExcludedCategories.UnionWith(profile.ExcludedCategories);
+            intent.RequestedStyles.UnionWith(profile.RequestedStyles);
         }
     }
 }

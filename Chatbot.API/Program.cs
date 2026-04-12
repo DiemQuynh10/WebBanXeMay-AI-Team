@@ -62,6 +62,9 @@ builder.Services.AddScoped<IProductSearchFlowService, ProductSearchFlowService>(
 builder.Services.AddScoped<IInputTextSanitizer, InputTextSanitizer>();
 builder.Services.AddScoped<IConversationContextResolver, ConversationContextResolver>();
 builder.Services.AddScoped<IFlowDecisionService, FlowDecisionService>();
+builder.Services.AddScoped<IRecommendationClarificationService, RecommendationClarificationService>();
+builder.Services.AddScoped<IChatFlowOrchestrator, ChatFlowOrchestrator>();
+builder.Services.AddScoped<IRecommendationFlowService, RecommendationFlowService>();
 // Main chatbot services
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<ILLMIntentUnderstandingService, LLMIntentUnderstandingService>();

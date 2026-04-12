@@ -1,4 +1,6 @@
-﻿using Chatbot.API.Models.Intent;
+﻿using Chatbot.API.Helpers;
+using Chatbot.API.Models.Intent;
+using Chatbot.API.Services.Conversation;
 using Chatbot.API.Services.Interfaces;
 
 namespace Chatbot.API.Services
@@ -66,61 +68,42 @@ namespace Chatbot.API.Services
                 result.Reason = "Lookup follow-up detected from previous product context";
                 return result;
             }
+            bool hasActiveRecommendationContext =
+    profile?.HasActiveRecommendationContext == true &&
+    profile.LastRecommendedProducts.Count > 0;
 
-            if (intent.IntentType == "followup")
+            bool isExpandFollowUp =
+                hasActiveRecommendationContext &&
+                RecommendationConversationRules.LooksLikeExpandFromCurrentGoal(
+                    normalizedMessage,
+                    intent,
+                    profile);
+
+            if (isExpandFollowUp)
             {
-                if (profile?.HasActiveCompareContext == true &&
-                    profile.LastComparedProducts.Count >= 2)
-                {
-                    result.FlowType = ChatFlowType.Compare;
-                    result.ShouldUseDeterministicFlow = true;
-                    result.ShouldUseAiFallback = false;
-                    result.Reason = "Compare follow-up detected";
-                    return result;
-                }
+                result.FlowType = ChatFlowType.Recommendation;
+                result.ShouldUseDeterministicFlow = true;
+                result.ShouldUseAiFallback = false;
+                result.ShouldUseRag = true;
+                result.Reason = "Recommendation follow-up routed to expand";
+                return result;
+            }
 
-                bool asksAlternativeChoice =
-        (intent.RawMessage ?? string.Empty).Contains("loại khác", StringComparison.OrdinalIgnoreCase) ||
-        (intent.RawMessage ?? string.Empty).Contains("loai khac", StringComparison.OrdinalIgnoreCase) ||
-        (intent.RawMessage ?? string.Empty).Contains("xe khác", StringComparison.OrdinalIgnoreCase) ||
-        (intent.RawMessage ?? string.Empty).Contains("xe khac", StringComparison.OrdinalIgnoreCase) ||
-        (intent.RawMessage ?? string.Empty).Contains("mẫu khác", StringComparison.OrdinalIgnoreCase) ||
-        (intent.RawMessage ?? string.Empty).Contains("mau khac", StringComparison.OrdinalIgnoreCase);
+            bool isRefineFollowUp =
+                hasActiveRecommendationContext &&
+                RecommendationConversationRules.LooksLikeRefineWithinCurrentRecommendation(
+                    normalizedMessage,
+                    intent,
+                    profile);
 
-                bool hasHardRefinementSignals =
-                    intent.PriceMin.HasValue ||
-                    intent.PriceMax.HasValue ||
-                    intent.TargetPrice.HasValue ||
-                    !string.IsNullOrWhiteSpace(intent.Brand) ||
-                    !string.IsNullOrWhiteSpace(intent.Category) ||
-                    intent.ExcludedBrands.Any() ||
-                    intent.ExcludedCategories.Any() ||
-                    intent.WantsLargeStorage ||
-                    intent.WantsFuelSaving ||
-                    intent.NeedsLowSeat ||
-                    intent.WantsEasyControl ||
-                    asksAlternativeChoice;
-
-                if (profile?.HasActiveRecommendationContext == true &&
-                    profile.LastRecommendedProducts.Count > 0 &&
-                    hasHardRefinementSignals)
-                {
-                    result.FlowType = ChatFlowType.Refinement;
-                    result.ShouldUseDeterministicFlow = true;
-                    result.ShouldUseAiFallback = false;
-                    result.Reason = "Recommendation follow-up with hard refinement signals";
-                    return result;
-                }
-
-                if (profile?.HasActiveRecommendationContext == true &&
-                    profile.LastRecommendedProducts.Count > 0)
-                {
-                    result.FlowType = ChatFlowType.RecommendationFollowUp;
-                    result.ShouldUseDeterministicFlow = true;
-                    result.ShouldUseAiFallback = false;
-                    result.Reason = "Recommendation follow-up detected";
-                    return result;
-                }
+            if (isRefineFollowUp)
+            {
+                result.FlowType = ChatFlowType.Refinement;
+                result.ShouldUseDeterministicFlow = true;
+                result.ShouldUseAiFallback = false;
+                result.ShouldUseRag = false;
+                result.Reason = "Recommendation follow-up routed to refinement";
+                return result;
             }
 
             if (intent.IntentType == "refine")
@@ -139,19 +122,8 @@ namespace Chatbot.API.Services
                 result.FlowType = ChatFlowType.Refinement;
                 result.ShouldUseDeterministicFlow = true;
                 result.ShouldUseAiFallback = false;
+                result.ShouldUseRag = false;
                 result.Reason = "Refinement detected";
-                return result;
-            }
-
-            if (intent.IntentType == "refine" &&
-                profile?.HasActiveCompareContext == true &&
-                profile.LastComparedProducts.Count >= 2 &&
-                !string.IsNullOrWhiteSpace(intent.ComparisonFeature))
-            {
-                result.FlowType = ChatFlowType.Compare;
-                result.ShouldUseDeterministicFlow = true;
-                result.ShouldUseAiFallback = false;
-                result.Reason = "Compare context overrides refine";
                 return result;
             }
 
@@ -160,78 +132,29 @@ namespace Chatbot.API.Services
                 result.FlowType = ChatFlowType.BrandSwitch;
                 result.ShouldUseDeterministicFlow = true;
                 result.ShouldUseAiFallback = false;
+                result.ShouldUseRag = false;
                 result.Reason = "Brand switch detected";
                 return result;
             }
 
-            if (intent.IntentType == "refine" &&
-                profile?.HasActiveRecommendationContext == true)
-            {
-                result.FlowType = ChatFlowType.Refinement;
-                result.ShouldUseDeterministicFlow = true;
-                result.ShouldUseAiFallback = false;
-                result.Reason = "Refinement detected";
-                return result;
-            }
-            if (profile?.HasActiveRecommendationContext == true &&
-    profile.LastRecommendedProducts.Count > 0 &&
-    (intent.PriceMin.HasValue ||
-     intent.PriceMax.HasValue ||
-     intent.TargetPrice.HasValue ||
-     !string.IsNullOrWhiteSpace(intent.Brand) ||
-     !string.IsNullOrWhiteSpace(intent.Category) ||
-     intent.WantsLargeStorage ||
-     intent.WantsFuelSaving ||
-     intent.NeedsLowSeat ||
-     intent.WantsEasyControl))
-            {
-                result.FlowType = ChatFlowType.Refinement;
-                result.ShouldUseDeterministicFlow = true;
-                result.ShouldUseAiFallback = false;
-                result.Reason = "Recommendation context + filter fragment detected";
-                return result;
-            }
-            bool hasRefinementSignals =
-    intent.PriceMin.HasValue ||
-    intent.PriceMax.HasValue ||
-    intent.TargetPrice.HasValue ||
-    !string.IsNullOrWhiteSpace(intent.Brand) ||
-    !string.IsNullOrWhiteSpace(intent.Category) ||
-    !string.IsNullOrWhiteSpace(intent.ComparisonFeature) ||
-    intent.WantsLargeStorage ||
-    intent.WantsFuelSaving ||
-    intent.NeedsLowSeat ||
-    intent.WantsEasyControl ||
-    intent.ExcludedBrands.Any() ||
-    intent.ExcludedCategories.Any();
-
-            if (profile?.HasActiveRecommendationContext == true &&
-                profile.LastRecommendedProducts.Count > 0 &&
-                hasRefinementSignals &&
-                intent.IntentType != "recommend" &&
-                !intent.IsDirectProductLookup &&
-                !intent.IsProductSearch)
-            {
-                result.FlowType = ChatFlowType.Refinement;
-                result.ShouldUseDeterministicFlow = true;
-                result.ShouldUseAiFallback = false;
-                result.Reason = "Recommendation context + refinement signals detected";
-                return result;
-            }
+            bool isHardFilterOnlySearch =
+    FlowIntentHeuristics.IsHardFilterOnlySearch(intent, normalizedMessage);
 
             bool isPriceOnlySearch =
-     intent.PriceMin.HasValue ||
-     intent.PriceMax.HasValue ||
-     intent.TargetPrice.HasValue;
+                intent.PriceMin.HasValue ||
+                intent.PriceMax.HasValue ||
+                intent.TargetPrice.HasValue;
 
-            if (intent.IsProductSearch || isPriceOnlySearch)
+            if (!hasActiveRecommendationContext &&
+                (isHardFilterOnlySearch || intent.IsProductSearch || isPriceOnlySearch))
             {
                 result.FlowType = ChatFlowType.ProductSearch;
                 result.ShouldUseDeterministicFlow = true;
                 result.ShouldUseAiFallback = false;
-                result.Reason = intent.IsProductSearch
-                    ? "Product search detected"
-                    : "Price-only product search detected";
+                result.ShouldUseRag = false;
+                result.Reason = isHardFilterOnlySearch
+                    ? "Hard filter only search"
+                    : (intent.IsProductSearch ? "Product search detected" : "Price-only product search detected");
                 return result;
             }
 

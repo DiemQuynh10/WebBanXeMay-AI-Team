@@ -282,6 +282,22 @@ namespace Chatbot.API.Services
 
             if (ContainsAny(product.Name, "wave", "future", "sirius", "vision"))
                 score += 10;
+            if (ContainsAny(product.Name, "air blade", "freego", "address", "lead"))
+                score += 6;
+
+            if (ContainsAny(product.Name, "winner", "exciter"))
+                score -= 10;
+
+            if (product.VehicleType == VehicleType.Manual)
+                score -= 6;
+
+            if (product.EngineCc.HasValue)
+            {
+                if (product.EngineCc.Value <= 125)
+                    score += 6;
+                else if (product.EngineCc.Value >= 150)
+                    score -= 6;
+            }
 
             return score;
         }
@@ -444,6 +460,14 @@ namespace Chatbot.API.Services
             {
                 return true;
             }
+            // Soft-refine vẫn phải giữ gần budget hiện tại nếu user đang có mốc giá rõ
+            if (!intent.PriceMin.HasValue &&
+                !intent.PriceMax.HasValue &&
+                !intent.TargetPrice.HasValue &&
+                profile.ForWork)
+            {
+                // Không làm gì riêng ở đây, để tránh hard reject sai khi không có mốc giá thật sự
+            }
             return false;
         }
         public string BuildMainReason(ProductSummaryDto product, ParsedIntent intent)
@@ -452,6 +476,9 @@ namespace Chatbot.API.Services
 
             if ((intent.PrefersFemaleStyle || (intent.Target?.Contains("nữ") ?? false)) && feature.FemaleFit)
                 return "dáng xe gọn và khá hợp nhu cầu nữ";
+
+            if ((intent.PrefersMaleStyle || (intent.Target?.Contains("nam") ?? false)) && feature.WorkFit)
+                return "khá hợp nếu bạn ưu tiên dáng trung tính và đi làm hằng ngày";
 
             if (intent.WantsFuelSaving && feature.FuelSavingLike)
                 return "thiên về tiết kiệm xăng và chi phí sử dụng";
@@ -467,6 +494,19 @@ namespace Chatbot.API.Services
 
             if (intent.ForSchool && feature.SchoolFit)
                 return "khá hợp với nhu cầu đi học";
+
+            if (!string.IsNullOrWhiteSpace(intent.Brand) &&
+                string.Equals(product.ThuongHieu, intent.Brand, StringComparison.OrdinalIgnoreCase))
+            {
+                return $"đúng hãng {intent.Brand} và là một phương án khá gần với mức giá bạn đang cân nhắc";
+            }
+
+            if (!string.IsNullOrWhiteSpace(intent.Category) &&
+                !string.IsNullOrWhiteSpace(product.Loai) &&
+                product.Loai.Contains(intent.Category, StringComparison.OrdinalIgnoreCase))
+            {
+                return $"đúng nhóm {product.Loai.ToLowerInvariant()} và khá gần với mức giá bạn đang cân nhắc";
+            }
 
             return "là một phương án khá cân bằng trong nhóm đang lọc";
         }
@@ -833,19 +873,32 @@ namespace Chatbot.API.Services
         {
             var score = 0;
 
-            if (profile.WantsFuelSaving && ContainsAny(product.Tags, "tiet kiem", "it ton xang"))
+            if (profile.WantsFuelSaving)
             {
-                score += FuelSavingBonus;
+                if (ContainsAny(product.Tags, "tiet kiem", "it ton xang"))
+                    score += FuelSavingBonus;
+                else
+                    score -= 4;
             }
 
-            if (profile.WantsLargeStorage && ContainsAny(product.Tags, "cop rong", "de do", "chua do"))
+            if (profile.WantsLargeStorage)
             {
-                score += LargeStorageBonus;
+                if (ContainsAny(product.Tags, "cop rong", "de do", "chua do"))
+                    score += LargeStorageBonus;
+                else
+                    score -= 4;
+            }
+
+            if (profile.NeedsLowSeat)
+            {
+                if (ContainsAny(product.Tags, "yen thap", "de chong chan"))
+                    score += 10;
+                else
+                    score -= 4;
             }
 
             return score;
         }
-
         private static int ScoreByStyle(ProductContext product, RequestProfile profile)
         {
             var score = 0;

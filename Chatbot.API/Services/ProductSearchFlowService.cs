@@ -161,11 +161,11 @@ namespace Chatbot.API.Services
                 "search");
         }
         private async Task<List<ProductSummaryDto>> FindNearMatchProductsAsync(
-    string? brand,
-    string? category,
-    decimal? minPrice,
-    decimal? maxPrice,
-    string normalizedMessage)
+     string? brand,
+     string? category,
+     decimal? minPrice,
+     decimal? maxPrice,
+     string normalizedMessage)
         {
             decimal? relaxedMin = minPrice;
             decimal? relaxedMax = maxPrice;
@@ -178,6 +178,7 @@ namespace Chatbot.API.Services
 
             ProductSearchResponseDto? result;
 
+            // Bước 1: giữ nguyên brand + category, chỉ nới giá
             if (!string.IsNullOrWhiteSpace(brand) ||
                 !string.IsNullOrWhiteSpace(category) ||
                 relaxedMin.HasValue ||
@@ -189,11 +190,63 @@ namespace Chatbot.API.Services
                     relaxedMax,
                     category,
                     5);
+
+                var items = result?.Items?
+                    .Where(x => x != null)
+                    .Take(5)
+                    .ToList() ?? new List<ProductSummaryDto>();
+
+                if (items.Count > 0)
+                    return items;
             }
-            else
+
+            // Bước 2: nếu có category mà quá chặt thì bỏ category, giữ brand + giá
+            if (!string.IsNullOrWhiteSpace(category))
             {
-                result = await _toolClient.SearchProductsAsync(normalizedMessage, 5);
+                result = await _toolClient.GetProductsByFiltersAsync(
+                    brand,
+                    relaxedMin,
+                    relaxedMax,
+                    null,
+                    5);
+
+                var items = result?.Items?
+                    .Where(x => x != null)
+                    .Take(5)
+                    .ToList() ?? new List<ProductSummaryDto>();
+
+                if (items.Count > 0)
+                    return items;
             }
+
+            // Bước 3: nếu vẫn không có mà có brand thì giữ brand, nới giá thêm
+            if (!string.IsNullOrWhiteSpace(brand))
+            {
+                decimal? moreRelaxedMin = relaxedMin.HasValue
+    ? Math.Max(0, relaxedMin.Value - 3_000_000m)
+    : (decimal?)null;
+
+                decimal? moreRelaxedMax = relaxedMax.HasValue
+                    ? relaxedMax.Value + 3_000_000m
+                    : (decimal?)null;
+                result = await _toolClient.GetProductsByFiltersAsync(
+                    brand,
+                    moreRelaxedMin,
+                    moreRelaxedMax,
+                    null,
+                    5);
+
+                var items = result?.Items?
+                    .Where(x => x != null)
+                    .Take(5)
+                    .ToList() ?? new List<ProductSummaryDto>();
+
+                if (items.Count > 0)
+                    return items;
+            }
+
+            // Bước 4: fallback cuối cùng
+            result = await _toolClient.SearchProductsAsync(normalizedMessage, 5);
 
             return result?.Items?
                 .Where(x => x != null)
@@ -251,7 +304,7 @@ namespace Chatbot.API.Services
 
             if (nearMatches == null || nearMatches.Count == 0)
             {
-                return $"Hiện mình chưa tìm thấy mẫu xe nào khớp hoàn toàn với {filterText} trong dữ liệu.";
+                return $"Hiện mình chưa tìm thấy mẫu nào khớp sát với {filterText} trong dữ liệu. Bạn có thể nới nhẹ mức giá hoặc bớt một tiêu chí để mình lọc rộng hơn.";
             }
 
             var sb = new StringBuilder();
@@ -259,9 +312,9 @@ namespace Chatbot.API.Services
             sb.AppendLine("Tuy vậy, nếu nới điều kiện một chút, bạn có thể tham khảo:");
             sb.AppendLine();
 
-            foreach (var item in nearMatches.Take(3))
+            foreach (var item in nearMatches.Take(4))
             {
-                sb.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ)");
+                sb.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ): còn {item.SoLuong} chiếc");
             }
 
             return sb.ToString().Trim();

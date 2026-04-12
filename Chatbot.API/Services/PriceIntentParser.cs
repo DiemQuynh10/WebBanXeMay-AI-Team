@@ -247,8 +247,8 @@ namespace Chatbot.API.Services
                 .Replace("củ", "cu")
                 .Replace("chai", "chai")
                 .Replace("triệu", "trieu")
-                .Replace("đ", "")
-                .Replace("₫", "");
+               .Replace("đ", "d")
+.Replace("₫", "");
 
             text = RemoveVietnameseSigns(text);
             text = Regex.Replace(text, @"\s+", " ");
