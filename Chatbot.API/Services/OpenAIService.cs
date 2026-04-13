@@ -14,6 +14,9 @@ namespace Chatbot.API.Services
 {
     public class OpenAIService : IOpenAIService
     {
+        private const int MaxHistoryMessages = 12;
+        private const int MaxRagContextCharacters = 2200;
+
         private readonly HttpClient _httpClient;
         private readonly OpenAISettings _settings;
         private readonly IConversationMemoryService _memoryService;
@@ -68,12 +71,16 @@ namespace Chatbot.API.Services
 
                 var messages = BuildInitialMessages(history, effectivePrompt, ragContext);
 
+                // Build a fresh `functions` array with cloned nodes to avoid JsonNode parent conflicts.
+                var functionsArray = BuildFunctionsArray();
+
                 var requestBody = new JsonObject
                 {
                     ["model"] = _settings.Model,
                     ["messages"] = messages,
-                    ["tools"] = _toolDefinitionProvider.GetTools(),
-                    ["tool_choice"] = "auto"
+                    ["functions"] = functionsArray,
+                    ["function_call"] = "auto",
+                    ["temperature"] = 0.2
                 };
 
                 var rawJson = await SendChatCompletionAsync(requestBody, "OpenAI first response");
@@ -86,17 +93,15 @@ namespace Chatbot.API.Services
                 string? usedTool = null;
                 string finalReply;
 
-                if (message.TryGetProperty("tool_calls", out var toolCalls) && toolCalls.GetArrayLength() > 0)
+                if (message.TryGetProperty("function_call", out var functionCall) && functionCall.ValueKind != JsonValueKind.Null)
                 {
-                    var toolCall = toolCalls[0];
-                    var toolCallId = toolCall.GetProperty("id").GetString() ?? string.Empty;
-                    var functionName = toolCall.GetProperty("function").GetProperty("name").GetString() ?? string.Empty;
-                    var argumentsJson = toolCall.GetProperty("function").GetProperty("arguments").GetString() ?? "{}";
+                    var functionName = functionCall.GetProperty("name").GetString() ?? string.Empty;
+                    var argumentsJson = functionCall.GetProperty("arguments").GetString() ?? "{}";
 
                     usedTool = functionName;
 
                     _logger.LogInformation(
-                        "Tool called: {ToolName}, ConversationId: {ConversationId}, Arguments: {Arguments}",
+                        "Function called: {ToolName}, ConversationId: {ConversationId}, Arguments: {Arguments}",
                         usedTool,
                         conversationId,
                         argumentsJson);
@@ -106,7 +111,6 @@ namespace Chatbot.API.Services
                     var secondMessages = BuildSecondMessages(
                         history,
                         effectivePrompt,
-                        toolCallId,
                         functionName,
                         argumentsJson,
                         toolResult,
@@ -115,7 +119,9 @@ namespace Chatbot.API.Services
                     var secondBody = new JsonObject
                     {
                         ["model"] = _settings.Model,
-                        ["messages"] = secondMessages
+                        ["messages"] = secondMessages,
+                        ["functions"] = functionsArray.DeepClone(),
+                        ["temperature"] = 0.2
                     };
 
                     var secondRawJson = await SendChatCompletionAsync(secondBody, "OpenAI second response");
@@ -135,26 +141,6 @@ namespace Chatbot.API.Services
                         ? contentNode.GetString() ?? "Mình chưa có câu trả lời phù hợp."
                         : "Mình chưa có câu trả lời phù hợp.";
                 }
-
-                await _memoryService.AddMessageAsync(
-                    conversationId,
-                    new ChatMessage
-                    {
-                        Role = "user",
-                        Content = originalUserMessage
-                    },
-                    channel,
-                    userId);
-
-                await _memoryService.AddMessageAsync(
-                    conversationId,
-                    new ChatMessage
-                    {
-                        Role = "assistant",
-                        Content = finalReply
-                    },
-                    channel,
-                    userId);
 
                 return new ChatResponse
                 {
@@ -219,17 +205,19 @@ namespace Chatbot.API.Services
 
             if (!string.IsNullOrWhiteSpace(ragContext))
             {
+                var safeRagContext = TrimText(ragContext, MaxRagContextCharacters);
+
                 messages.Add(new JsonObject
                 {
                     ["role"] = "system",
                     ["content"] =
                         "Dưới đây là ngữ cảnh tham khảo được truy xuất từ kho tri thức nội bộ. " +
                         "Chỉ sử dụng khi phù hợp và không được mâu thuẫn với dữ liệu realtime từ tool API.\n\n" +
-                        ragContext
+                        safeRagContext
                 });
             }
 
-            foreach (var msg in history)
+            foreach (var msg in GetRecentHistory(history))
             {
                 messages.Add(new JsonObject
                 {
@@ -250,33 +238,34 @@ namespace Chatbot.API.Services
         private JsonArray BuildSecondMessages(
     List<ChatMessage> history,
     string userMessage,
-    string toolCallId,
     string functionName,
     string argumentsJson,
     string toolResult,
     string? ragContext = null)
         {
             var secondMessages = new JsonArray
-{
-    new JsonObject
     {
-        ["role"] = "system",
-        ["content"] = SystemPromptProvider.GetToolResultPrompt()
-    }
-};
+        new JsonObject
+        {
+            ["role"] = "system",
+            ["content"] = SystemPromptProvider.GetToolResultPrompt()
+        }
+    };
 
             if (!string.IsNullOrWhiteSpace(ragContext))
             {
+                var safeRagContext = TrimText(ragContext, MaxRagContextCharacters);
+
                 secondMessages.Add(new JsonObject
                 {
                     ["role"] = "system",
                     ["content"] =
                         "Ngữ cảnh bổ sung từ kho tri thức nội bộ. Chỉ dùng để hỗ trợ diễn giải, " +
-                        "không được mâu thuẫn với dữ liệu tool realtime.\n\n" + ragContext
+                        "không được mâu thuẫn với dữ liệu tool realtime.\n\n" + safeRagContext
                 });
             }
 
-            foreach (var msg in history)
+            foreach (var msg in GetRecentHistory(history))
             {
                 if (msg.Role == "user" || msg.Role == "assistant")
                 {
@@ -294,33 +283,68 @@ namespace Chatbot.API.Services
                 ["content"] = userMessage
             });
 
+            // Append function result as role 'function' per OpenAI function-calling spec
             secondMessages.Add(new JsonObject
             {
-                ["role"] = "assistant",
-                ["content"] = null,
-                ["tool_calls"] = new JsonArray
-                {
-                    new JsonObject
-                    {
-                        ["id"] = toolCallId,
-                        ["type"] = "function",
-                        ["function"] = new JsonObject
-                        {
-                            ["name"] = functionName,
-                            ["arguments"] = argumentsJson
-                        }
-                    }
-                }
-            });
-
-            secondMessages.Add(new JsonObject
-            {
-                ["role"] = "tool",
-                ["tool_call_id"] = toolCallId,
+                ["role"] = "function",
+                ["name"] = functionName,
                 ["content"] = toolResult
             });
 
             return secondMessages;
+        }
+
+        private static IEnumerable<ChatMessage> GetRecentHistory(List<ChatMessage> history)
+        {
+            if (history == null || history.Count == 0)
+            {
+                return Enumerable.Empty<ChatMessage>();
+            }
+
+            return history
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Role) && !string.IsNullOrWhiteSpace(x.Content))
+                .TakeLast(MaxHistoryMessages);
+        }
+
+        private static string TrimText(string value, int maxChars)
+        {
+            if (string.IsNullOrWhiteSpace(value) || value.Length <= maxChars)
+            {
+                return value;
+            }
+
+            return value[..maxChars].Trim() + "...";
+        }
+
+        private JsonArray BuildFunctionsArray()
+        {
+            var rawTools = _toolDefinitionProvider.GetTools();
+            var functionsArray = new JsonArray();
+
+            if (rawTools == null)
+            {
+                return functionsArray;
+            }
+
+            foreach (var t in rawTools)
+            {
+                if (t is not JsonObject obj)
+                {
+                    continue;
+                }
+
+                // Support wrapper shape { type, function: {...} } and legacy direct function object.
+                if (obj.TryGetPropertyValue("function", out var fnNode) && fnNode is JsonObject fnObj)
+                {
+                    functionsArray.Add(fnObj.DeepClone());
+                }
+                else
+                {
+                    functionsArray.Add(obj.DeepClone());
+                }
+            }
+
+            return functionsArray;
         }
 
         private async Task<string> SendChatCompletionAsync(JsonObject requestBody, string logLabel)

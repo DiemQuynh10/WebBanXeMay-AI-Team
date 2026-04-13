@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using Chatbot.API.Models.Intent;
@@ -20,10 +21,11 @@ namespace Chatbot.API.Services
         private readonly IRagService _ragService;
         private readonly IPriceIntentParser _priceIntentParser;
         private readonly IIntentParserService _intentParserService;
+        private readonly IChatFlowRouter _chatFlowRouter;
         private readonly IProductRecommendationService _productRecommendationService;
         private readonly IConversationPreferenceService _conversationPreferenceService;
 
-        public ChatService(IOpenAIService openAIService, IWebBanXeMayToolClient toolClient, ILogger<ChatService> logger, IQueryNormalizationService queryNormalizationService, IClarificationStateService clarificationStateService, IRagService ragService, IPriceIntentParser priceIntentParser, IIntentParserService intentParserService, IProductRecommendationService productRecommendationService, IConversationPreferenceService conversationPreferenceService)
+        public ChatService(IOpenAIService openAIService, IWebBanXeMayToolClient toolClient, ILogger<ChatService> logger, IQueryNormalizationService queryNormalizationService, IClarificationStateService clarificationStateService, IRagService ragService, IPriceIntentParser priceIntentParser, IIntentParserService intentParserService, IChatFlowRouter chatFlowRouter, IProductRecommendationService productRecommendationService, IConversationPreferenceService conversationPreferenceService)
         {
             _openAIService = openAIService;
             _toolClient = toolClient;
@@ -33,6 +35,7 @@ namespace Chatbot.API.Services
             _ragService = ragService;
             _priceIntentParser = priceIntentParser;
             _intentParserService = intentParserService;
+            _chatFlowRouter = chatFlowRouter;
             _productRecommendationService = productRecommendationService;
             _conversationPreferenceService = conversationPreferenceService;
         }
@@ -175,6 +178,18 @@ namespace Chatbot.API.Services
                 var normalizedMessage = normalizationResult.NormalizedText;
                 var effectivePrompt = normalizedMessage;
 
+                if (IsBotIdentityQuestion(normalizedMessage))
+                {
+                    return new ChatResponse
+                    {
+                        Success = true,
+                        Reply = "Mình là trợ lý tư vấn xe máy của WebBanXeMay. Mình có thể giúp bạn tra giá, kiểm tra tồn kho và gợi ý mẫu xe phù hợp nhu cầu.",
+                        ConversationId = conversationId,
+                        UsedAI = false,
+                        ElapsedMs = stopwatch.ElapsedMilliseconds
+                    };
+                }
+
                 var priceRange = _priceIntentParser.Parse(normalizedMessage);
 
                 _logger.LogInformation(
@@ -206,6 +221,16 @@ namespace Chatbot.API.Services
                     parsedIntent.FilterType,
                     parsedIntent.TargetPrice);
 
+                // Route the flow using parser + profile to get deterministic vs AI decisions
+                var routing = _chatFlowRouter.Route(normalizedMessage, parsedIntent, conversationProfile);
+                _logger.LogInformation(
+                    "Routing result. Flow: {FlowType}, Deterministic: {Deterministic}, ShouldUseRag: {ShouldUseRag}, AiFallback: {AiFallback}, Reason: {Reason}",
+                    routing.FlowType,
+                    routing.ShouldUseDeterministicFlow,
+                    routing.ShouldUseRag,
+                    routing.ShouldUseAiFallback,
+                    routing.Reason);
+
                 NormalizeRequestMetadata(request);
 
                 _logger.LogInformation(
@@ -213,6 +238,30 @@ namespace Chatbot.API.Services
                     request.ConversationId,
                     request.Channel,
                     request.UserId);
+
+                if (routing.FlowType == ChatFlowType.Greeting)
+                {
+                    return new ChatResponse
+                    {
+                        Success = true,
+                        Reply = "Chào bạn, mình là trợ lý tư vấn xe máy của WebBanXeMay. Bạn muốn xem giá, kiểm tra tồn kho hay nhờ mình gợi ý mẫu xe phù hợp?",
+                        ConversationId = conversationId,
+                        UsedAI = false,
+                        ElapsedMs = stopwatch.ElapsedMilliseconds
+                    };
+                }
+
+                if (routing.FlowType == ChatFlowType.OutOfScope)
+                {
+                    return new ChatResponse
+                    {
+                        Success = true,
+                        Reply = "Mình hiện chỉ hỗ trợ các nội dung về xe máy, sản phẩm và đơn hàng trên WebBanXeMay. Bạn cần mình tư vấn mẫu xe hoặc tra giá/tồn kho mẫu nào không?",
+                        ConversationId = conversationId,
+                        UsedAI = false,
+                        ElapsedMs = stopwatch.ElapsedMilliseconds
+                    };
+                }
 
                 if (IsOrderLookupIntent(normalizedMessage))
                 {
@@ -268,6 +317,7 @@ namespace Chatbot.API.Services
                                 ConversationId = conversationId,
                                 UsedAI = false,
                                 UsedTool = consultationResponse.ToolName,
+                                Products = consultationResponse.Products,
                                 ElapsedMs = stopwatch.ElapsedMilliseconds
                             };
                         }
@@ -293,8 +343,8 @@ namespace Chatbot.API.Services
 
                 string? ragContext = null;
 
-                bool useTool = ShouldUseTool(normalizedMessage) || ShouldUseToolAndRag(normalizedMessage);
-                bool useRag = ShouldUseRag(normalizedMessage) || ShouldUseToolAndRag(normalizedMessage);
+                bool useTool = ShouldUseTool(normalizedMessage) || ShouldUseToolAndRag(normalizedMessage) || routing.ShouldUseDeterministicFlow;
+                bool useRag = ShouldUseRag(normalizedMessage) || ShouldUseToolAndRag(normalizedMessage) || routing.ShouldUseRag;
 
                 if (useRag)
                 {
@@ -330,6 +380,15 @@ namespace Chatbot.API.Services
                         _conversationPreferenceService.BuildProfileSummary(conversationProfile));
                 }
 
+                _logger.LogInformation(
+                    "Preparing AI context. ConversationId: {ConversationId}, IntentType: {IntentType}, ParsedRoute: {ParsedRoute}, RoutedFlow: {RoutedFlow}, useTool: {UseTool}, useRag: {UseRag}",
+                    conversationId,
+                    parsedIntent.IntentType,
+                    parsedIntent.RouteFlow,
+                    routing.FlowType,
+                    useTool,
+                    useRag);
+
                 var aiContext = new AIRequestContext
                 {
                     ConversationId = conversationId,
@@ -349,6 +408,15 @@ namespace Chatbot.API.Services
                     aiResult.Reply = BuildRagOnlyReply(ragContext);
                     aiResult.Success = true;
                     aiResult.UsedAI = false;
+                    aiResult.ErrorMessage = null;
+                }
+
+                if (!aiResult.Success || string.IsNullOrWhiteSpace(aiResult.Reply))
+                {
+                    aiResult.Reply = BuildAiFailureFallbackReply(normalizedMessage, routing, parsedIntent);
+                    aiResult.Success = true;
+                    aiResult.UsedAI = false;
+                    aiResult.ErrorMessage = null;
                 }
 
                 aiResult.ConversationId = conversationId;
@@ -375,6 +443,118 @@ namespace Chatbot.API.Services
                     ElapsedMs = stopwatch.ElapsedMilliseconds
                 };
             }
+        }
+        private static bool ShouldResetContextForFreshConsultation(
+    string message,
+    ParsedIntent parsedIntent,
+    CustomerPreferenceProfile existingProfile)
+        {
+            if (existingProfile == null)
+                return false;
+
+            bool hasOldContext =
+                existingProfile.TurnCount > 0 ||
+                existingProfile.HasActiveRecommendationContext ||
+                !string.IsNullOrWhiteSpace(existingProfile.PreferredBrand) ||
+                !string.IsNullOrWhiteSpace(existingProfile.PreferredCategory) ||
+                existingProfile.TargetPrice.HasValue ||
+                existingProfile.PriceMin.HasValue ||
+                existingProfile.PriceMax.HasValue ||
+                existingProfile.HeightCm.HasValue;
+
+            if (!hasOldContext)
+                return false;
+
+            var text = (message ?? string.Empty).Trim().ToLowerInvariant();
+
+            bool looksLikeFollowUp =
+                IsFollowUpPreferenceFragment(text) ||
+                text.StartsWith("còn ") ||
+                text.StartsWith("không thích ") ||
+                text.StartsWith("không muốn ") ||
+                text.StartsWith("ưu tiên ") ||
+                text.StartsWith("né ") ||
+                text.StartsWith("con nào ") ||
+                parsedIntent.IntentType == "followup" ||
+                parsedIntent.IntentType == "refine" ||
+                parsedIntent.IntentType == "compare";
+
+            if (looksLikeFollowUp)
+                return false;
+
+            bool looksLikeFreshStandalone =
+                text.StartsWith("tư vấn") ||
+                text.StartsWith("xe ") ||
+                text.StartsWith("mình ") ||
+                text.StartsWith("cho mình ") ||
+                text.StartsWith("tôi ") ||
+                parsedIntent.TargetPrice.HasValue ||
+                parsedIntent.PriceMin.HasValue ||
+                parsedIntent.PriceMax.HasValue ||
+                parsedIntent.HeightCm.HasValue ||
+                !string.IsNullOrWhiteSpace(parsedIntent.Target) ||
+                !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
+                !string.IsNullOrWhiteSpace(parsedIntent.Category);
+
+            return looksLikeFreshStandalone;
+        }
+
+        private static string BuildAiFailureFallbackReply(
+            string normalizedMessage,
+            FlowRoutingResult routing,
+            ParsedIntent parsedIntent)
+        {
+            if (routing.FlowType == ChatFlowType.Greeting)
+            {
+                return "Chào bạn, mình là trợ lý tư vấn xe máy của WebBanXeMay. Bạn muốn xem giá, kiểm tra tồn kho hay cần mình gợi ý mẫu xe phù hợp?";
+            }
+
+            if (routing.FlowType == ChatFlowType.OutOfScope)
+            {
+                return "Mình hiện chỉ hỗ trợ các nội dung về xe máy, sản phẩm và đơn hàng trên WebBanXeMay. Bạn có thể hỏi mình về giá, tồn kho hoặc mẫu xe phù hợp nhé.";
+            }
+
+            if (parsedIntent.IsOrderLookup || IsOrderLookupIntent(normalizedMessage))
+            {
+                return "Để mình kiểm tra đơn hàng giúp bạn, bạn vui lòng gửi mã đơn và số điện thoại đặt hàng nhé.";
+            }
+
+            if (IsConsultationIntent(normalizedMessage)
+                || routing.FlowType == ChatFlowType.Recommendation
+                || routing.FlowType == ChatFlowType.BrandSwitch
+                || routing.FlowType == ChatFlowType.Refinement
+                || routing.FlowType == ChatFlowType.RecommendationFollowUp)
+            {
+                if (!string.IsNullOrWhiteSpace(parsedIntent.Brand))
+                {
+                    return $"Mình vẫn có thể tư vấn xe {parsedIntent.Brand} cho bạn. Bạn cho mình thêm 1 tiêu chí ngắn như tầm giá hoặc nhu cầu đi học/đi làm, mình sẽ lọc sát hơn ngay.";
+                }
+
+                return "Mình vẫn có thể tư vấn mẫu xe phù hợp cho bạn. Bạn cho mình thêm 1 tiêu chí ngắn như hãng muốn ưu tiên, tầm giá hoặc nhu cầu sử dụng để mình gợi ý sát hơn nhé.";
+            }
+
+            if (parsedIntent.IsDirectProductLookup || parsedIntent.IsProductSearch || LooksLikeToolQuery(normalizedMessage))
+            {
+                return "Mình vẫn có thể hỗ trợ tra dữ liệu sản phẩm. Bạn thử gửi câu ngắn như: giá Vision bao nhiêu, tồn kho Wave còn không, hoặc Honda dưới 40 triệu nhé.";
+            }
+
+            return "Mình vẫn đang sẵn sàng hỗ trợ. Bạn có thể hỏi về giá xe, tồn kho, tư vấn mẫu phù hợp hoặc tra cứu đơn hàng nhé.";
+        }
+
+        private static bool LooksLikeToolQuery(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return false;
+
+            var text = message.ToLowerInvariant();
+
+            string[] toolKeywords =
+            {
+                "giá", "còn hàng", "tồn kho", "có sẵn", "bao nhiêu",
+                "dưới", "trên", "tầm", "khoảng", "quanh", "triệu"
+            };
+
+            return toolKeywords.Any(k => text.Contains(k));
         }
 
         private static string BuildRagOnlyReply(string ragContext)
@@ -403,6 +583,10 @@ namespace Chatbot.API.Services
                     ? ResolveCategoryForToolFiltering(normalizedMessage, parsedIntent)
                     : conversationProfile.PreferredCategory;
 
+                var effectiveBrand = !string.IsNullOrWhiteSpace(parsedIntent.Brand)
+                    ? parsedIntent.Brand
+                    : conversationProfile.PreferredBrand;
+
                 decimal? toolMinPrice = parsedIntent.PriceMin ?? conversationProfile.PriceMin;
                 decimal? toolMaxPrice = parsedIntent.PriceMax ?? conversationProfile.PriceMax;
 
@@ -414,12 +598,42 @@ namespace Chatbot.API.Services
                     toolMaxPrice = target + 10_000_000m;
                 }
 
-                var toolResult = await _toolClient.GetProductsByFiltersAsync(
-                    brand: parsedIntent.Brand ?? conversationProfile.PreferredBrand,
-                    minPrice: toolMinPrice,
-                    maxPrice: toolMaxPrice,
-                    category: categoryForTool,
-                    take: take);
+                var selectedToolName = ToolNames.GetProductsByFilters;
+                // If user mentioned a specific product, prefer searching by keyword
+                ProductSearchResponseDto? toolResult = null;
+
+                if (parsedIntent.MentionedProducts != null && parsedIntent.MentionedProducts.Count > 0)
+                {
+                    var keyword = parsedIntent.MentionedProducts.First();
+                    _logger.LogInformation("Tool-first consultation: searching by product keyword. ConversationId: {ConversationId}, Keyword: {Keyword}", conversationId, keyword);
+                    toolResult = await _toolClient.SearchProductsAsync(keyword, take);
+                    selectedToolName = ToolNames.SearchProducts;
+                    if (toolResult == null || toolResult.Items == null || !toolResult.Items.Any())
+                    {
+                        _logger.LogInformation("SearchProducts returned no data, falling back to filters. ConversationId: {ConversationId}, Keyword: {Keyword}", conversationId, keyword);
+                    }
+                }
+
+                // If no product-specific results, and there is price filter, call price-range API for better performance
+                if ((toolResult == null || toolResult.Items == null || !toolResult.Items.Any())
+                    && (toolMinPrice.HasValue || toolMaxPrice.HasValue)
+                    && string.IsNullOrWhiteSpace(effectiveBrand))
+                {
+                    _logger.LogInformation("Tool-first consultation: using price-range API. ConversationId: {ConversationId}, Min: {Min}, Max: {Max}", conversationId, toolMinPrice, toolMaxPrice);
+                    toolResult = await _toolClient.GetProductsByPriceRangeAsync(toolMinPrice, toolMaxPrice, take);
+                    selectedToolName = ToolNames.GetProductsByPriceRange;
+                }
+
+                if (toolResult == null || toolResult.Items == null || !toolResult.Items.Any())
+                {
+                    toolResult = await _toolClient.GetProductsByFiltersAsync(
+                        brand: effectiveBrand,
+                        minPrice: toolMinPrice,
+                        maxPrice: toolMaxPrice,
+                        category: categoryForTool,
+                        take: take);
+                    selectedToolName = ToolNames.GetProductsByFilters;
+                }
 
                 if ((toolResult == null || toolResult.Items == null || !toolResult.Items.Any()) && !string.IsNullOrWhiteSpace(categoryForTool))
                 {
@@ -429,7 +643,7 @@ namespace Chatbot.API.Services
                         categoryForTool);
 
                     toolResult = await _toolClient.GetProductsByFiltersAsync(
-                        brand: parsedIntent.Brand ?? conversationProfile.PreferredBrand,
+                        brand: effectiveBrand,
                         minPrice: toolMinPrice,
                         maxPrice: toolMaxPrice,
                         category: null,
@@ -457,7 +671,7 @@ namespace Chatbot.API.Services
                 if ((rankedItems == null || rankedItems.Count == 0) && !string.IsNullOrWhiteSpace(categoryForTool))
                 {
                     var relaxedToolResult = await _toolClient.GetProductsByFiltersAsync(
-                        brand: parsedIntent.Brand ?? conversationProfile.PreferredBrand,
+                        brand: effectiveBrand,
                         minPrice: toolMinPrice,
                         maxPrice: toolMaxPrice,
                         category: null,
@@ -537,9 +751,10 @@ namespace Chatbot.API.Services
 
                 return new ToolFirstConsultationResult
                 {
-                    ToolName = ToolNames.GetProductsByFilters,
+                    ToolName = selectedToolName,
                     EffectivePrompt = effectivePrompt,
-                    Reply = deterministicReply
+                    Reply = deterministicReply,
+                    Products = BuildProductCardsForResponse(rankedItems, normalizedMessage)
                 };
             }
             catch (Exception ex)
@@ -798,6 +1013,23 @@ namespace Chatbot.API.Services
             return text is "?" or "sao" or "gì" or "hả" or "ừm";
         }
 
+        private static bool IsBotIdentityQuestion(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return false;
+
+            var text = message.Trim().ToLowerInvariant();
+
+            return text.Contains("bạn tên gì")
+                || text.Contains("ban ten gi")
+                || text.Contains("tên bạn là gì")
+                || text.Contains("ten ban la gi")
+                || text.Contains("bạn là ai")
+                || text.Contains("ban la ai")
+                || text.Contains("ai vậy")
+                || text.Contains("ai vay");
+        }
+
         private static bool IsConsultationIntent(string message)
         {
             if (string.IsNullOrWhiteSpace(message))
@@ -979,49 +1211,36 @@ namespace Chatbot.API.Services
         {
             // If message contains price/realtime keywords, use tool
             var checkText = message?.ToLowerInvariant() ?? string.Empty;
-            string[] toolKeywords = { "giá", "còn hàng", "tồn kho", "có sẵn", "bao nhiêu", "mua", "dưới", "trên", "tầm", "khoảng", "quanh", "triệu" };
+            string[] toolKeywords = { "giá", "còn hàng", "tồn kho", "có sẵn", "bao nhiêu", "dưới", "trên", "tầm", "khoảng", "quanh", "triệu" };
             if (toolKeywords.Any(k => checkText.Contains(k)))
                 return true;
 
             var safeMessage = message ?? string.Empty;
             var text = safeMessage.ToLowerInvariant();
 
-            bool currentMessageLooksLikeConsultation =
-    IsConsultationIntent(safeMessage)
-    || IsFollowUpPreferenceFragment(text)
-    || text.Contains("không thích")
-    || text.Contains("khong thich")
-    || text.Contains("không muốn")
-    || text.Contains("khong muon")
-    || text.Contains("ghét")
-    || text.Contains("ghet")
-    || text.Contains("né")
-    || text.Contains("ne ")
-    || text.Contains("cốp rộng")
-    || text.Contains("cop rong")
-    || text.Contains("dễ đi")
-    || text.Contains("de di")
-    || text.Contains("dễ chống chân")
-    || text.Contains("de chong chan")
-    || text.Contains("yên thấp")
-    || text.Contains("yen thap")
-    || Regex.IsMatch(text, @"\b1m\d{1,2}\b", RegexOptions.IgnoreCase)
-    || Regex.IsMatch(text, @"\bm\d{2}\b", RegexOptions.IgnoreCase)
-    || Regex.IsMatch(text, @"\b\d{3}\s*cm\b", RegexOptions.IgnoreCase)
-    || text.Contains("người thấp")
-    || text.Contains("nguoi thap")
-    || text.Contains("nhỏ con")
-    || text.Contains("nho con")
-    || text.Contains("còn honda thì sao")
-    || text.Contains("còn yamaha thì sao")
-    || text.Contains("còn suzuki thì sao")
-    || text.Contains("còn piaggio thì sao")
-    || text.StartsWith("còn ")
-    || text.Contains("ưu tiên")
-    || text.Contains("đi làm")
-    || text.Contains("di lam")
-    || text.Contains("đi học")
-    || text.Contains("di hoc");
+                bool currentMessageLooksLikeConsultation =
+            IsConsultationIntent(safeMessage)
+            || IsFollowUpPreferenceFragment(text)
+            || text.Contains("không thích")
+            || text.Contains("khong thich")
+            || text.Contains("không muốn")
+            || text.Contains("khong muon")
+            || text.Contains("ghét")
+            || text.Contains("ghet")
+            || text.Contains("né")
+            || text.Contains("ne ")
+            || text.Contains("cốp rộng")
+            || text.Contains("cop rong")
+            || text.Contains("dễ chống chân")
+            || text.Contains("de chong chan")
+            || text.Contains("yên thấp")
+            || text.Contains("yen thap")
+            || text.StartsWith("còn ")
+            || text.Contains("ưu tiên")
+            || text.Contains("đi làm")
+            || text.Contains("di lam")
+            || text.Contains("đi học")
+            || text.Contains("di hoc");
 
             bool hasCurrentSignals =
                 !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
@@ -1415,7 +1634,7 @@ namespace Chatbot.API.Services
 
             string[] toolKeywords =
             {
-                "giá", "còn hàng", "tồn kho", "có sẵn", "bao nhiêu", "mua",
+                "giá", "còn hàng", "tồn kho", "có sẵn", "bao nhiêu",
                 "dưới", "trên", "tầm", "khoảng", "quanh", "triệu"
             };
 
@@ -2114,6 +2333,7 @@ namespace Chatbot.API.Services
             public string ToolName { get; set; } = ToolNames.GetProductsByFilters;
             public string EffectivePrompt { get; set; } = string.Empty;
             public string? Reply { get; set; }
+            public List<ChatProductCard>? Products { get; set; }
         }
     //    private static string? BuildConsultationConclusion(
     //IReadOnlyList<ProductSummaryDto> items,
@@ -2181,6 +2401,35 @@ namespace Chatbot.API.Services
                 return $"Trong tầm giá này, mình thấy có {count} mẫu khá ổn để bạn cân nhắc:";
 
             return $"Mình gợi ý bạn {count} mẫu để tham khảo:";
+        }
+
+        private static List<ChatProductCard>? BuildProductCardsForResponse(
+            IReadOnlyList<ProductSummaryDto> items,
+            string normalizedMessage)
+        {
+            if (items == null || items.Count == 0)
+            {
+                return null;
+            }
+
+            var text = (normalizedMessage ?? string.Empty).ToLowerInvariant();
+            var maxItems = IsOpenConsultationQuery(text) ? 4 : 3;
+
+            return items
+                .Take(Math.Min(maxItems, items.Count))
+                .Select(item => new ChatProductCard
+                {
+                    Id = item.Id,
+                    Ten = item.Ten,
+                    Slug = item.Slug,
+                    Gia = item.Gia,
+                    SoLuong = item.SoLuong,
+                    CC = item.CC?.ToString(CultureInfo.InvariantCulture),
+                    ImageUrl = item.ImageUrl,
+                    ThuongHieu = item.ThuongHieu,
+                    Loai = item.Loai
+                })
+                .ToList();
         }
         private static string? BuildSoftSuggestion(
     IReadOnlyList<ProductSummaryDto> items,

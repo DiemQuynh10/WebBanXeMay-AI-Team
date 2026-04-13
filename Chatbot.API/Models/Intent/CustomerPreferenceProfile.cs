@@ -39,10 +39,21 @@
         public List<int> LastRecommendedProductIds { get; set; } = new();
 
         public bool HasActiveRecommendationContext { get; set; }
+        public bool HasActiveCompareContext { get; set; }
 
-        public string? LastAnswerMode { get; set; } // fresh_consultation, followup, refine, compare
-
+        public string? LastAnswerMode { get; set; } 
         public string? LastComparisonFeature { get; set; }
+
+        public string? ActiveFlow { get; set; } 
+
+        public string? LastLookupProductName { get; set; }
+        public int? LastLookupProductId { get; set; }
+
+        public List<string> LastSearchProductNames { get; set; } = new();
+        public List<int> LastSearchProductIds { get; set; } = new();
+
+        public string? LastResolvedBrandSwitchFrom { get; set; }
+        public string? LastResolvedBrandSwitchTo { get; set; }
 
         public int TurnCount { get; set; }
 

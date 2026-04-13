@@ -6,6 +6,7 @@ Tối ưu cho bài toán tư vấn xe máy theo nhu cầu và so sánh giữa c�
 
 import os
 import re
+import unicodedata
 from pathlib import Path
 from typing import List, Dict, Any
 from openai import OpenAI
@@ -54,7 +55,21 @@ def _get_collection():
 # HELPERS
 # -------------------------------------------------------
 def _normalize_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text.strip().lower())
+    normalized = unicodedata.normalize("NFD", text or "")
+    without_diacritics = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    lowered = without_diacritics.replace("đ", "d").replace("Đ", "D").lower()
+    return re.sub(r"\s+", " ", lowered.strip())
+
+
+def _extract_query_keywords(query: str) -> List[str]:
+    stopwords = {
+        "xe", "la", "hay", "cho", "toi", "minh", "ban", "giup", "voi", "nao",
+        "co", "khong", "duoc", "nen", "mua", "tu", "den", "tam", "khoang", "quanh",
+        "di", "hoc", "lam", "de", "va", "hoac", "nhung", "nhung"
+    }
+
+    words = re.findall(r"[a-z0-9]{2,}", _normalize_text(query))
+    return [w for w in words if w not in stopwords]
 
 
 def _extract_product_name(block: str) -> str | None:
@@ -250,109 +265,146 @@ def build_index(force: bool = False):
 # QUERY ENRICHMENT
 # -------------------------------------------------------
 def _extract_product_names_from_query(query: str) -> List[str]:
-    known_names = [
-        "Honda Vision", "Honda Air Blade", "Honda PCX", "Honda SH 150i", "Honda Future", "Honda Wave",
-        "Yamaha Freego", "Yamaha Latte", "Yamaha Grande", "Yamaha Jupiter", "Yamaha Sirius", "Yamaha Exciter",
-        "Piaggio Zip 100", "Piaggio Liberty 125", "Piaggio Medley 150", "Piaggio Vespa LX",
-        "Suzuki Address 110", "Suzuki Burgman 125", "Suzuki Impulse 125", "Suzuki Axelo 125",
-        "SYM Shark Mini", "SYM Attila Venus", "SYM Elegant 110"
-    ]
+    alias_to_product = {
+        "honda vision": "Honda Vision",
+        "honda air blade": "Honda Air Blade",
+        "honda pcx": "Honda PCX",
+        "honda sh": "Honda SH 150i",
+        "sh 150i": "Honda SH 150i",
+        "sh150i": "Honda SH 150i",
+        "honda future": "Honda Future",
+        "honda wave": "Honda Wave",
+        "yamaha freego": "Yamaha Freego",
+        "yamaha latte": "Yamaha Latte",
+        "yamaha grande": "Yamaha Grande",
+        "yamaha jupiter": "Yamaha Jupiter",
+        "yamaha sirius": "Yamaha Sirius",
+        "yamaha exciter": "Yamaha Exciter",
+        "piaggio zip 100": "Piaggio Zip 100",
+        "piaggio liberty 125": "Piaggio Liberty 125",
+        "piaggio medley 150": "Piaggio Medley 150",
+        "piaggio vespa lx": "Piaggio Vespa LX",
+        "suzuki address 110": "Suzuki Address 110",
+        "suzuki burgman 125": "Suzuki Burgman 125",
+        "suzuki impulse 125": "Suzuki Impulse 125",
+        "suzuki axelo 125": "Suzuki Axelo 125",
+        "sym shark mini": "SYM Shark Mini",
+        "sym attila venus": "SYM Attila Venus",
+        "sym elegant 110": "SYM Elegant 110",
+    }
 
-    lower_query = query.lower()
-    matched = [name for name in known_names if name.lower() in lower_query]
-    return matched
+    normalized_query = _normalize_text(query)
+    matched: List[str] = []
+    for alias, product in alias_to_product.items():
+        if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized_query):
+            matched.append(product)
+
+    return list(dict.fromkeys(matched))
 
 
 def _build_query_variants(query: str) -> List[str]:
     variants = [query.strip()]
-    lower = query.lower()
+    lower = _normalize_text(query)
 
-    if "tư vấn" in lower or "phù hợp" in lower:
+    if any(k in lower for k in ["tu van", "phu hop", "goi y", "nen mua"]):
         variants.append(query + " điểm mạnh riêng từng mẫu xe, trường hợp nên chọn")
 
-    if any(k in lower for k in ["dưới m", "1m", "cm", "dễ chống chân", "người thấp", "nhỏ con"]):
+    if any(k in lower for k in ["duoi m", "1m", "cm", "de chong chan", "nguoi thap", "nho con"]):
         variants.append(query + " xe nào dễ chống chân, gọn, yên thấp")
 
-    if "cốp rộng" in lower:
+    if "cop rong" in lower:
         variants.append(query + " mẫu nào cốp rộng, tiện mang đồ, thực dụng")
 
-    if "đi làm" in lower:
+    if "di lam" in lower:
         variants.append(query + " mẫu nào hợp đi làm hằng ngày, thực dụng, linh hoạt đi phố")
 
-    if "sinh viên" in lower:
+    if "sinh vien" in lower:
         variants.append(query + " mẫu nào hợp sinh viên, giá hợp lý, dễ dùng, tiết kiệm")
 
     return list(dict.fromkeys(variants))
 
 
 def _extract_intent_tags(query: str) -> List[str]:
-    lower = query.lower()
+    lower = _normalize_text(query)
     tags: List[str] = []
 
-    if "sinh viên" in lower:
+    if "sinh vien" in lower:
         tags.append("student")
-    if "đi học" in lower:
+    if "di hoc" in lower:
         tags.append("school")
-    if "đi làm" in lower:
+    if "di lam" in lower:
         tags.append("work")
-    if "cốp rộng" in lower:
+    if "cop rong" in lower:
         tags.append("storage")
-    if any(k in lower for k in ["dưới m", "1m", "cm", "dễ chống chân", "người thấp", "nhỏ con"]):
+    if any(k in lower for k in ["duoi m", "1m", "cm", "de chong chan", "nguoi thap", "nho con"]):
         tags.append("low_seat")
-    if "nữ" in lower:
+    if "nu" in lower:
         tags.append("female")
     if "nam" in lower:
         tags.append("male")
-    if "xe ga" in lower:
+    if "xe ga" in lower or "tay ga" in lower:
         tags.append("scooter")
-    if "xe số" in lower:
+    if "xe so" in lower:
         tags.append("underbone")
-    if "côn tay" in lower:
+    if "con tay" in lower:
         tags.append("manual")
-    if "tiết kiệm xăng" in lower:
+    if "tiet kiem xang" in lower:
         tags.append("fuel_saving")
 
     return tags
 
 
 def _score_doc_by_intent(doc: str, tags: List[str]) -> float:
-    lower = doc.lower()
+    lower = _normalize_text(doc)
     bonus = 0.0
 
-    if "student" in tags and any(k in lower for k in ["sinh viên", "đi học", "học sinh"]):
+    if "student" in tags and any(k in lower for k in ["sinh vien", "di hoc", "hoc sinh"]):
         bonus += 0.08
 
-    if "school" in tags and "đi học" in lower:
+    if "school" in tags and "di hoc" in lower:
         bonus += 0.06
 
-    if "work" in tags and "đi làm" in lower:
+    if "work" in tags and "di lam" in lower:
         bonus += 0.08
 
-    if "storage" in tags and any(k in lower for k in ["cốp rộng", "mang đồ", "tiện ích"]):
+    if "storage" in tags and any(k in lower for k in ["cop rong", "mang do", "tien ich"]):
         bonus += 0.10
 
-    if "low_seat" in tags and any(k in lower for k in ["yên thấp", "dễ chống chân", "nhỏ gọn", "người thấp", "nhỏ con"]):
+    if "low_seat" in tags and any(k in lower for k in ["yen thap", "de chong chan", "nho gon", "nguoi thap", "nho con"]):
         bonus += 0.12
 
-    if "female" in tags and any(k in lower for k in ["nữ", "dáng mềm", "nữ tính"]):
+    if "female" in tags and any(k in lower for k in ["nu", "dang mem", "nu tinh"]):
         bonus += 0.06
 
-    if "male" in tags and any(k in lower for k in ["nam", "mạnh mẽ", "thể thao"]):
+    if "male" in tags and any(k in lower for k in ["nam", "manh me", "the thao"]):
         bonus += 0.06
 
-    if "fuel_saving" in tags and any(k in lower for k in ["tiết kiệm", "ít hao", "chi phí"]):
+    if "fuel_saving" in tags and any(k in lower for k in ["tiet kiem", "it hao", "chi phi"]):
         bonus += 0.06
 
     if "scooter" in tags and any(k in lower for k in ["tay ga", "xe ga"]):
         bonus += 0.04
 
-    if "underbone" in tags and "xe số" in lower:
+    if "underbone" in tags and "xe so" in lower:
         bonus += 0.04
 
-    if "manual" in tags and "côn tay" in lower:
+    if "manual" in tags and "con tay" in lower:
         bonus += 0.04
 
     return bonus
+
+
+def _score_doc_by_keyword_overlap(doc: str, keywords: List[str]) -> float:
+    if not keywords:
+        return 0.0
+
+    normalized_doc = _normalize_text(doc)
+    matched = sum(1 for k in keywords if k in normalized_doc)
+    if matched == 0:
+        return 0.0
+
+    overlap = matched / max(1, len(keywords))
+    return min(0.18, overlap * 0.18)
 
 
 # -------------------------------------------------------
@@ -360,13 +412,19 @@ def _score_doc_by_intent(doc: str, tags: List[str]) -> float:
 # -------------------------------------------------------
 def search(query: str, top_k: int = TOP_K):
     collection = _get_collection()
+    top_k = max(1, int(top_k))
 
     if collection.count() == 0:
         build_index()
 
+    count = collection.count()
+    if count == 0:
+        return "(Không tìm thấy dữ liệu)"
+
     variants = _build_query_variants(query)
     product_names = _extract_product_names_from_query(query)
     intent_tags = _extract_intent_tags(query)
+    query_keywords = _extract_query_keywords(query)
 
     scored_docs: Dict[str, Dict[str, Any]] = {}
 
@@ -375,7 +433,7 @@ def search(query: str, top_k: int = TOP_K):
 
         results = collection.query(
             query_embeddings=[query_embedding],
-            n_results=min(max(top_k * 2, 8), collection.count()),
+            n_results=min(max(top_k * 3, 10), count),
             include=["documents", "distances", "metadatas"]
         )
 
@@ -404,13 +462,14 @@ def search(query: str, top_k: int = TOP_K):
                 score += 0.18
 
             # Nếu query thiên về tư vấn, ưu tiên chunk có "Gợi ý tư vấn"
-            if "gợi ý tư vấn" in doc.lower():
+            if "goi y tu van" in _normalize_text(doc):
                 score += 0.06
 
             # Ưu tiên theo intent tags
             score += _score_doc_by_intent(doc, intent_tags)
+            score += _score_doc_by_keyword_overlap(doc, query_keywords)
 
-            key = doc.strip()
+            key = _normalize_text(doc.strip())
             if key not in scored_docs or score > scored_docs[key]["score"]:
                 scored_docs[key] = {
                     "score": score,
@@ -435,6 +494,9 @@ def search(query: str, top_k: int = TOP_K):
         "comparison": 1,
         "advisory": 2,
         "general_advisory": 1,
+        "manual_section": 1,
+        "scooter_section": 1,
+        "underbone_section": 1,
         "product": max(1, top_k)
     }
     section_counts: Dict[str, int] = {}

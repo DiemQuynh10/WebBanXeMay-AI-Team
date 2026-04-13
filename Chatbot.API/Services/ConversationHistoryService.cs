@@ -77,7 +77,7 @@ namespace Chatbot.API.Services
             _db.ConversationMessages.Add(new ConversationMessageEntity
             {
                 ConversationSessionId = session.Id,
-                Role = "bot",
+                Role = "assistant",
                 Content = botReply,
                 CreatedAtUtc = DateTime.UtcNow
             });

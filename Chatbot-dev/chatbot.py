@@ -1,6 +1,6 @@
 import logging
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import rag
 
@@ -14,7 +14,7 @@ app = FastAPI(title="RAG Service", version="1.0.0")
 
 class RagQueryRequest(BaseModel):
     query: str
-    top_k: int = 4
+    top_k: int = Field(default=4, ge=1, le=8)
 
 
 class RagQueryResponse(BaseModel):
@@ -70,7 +70,7 @@ def rag_query(request: RagQueryRequest):
         raise HTTPException(status_code=400, detail="Query không được để trống")
 
     try:
-        context = rag.search(query, top_k=request.top_k)
+        context = rag.search(query, top_k=int(request.top_k))
 
         if not context or context.strip() == "":
             return RagQueryResponse(

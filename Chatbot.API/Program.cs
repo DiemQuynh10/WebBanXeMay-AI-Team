@@ -96,6 +96,7 @@ builder.Services.AddScoped<IToolDispatcher, ToolDispatcher>();
 builder.Services.AddScoped<IToolDefinitionProvider, ToolDefinitionProvider>();
 builder.Services.AddScoped<IPriceIntentParser, PriceIntentParser>();
 builder.Services.AddScoped<IIntentParserService, IntentParserService>();
+builder.Services.AddScoped<IChatFlowRouter, ChatFlowRouter>();
 builder.Services.AddScoped<IProductRecommendationService, ProductRecommendationService>();
 builder.Services.AddScoped<ICompareService, CompareService>();
 builder.Services.AddScoped<IRecommendationFollowUpService, RecommendationFollowUpService>();

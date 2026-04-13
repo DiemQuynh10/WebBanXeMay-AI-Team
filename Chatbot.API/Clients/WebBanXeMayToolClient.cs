@@ -33,6 +33,11 @@ namespace Chatbot.API.Clients
                 _httpClient.DefaultRequestHeaders.Add("X-Tool-Api-Key", _options.ApiKey);
             }
 
+            if (string.IsNullOrWhiteSpace(_options.ApiKey))
+            {
+                _logger.LogWarning("Tool API client initialized without an API key; Tool API may reject requests.");
+            }
+
             if (!_httpClient.DefaultRequestHeaders.Accept.Any(h => h.MediaType == "application/json"))
             {
                 _httpClient.DefaultRequestHeaders.Accept.Add(

@@ -6,6 +6,8 @@ using Chatbot.API.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Chatbot.API.Models.Responses;
 using System.Text.Json;
+using System.Collections.Concurrent;
+using System.Net;
 using Microsoft.Extensions.Options;
 
 namespace Chatbot.API.Controllers
@@ -16,30 +18,36 @@ namespace Chatbot.API.Controllers
     {
         private readonly IChatService _chatService;
         private readonly ITelegramService _telegramService;
+        private readonly IConversationHistoryService _historyService;
         private readonly TelegramSettings _telegramSettings;
-        private static readonly HashSet<long> ProcessedUpdateIds = new();
+        private readonly ILogger<TelegramWebhookController> _logger;
+        private static readonly ConcurrentDictionary<long, byte> ProcessedUpdateIds = new();
 
         public TelegramWebhookController(
     IChatService chatService,
     ITelegramService telegramService,
+    IConversationHistoryService historyService,
+    ILogger<TelegramWebhookController> logger,
     IOptions<TelegramSettings> telegramSettings)
         {
             _chatService = chatService;
             _telegramService = telegramService;
+            _historyService = historyService;
+            _logger = logger;
             _telegramSettings = telegramSettings.Value;
         }
 
         [HttpPost("webhook")]
         public async Task<IActionResult> ReceiveUpdate([FromBody] TelegramUpdate update)
         {
-            Console.WriteLine("=== TELEGRAM WEBHOOK HIT ===");
-            Console.WriteLine(JsonSerializer.Serialize(update));
+            _logger.LogInformation("Telegram webhook hit. UpdateId: {UpdateId}", update?.UpdateId);
 
             var secretHeader = Request.Headers["X-Telegram-Bot-Api-Secret-Token"].FirstOrDefault();
 
-            if (string.IsNullOrWhiteSpace(secretHeader) || secretHeader != _telegramSettings.SecretToken)
+            if (!string.IsNullOrWhiteSpace(_telegramSettings.SecretToken)
+                && !string.Equals(secretHeader, _telegramSettings.SecretToken, StringComparison.Ordinal))
             {
-                Console.WriteLine("Unauthorized: secret token mismatch");
+                _logger.LogWarning("Telegram webhook unauthorized due to secret token mismatch.");
                 return Unauthorized();
             }
 
@@ -48,12 +56,11 @@ namespace Chatbot.API.Controllers
                 return Ok(new { success = false, step = "invalid update" });
             }
 
-            if (ProcessedUpdateIds.Contains(update.UpdateId))
+            if (!TryMarkUpdateAsProcessed(update.UpdateId))
             {
+                _logger.LogInformation("Telegram duplicated update ignored. UpdateId: {UpdateId}", update.UpdateId);
                 return Ok(new { success = true, duplicated = true });
             }
-
-            ProcessedUpdateIds.Add(update.UpdateId);
 
             var chatId = update.Message.Chat.Id;
             var messageText = update.Message.Text?.Trim();
@@ -66,64 +73,35 @@ namespace Chatbot.API.Controllers
                         chatId,
                         "Hiện tại mình mới hỗ trợ tin nhắn văn bản để tư vấn xe máy nhé.",
                         TelegramKeyboardFactory.MainMenu());
+
+                    _logger.LogInformation("Telegram non-text message handled. ChatId: {ChatId}", chatId);
                     return Ok(new { success = true });
                 }
 
-                if (messageText.Equals("/start", StringComparison.OrdinalIgnoreCase))
-                {
-                    var welcome = """
-Xin chào 👋
-Mình là bot hỗ trợ tư vấn xe máy.
-
-Mình có thể giúp bạn:
-- Tư vấn chọn xe theo nhu cầu
-- Gợi ý xe theo ngân sách
-- Tra cứu giá xe
-- Kiểm tra mẫu phù hợp
-
-Bạn có thể chọn nhanh bằng menu bên dưới hoặc nhắn tự nhiên như:
-- xe ga cho sinh viên
-- xe cho nữ dưới 40 triệu
-- air blade giá bao nhiêu
-""";
-
-                    await _telegramService.SendMessageAsync(
-     chatId,
-     welcome,
-     TelegramKeyboardFactory.MainMenu()
- );
-
-                    return Ok(new { success = true });
-                }
-
-                if (messageText.Equals("/help", StringComparison.OrdinalIgnoreCase))
-                {
-                    var help = """
-Bạn có thể hỏi mình theo các cách sau:
-
-- Tư vấn xe cho nữ tầm 35 triệu
-- Xe ga nào hợp đi học
-- Honda Vision giá bao nhiêu
-- Xe nào phù hợp đi làm
-- So sánh Vision và Janus
-
-Gõ /menu để hiện lại menu nhanh.
-""";
-
-                    await _telegramService.SendMessageAsync(chatId, help, TelegramKeyboardFactory.MainMenu());
-                    return Ok(new { success = true });
-                }
-
-                if (messageText.Equals("/menu", StringComparison.OrdinalIgnoreCase))
+                if (ChatChannelMessageHelper.TryGetStaticCommandReply(messageText, out var staticReply))
                 {
                     await _telegramService.SendMessageAsync(
                         chatId,
-                        "Đây là menu nhanh, bạn chọn nội dung muốn tra cứu nhé.",
+                        staticReply,
                         TelegramKeyboardFactory.MainMenu());
+
+                    await SaveExchangeIfNeededAsync(
+                        $"telegram_{chatId}",
+                        chatId.ToString(),
+                        messageText,
+                        ChatChannelMessageHelper.FormatReply(
+                            staticReply,
+                            "Mình chưa có câu trả lời phù hợp. Bạn thử nói rõ hơn nhu cầu như ngân sách, giới tính hoặc loại xe nhé."));
+
+                    _logger.LogInformation(
+                        "Telegram static command handled. ChatId: {ChatId}, Message: {Message}",
+                        chatId,
+                        messageText);
+
                     return Ok(new { success = true });
                 }
 
-                messageText = NormalizeQuickMenu(messageText);
+                messageText = ChatChannelMessageHelper.NormalizeQuickMenuInput(messageText);
 
                 await _telegramService.SendTypingAsync(chatId);
 
@@ -139,9 +117,9 @@ Gõ /menu để hiện lại menu nhanh.
 
                 var chatResult = await _chatService.ProcessMessageAsync(chatRequest);
 
-                var reply = string.IsNullOrWhiteSpace(chatResult?.Reply)
-                    ? "Mình chưa có câu trả lời phù hợp. Bạn thử nói rõ hơn nhu cầu như ngân sách, giới tính hoặc loại xe nhé."
-                    : FormatTelegramReply(chatResult.Reply);
+                var reply = ChatChannelMessageHelper.FormatReply(
+                    chatResult?.Reply,
+                    "Mình chưa có câu trả lời phù hợp. Bạn thử nói rõ hơn nhu cầu như ngân sách, giới tính hoặc loại xe nhé.");
 
                 if (!string.IsNullOrWhiteSpace(reply))
                 {
@@ -149,6 +127,12 @@ Gõ /menu để hiện lại menu nhanh.
                         chatId,
                         reply,
                         TelegramKeyboardFactory.MainMenu());
+
+                    await SaveExchangeIfNeededAsync(
+                        conversationId,
+                        chatId.ToString(),
+                        messageText,
+                        reply);
                 }
 
                 if (chatResult?.Products != null && chatResult.Products.Any())
@@ -158,7 +142,7 @@ Gõ /menu để hiện lại menu nhanh.
                         var finalImageUrl = NormalizeImageUrl(product.ImageUrl);
                         var caption = BuildProductCaption(product);
 
-                        if (!string.IsNullOrWhiteSpace(finalImageUrl))
+                        if (CanSendPhotoUrlToTelegram(finalImageUrl))
                         {
                             await _telegramService.SendPhotoAsync(
                                 chatId,
@@ -169,6 +153,14 @@ Gõ /menu để hiện lại menu nhanh.
                         }
                         else
                         {
+                            if (!string.IsNullOrWhiteSpace(finalImageUrl))
+                            {
+                                _logger.LogWarning(
+                                    "Telegram photo URL is not publicly reachable, fallback to text. ChatId: {ChatId}, Url: {Url}",
+                                    chatId,
+                                    finalImageUrl);
+                            }
+
                             await _telegramService.SendMessageAsync(
                                 chatId,
                                 caption,
@@ -182,8 +174,7 @@ Gõ /menu để hiện lại menu nhanh.
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Webhook error:");
-                Console.WriteLine(ex);
+                _logger.LogError(ex, "Telegram webhook error while handling update.");
 
                 try
                 {
@@ -204,27 +195,6 @@ Gõ /menu để hiện lại menu nhanh.
             }
         }
 
-        private static string NormalizeQuickMenu(string input)
-        {
-            return input switch
-            {
-                "Tư vấn xe" => "Tư vấn xe máy phù hợp cho tôi",
-                "Xe ga" => "Gợi ý các mẫu xe ga phù hợp",
-                "Xe số" => "Gợi ý các mẫu xe số phù hợp",
-                "Xe cho nữ" => "Tư vấn xe máy phù hợp cho nữ",
-                "Dưới 40 triệu" => "Tư vấn xe máy dưới 40 triệu",
-                "Kiểm tra giá xe" => "Cho tôi biết giá các mẫu xe nổi bật",
-                _ => input
-            };
-        }
-
-        private static string FormatTelegramReply(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return "Mình chưa có câu trả lời phù hợp.";
-
-            return text.Replace("\r\n", "\n").Trim();
-        }
         private static string NormalizeImageUrl(string? imageUrl)
         {
             if (string.IsNullOrWhiteSpace(imageUrl))
@@ -235,29 +205,133 @@ Gõ /menu để hiện lại menu nhanh.
 
         private static string BuildProductCaption(ChatProductCard product)
         {
+            var safeName = EscapeTelegramHtml(product.Ten);
+            var safeBrand = EscapeTelegramHtml(product.ThuongHieu);
+            var safeCategory = EscapeTelegramHtml(product.Loai);
+            var safeCc = EscapeTelegramHtml(product.CC);
+
             var lines = new List<string>
     {
-        $"<b>{product.Ten}</b>",
+        $"<b>{safeName}</b>",
         $"💰 Giá: {product.Gia:N0} VNĐ",
         $"📦 Còn hàng: {product.SoLuong}"
     };
 
-            if (!string.IsNullOrWhiteSpace(product.ThuongHieu))
+            if (!string.IsNullOrWhiteSpace(safeBrand))
             {
-                lines.Add($"🏷️ Hãng: {product.ThuongHieu}");
+                lines.Add($"🏷️ Hãng: {safeBrand}");
             }
 
-            if (!string.IsNullOrWhiteSpace(product.Loai))
+            if (!string.IsNullOrWhiteSpace(safeCategory))
             {
-                lines.Add($"🛵 Loại: {product.Loai}");
+                lines.Add($"🛵 Loại: {safeCategory}");
             }
 
-            if (!string.IsNullOrWhiteSpace(product.CC))
+            if (!string.IsNullOrWhiteSpace(safeCc))
             {
-                lines.Add($"⚙️ Phân khối: {product.CC}");
+                lines.Add($"⚙️ Phân khối: {safeCc}");
             }
 
             return string.Join("\n", lines);
+        }
+
+        private static bool TryMarkUpdateAsProcessed(long updateId)
+        {
+            if (ProcessedUpdateIds.Count > 10000)
+            {
+                ProcessedUpdateIds.Clear();
+            }
+
+            return ProcessedUpdateIds.TryAdd(updateId, 1);
+        }
+
+        private static bool CanSendPhotoUrlToTelegram(string imageUrl)
+        {
+            if (string.IsNullOrWhiteSpace(imageUrl))
+            {
+                return false;
+            }
+
+            if (!Uri.TryCreate(imageUrl, UriKind.Absolute, out var uri))
+            {
+                return false;
+            }
+
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            {
+                return false;
+            }
+
+            if (uri.IsLoopback)
+            {
+                return false;
+            }
+
+            var host = uri.Host;
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                return false;
+            }
+
+            if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (IPAddress.TryParse(host, out var ipAddress))
+            {
+                var bytes = ipAddress.GetAddressBytes();
+                if (bytes.Length == 4)
+                {
+                    if (bytes[0] == 10 || bytes[0] == 127)
+                    {
+                        return false;
+                    }
+
+                    if (bytes[0] == 192 && bytes[1] == 168)
+                    {
+                        return false;
+                    }
+
+                    if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private static string EscapeTelegramHtml(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            return WebUtility.HtmlEncode(value.Trim());
+        }
+
+        private async Task SaveExchangeIfNeededAsync(
+            string conversationId,
+            string userId,
+            string userMessage,
+            string botReply)
+        {
+            if (string.IsNullOrWhiteSpace(conversationId)
+                || string.IsNullOrWhiteSpace(userMessage)
+                || string.IsNullOrWhiteSpace(botReply))
+            {
+                return;
+            }
+
+            await _historyService.SaveExchangeAsync(
+                conversationId.Trim(),
+                "telegram",
+                userId,
+                userMessage.Trim(),
+                botReply.Trim());
         }
     }
 }
