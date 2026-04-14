@@ -8,11 +8,6 @@ namespace Chatbot.API.Services.Interfaces
         Task<CustomerPreferenceProfile> GetAsync(string conversationId);
         Task<CustomerPreferenceProfile> MergeAsync(string conversationId, ParsedIntent intent);
 
-        Task SetRecommendedProductsAsync(
-            string conversationId,
-            IEnumerable<ProductSummaryDto> products,
-            string answerMode = "fresh_consultation");
-
         Task SetMentionedProductsAsync(string conversationId, IEnumerable<string> productNames);
         Task SetComparedProductsAsync(string conversationId, IEnumerable<string> productNames);
         Task SetLastIntentTypeAsync(string conversationId, string intentType);
@@ -20,6 +15,14 @@ namespace Chatbot.API.Services.Interfaces
         Task ClearRecommendationContextAsync(string conversationId);
         Task ResetForFreshConsultationAsync(string conversationId);
         Task ClearAsync(string conversationId);
+        Task SetBaseRecommendedProductsAsync(
+    string conversationId,
+    IEnumerable<ProductSummaryDto> products);
+
+        Task UpdateCurrentRecommendedProductsAsync(
+            string conversationId,
+            IEnumerable<ProductSummaryDto> products,
+            string answerMode = "fresh_consultation");
 
         string BuildProfileSummary(CustomerPreferenceProfile profile);
     }

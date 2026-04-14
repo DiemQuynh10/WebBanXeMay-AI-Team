@@ -2,6 +2,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using WebBanXeMay.Models.ViewModels;
+using WebBanXeMay.Services;
 
 namespace WebBanXeMay.Controllers
 {
@@ -11,15 +12,17 @@ namespace WebBanXeMay.Controllers
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
         private readonly ILogger<AiChatController> _logger;
-
+        private readonly IInputTextSanitizer _inputTextSanitizer;
         public AiChatController(
-            IHttpClientFactory httpClientFactory,
-            IConfiguration configuration,
-            ILogger<AiChatController> logger)
+    IHttpClientFactory httpClientFactory,
+    IConfiguration configuration,
+    ILogger<AiChatController> logger,
+    IInputTextSanitizer inputTextSanitizer)
         {
             _httpClientFactory = httpClientFactory;
             _configuration = configuration;
             _logger = logger;
+            _inputTextSanitizer = inputTextSanitizer;
         }
 
         [HttpPost("send")]
@@ -43,7 +46,8 @@ namespace WebBanXeMay.Controllers
                 });
             }
 
-            request.Message = request.Message.Trim();
+            request.Message = _inputTextSanitizer.Sanitize(request.Message);
+            _logger.LogInformation("Sanitized user message before forwarding: {Message}", request.Message);
 
             if (!string.IsNullOrWhiteSpace(request.ConversationId))
             {

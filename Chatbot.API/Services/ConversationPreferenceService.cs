@@ -26,28 +26,123 @@ namespace Chatbot.API.Services
             {
                 ConversationId = id
             });
+            var rawMessage = NormalizeGenderText(intent.RawMessage);
 
-            if (intent.PriceMin.HasValue)
-                profile.PriceMin = intent.PriceMin;
+            bool messageExplicitlyMentionsMale =
+                rawMessage.Contains(" nam ") ||
+                rawMessage.StartsWith("nam ") ||
+                rawMessage.EndsWith(" nam") ||
+                rawMessage.Contains("cho nam") ||
+                rawMessage.Contains("phai nam");
 
-            if (intent.PriceMax.HasValue)
-                profile.PriceMax = intent.PriceMax;
-
-            if (intent.TargetPrice.HasValue)
-                profile.TargetPrice = intent.TargetPrice;
-
+            bool messageExplicitlyMentionsFemale =
+                rawMessage.Contains(" nu ") ||
+                rawMessage.StartsWith("nu ") ||
+                rawMessage.EndsWith(" nu") ||
+                rawMessage.Contains("cho nu") ||
+                rawMessage.Contains("phai nu") ||
+                rawMessage.Contains("phu nu");
             if (intent.FilterType != PriceFilterType.None)
+            {
                 profile.FilterType = intent.FilterType;
 
+                switch (intent.FilterType)
+                {
+                    case PriceFilterType.Range:
+                        profile.PriceMin = intent.PriceMin;
+                        profile.PriceMax = intent.PriceMax;
+                        profile.TargetPrice = null;
+                        break;
+
+                    case PriceFilterType.MaxOnly:
+                        profile.PriceMin = null; 
+                        profile.PriceMax = intent.PriceMax;
+                        profile.TargetPrice = null;
+                        break;
+
+                    case PriceFilterType.MinOnly:
+                        profile.PriceMin = intent.PriceMin;
+                        profile.PriceMax = null; 
+                        profile.TargetPrice = null;
+                        break;
+
+                    case PriceFilterType.Around:
+                        profile.TargetPrice = intent.TargetPrice;
+                        profile.PriceMin = intent.PriceMin;
+                        profile.PriceMax = intent.PriceMax;
+                        break;
+
+                    default:
+                        break;
+                }
+                if (messageExplicitlyMentionsMale)
+                {
+                    profile.Target = "nam";
+                    profile.PrefersMaleStyle = true;
+                    profile.PrefersFemaleStyle = false;
+                }
+                else if (messageExplicitlyMentionsFemale)
+                {
+                    profile.Target = "nữ";
+                    profile.PrefersFemaleStyle = true;
+                    profile.PrefersMaleStyle = false;
+                }
+            }
+            else
+            {
+                if (intent.PriceMin.HasValue)
+                    profile.PriceMin = intent.PriceMin;
+
+                if (intent.PriceMax.HasValue)
+                    profile.PriceMax = intent.PriceMax;
+
+                if (intent.TargetPrice.HasValue)
+                    profile.TargetPrice = intent.TargetPrice;
+            }
+
             if (!string.IsNullOrWhiteSpace(intent.Category))
+            {
                 profile.PreferredCategory = intent.Category;
+                profile.ExcludedCategories.RemoveWhere(x =>
+                    string.Equals(x, intent.Category, StringComparison.OrdinalIgnoreCase));
+            }
 
             if (!string.IsNullOrWhiteSpace(intent.Brand))
+            {
                 profile.PreferredBrand = intent.Brand;
+                profile.ExcludedBrands.RemoveWhere(x =>
+                    string.Equals(x, intent.Brand, StringComparison.OrdinalIgnoreCase));
+            }
 
             if (!string.IsNullOrWhiteSpace(intent.Target))
-                profile.Target = intent.Target;
+            {
+                var normalizedTarget = NormalizeGenderText(intent.Target);
 
+                if (messageExplicitlyMentionsMale && normalizedTarget.Contains("nam"))
+                {
+                    profile.Target = "nam";
+                    profile.PrefersMaleStyle = true;
+                    profile.PrefersFemaleStyle = false;
+                }
+                else if (messageExplicitlyMentionsFemale && normalizedTarget.Contains("nu"))
+                {
+                    profile.Target = "nữ";
+                    profile.PrefersFemaleStyle = true;
+                    profile.PrefersMaleStyle = false;
+                }
+                if (messageExplicitlyMentionsMale)
+                {
+                    profile.Target = "nam";
+                    profile.PrefersMaleStyle = true;
+                    profile.PrefersFemaleStyle = false;
+                }
+                else if (messageExplicitlyMentionsFemale)
+                {
+                    profile.Target = "nữ";
+                    profile.PrefersFemaleStyle = true;
+                    profile.PrefersMaleStyle = false;
+                }
+            }
             foreach (var item in intent.ExcludedCategories)
                 profile.ExcludedCategories.Add(item);
 
@@ -69,8 +164,16 @@ namespace Chatbot.API.Services
             if (intent.WantsFuelSaving) profile.WantsFuelSaving = true;
             if (intent.WantsLargeStorage) profile.WantsLargeStorage = true;
 
-            if (intent.PrefersMaleStyle) profile.PrefersMaleStyle = true;
-            if (intent.PrefersFemaleStyle) profile.PrefersFemaleStyle = true;
+            if (messageExplicitlyMentionsMale && intent.PrefersMaleStyle && !intent.PrefersFemaleStyle)
+            {
+                profile.PrefersMaleStyle = true;
+                profile.PrefersFemaleStyle = false;
+            }
+            else if (messageExplicitlyMentionsFemale && intent.PrefersFemaleStyle && !intent.PrefersMaleStyle)
+            {
+                profile.PrefersFemaleStyle = true;
+                profile.PrefersMaleStyle = false;
+            }
 
             foreach (var style in intent.RequestedStyles)
                 profile.RequestedStyles.Add(style);
@@ -82,22 +185,45 @@ namespace Chatbot.API.Services
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
             }
+
             if (!string.IsNullOrWhiteSpace(intent.ComparisonFeature))
             {
                 profile.LastComparisonFeature = intent.ComparisonFeature;
             }
+
             if (!string.IsNullOrWhiteSpace(intent.IntentType))
             {
                 profile.LastIntentType = intent.IntentType;
             }
+
+            if (!string.IsNullOrWhiteSpace(intent.RouteFlow) &&
+                !string.Equals(intent.RouteFlow, ChatFlowType.Unknown, StringComparison.OrdinalIgnoreCase))
+            {
+                profile.ActiveFlow = intent.RouteFlow;
+            }
+
+            if (intent.IsDirectCompare)
+            {
+                profile.HasActiveCompareContext = true;
+            }
+
             profile.TurnCount++;
             profile.LastUserMessage = intent.RawMessage;
             profile.UpdatedAtUtc = DateTime.UtcNow;
-
+            Console.WriteLine(
+    $"[ConversationPreferenceService] Merge result | RawMessage={intent.RawMessage} | " +
+    $"messageExplicitlyMentionsMale={messageExplicitlyMentionsMale} | " +
+    $"messageExplicitlyMentionsFemale={messageExplicitlyMentionsFemale} | " +
+    $"intent.Target={intent.Target} | " +
+    $"intent.PrefersMaleStyle={intent.PrefersMaleStyle} | " +
+    $"intent.PrefersFemaleStyle={intent.PrefersFemaleStyle} | " +
+    $"profile.Target={profile.Target} | " +
+    $"profile.PrefersMaleStyle={profile.PrefersMaleStyle} | " +
+    $"profile.PrefersFemaleStyle={profile.PrefersFemaleStyle}");
             return Task.FromResult(profile);
         }
 
-        public Task SetRecommendedProductsAsync(
+        public Task UpdateCurrentRecommendedProductsAsync(
     string conversationId,
     IEnumerable<ProductSummaryDto> products,
     string answerMode = "fresh_consultation")
@@ -126,10 +252,37 @@ namespace Chatbot.API.Services
 
             profile.HasActiveRecommendationContext = items.Count > 0;
             profile.LastAnswerMode = answerMode;
-            profile.UpdatedAtUtc = DateTime.UtcNow;
+            profile.ActiveFlow = answerMode switch
+            {
+                "followup" => ChatFlowType.RecommendationFollowUp,
+                "refine" => ChatFlowType.Refinement,
+                _ => ChatFlowType.Recommendation
+            };
+            if (items.Count > 0 &&
+    (string.Equals(answerMode, "fresh_consultation", StringComparison.OrdinalIgnoreCase) ||
+     string.Equals(answerMode, "followup", StringComparison.OrdinalIgnoreCase)))
+            {
+                profile.BaseRecommendedProductIds = items
+                    .Select(x => x.Id)
+                    .Distinct()
+                    .ToList();
 
+                profile.BaseRecommendedProducts = items
+                    .Select(x => x.Ten)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            // khi recommendation mới được tạo, không nên giữ lookup flow cũ là flow hiện hành
+            if (!string.IsNullOrWhiteSpace(profile.LastLookupProductName) &&
+                !string.Equals(profile.ActiveFlow, ChatFlowType.ProductLookup, StringComparison.OrdinalIgnoreCase))
+            {
+                // giữ dữ liệu lookup để tham khảo, nhưng recommendation là flow chính hiện tại
+            }
+            profile.UpdatedAtUtc = DateTime.UtcNow;
             return Task.CompletedTask;
         }
+
         public Task ClearRecommendationContextAsync(string conversationId)
         {
             var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
@@ -140,12 +293,22 @@ namespace Chatbot.API.Services
             profile.LastRecommendedProducts.Clear();
             profile.LastRecommendedProductIds.Clear();
             profile.HasActiveRecommendationContext = false;
+
+            if (string.Equals(profile.ActiveFlow, ChatFlowType.Recommendation, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(profile.ActiveFlow, ChatFlowType.RecommendationFollowUp, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(profile.ActiveFlow, ChatFlowType.Refinement, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(profile.ActiveFlow, ChatFlowType.BrandSwitch, StringComparison.OrdinalIgnoreCase))
+            {
+                profile.ActiveFlow = null;
+            }
+
             profile.LastAnswerMode = null;
             profile.LastComparisonFeature = null;
             profile.UpdatedAtUtc = DateTime.UtcNow;
 
             return Task.CompletedTask;
         }
+
         public Task ResetForFreshConsultationAsync(string conversationId)
         {
             var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
@@ -186,13 +349,28 @@ namespace Chatbot.API.Services
             profile.LastRecommendedProductIds.Clear();
             profile.LastMentionedProducts.Clear();
             profile.LastComparedProducts.Clear();
+            profile.BaseRecommendedProducts.Clear();
+            profile.BaseRecommendedProductIds.Clear();
+
+            profile.LastLookupProductName = null;
+            profile.LastLookupProductId = null;
+            profile.LastSearchProductNames.Clear();
+            profile.LastSearchProductIds.Clear();
 
             profile.HasActiveRecommendationContext = false;
+            profile.HasActiveCompareContext = false;
+
+            profile.ActiveFlow = null;
             profile.LastAnswerMode = null;
             profile.LastComparisonFeature = null;
             profile.LastIntentType = null;
             profile.LastUserMessage = null;
 
+            profile.LastResolvedBrandSwitchFrom = null;
+            profile.LastResolvedBrandSwitchTo = null;
+            profile.HasPendingOrderLookup = false;
+            profile.PendingOrderId = null;
+            profile.PendingOrderPhone = null;
             profile.UpdatedAtUtc = DateTime.UtcNow;
 
             return Task.CompletedTask;
@@ -221,15 +399,28 @@ namespace Chatbot.API.Services
                 ConversationId = id
             });
 
-            profile.LastComparedProducts = productNames
+            var compared = productNames
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Take(2)
                 .ToList();
 
+            profile.LastComparedProducts.Clear();
+            profile.LastComparedProducts.AddRange(compared);
+
+            profile.HasActiveCompareContext = profile.LastComparedProducts.Count >= 2;
+
+            if (profile.HasActiveCompareContext)
+            {
+                profile.ActiveFlow = ChatFlowType.Compare;
+
+                profile.HasActiveRecommendationContext = false;
+                profile.LastComparisonFeature = null;
+            }
+
             profile.UpdatedAtUtc = DateTime.UtcNow;
             return Task.CompletedTask;
-        }
+        } 
 
         public Task SetLastIntentTypeAsync(string conversationId, string intentType)
         {
@@ -307,10 +498,23 @@ namespace Chatbot.API.Services
             if (profile.LastComparedProducts.Count > 0)
                 parts.Add($"cặp vừa so sánh: {string.Join(" vs ", profile.LastComparedProducts)}");
 
+            if (!string.IsNullOrWhiteSpace(profile.LastLookupProductName))
+                parts.Add($"mẫu vừa tra cứu: {profile.LastLookupProductName}");
+
+            if (profile.LastSearchProductNames.Count > 0)
+                parts.Add($"danh sách vừa lọc: {string.Join(", ", profile.LastSearchProductNames.Take(5))}");
+
+            if (!string.IsNullOrWhiteSpace(profile.ActiveFlow))
+                parts.Add($"flow hiện tại: {profile.ActiveFlow}");
+
             if (!string.IsNullOrWhiteSpace(profile.LastIntentType))
                 parts.Add($"intent gần nhất: {profile.LastIntentType}");
+
             if (profile.HasActiveRecommendationContext)
                 parts.Add("đang có ngữ cảnh gợi ý trước đó");
+
+            if (profile.HasActiveCompareContext)
+                parts.Add("đang có ngữ cảnh so sánh");
 
             if (!string.IsNullOrWhiteSpace(profile.LastAnswerMode))
                 parts.Add($"kiểu trả lời gần nhất: {profile.LastAnswerMode}");
@@ -318,8 +522,15 @@ namespace Chatbot.API.Services
             if (profile.LastRecommendedProductIds.Count > 0)
                 parts.Add($"ids vừa gợi ý: {string.Join(", ", profile.LastRecommendedProductIds)}");
 
+            if (profile.LastLookupProductId.HasValue)
+                parts.Add($"id vừa tra cứu: {profile.LastLookupProductId.Value}");
+
+            if (profile.LastSearchProductIds.Count > 0)
+                parts.Add($"ids vừa lọc: {string.Join(", ", profile.LastSearchProductIds.Take(10))}");
+
             if (profile.TurnCount > 0)
                 parts.Add($"số lượt hội thoại: {profile.TurnCount}");
+
             if (parts.Count == 0)
                 return "Chưa có hồ sơ nhu cầu rõ ràng.";
 
@@ -331,6 +542,126 @@ namespace Chatbot.API.Services
             }
 
             return sb.ToString().Trim();
+        }
+        public Task SetBaseRecommendedProductsAsync(
+    string conversationId,
+    IEnumerable<ProductSummaryDto> products)
+        {
+            var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
+            {
+                ConversationId = id
+            });
+
+            var items = products?
+                .Where(x => x != null)
+                .GroupBy(x => x.Id)
+                .Select(g => g.First())
+                .ToList() ?? new List<ProductSummaryDto>();
+
+            profile.BaseRecommendedProductIds = items
+                .Select(x => x.Id)
+                .Distinct()
+                .ToList();
+
+            profile.BaseRecommendedProducts = items
+                .Select(x => x.Ten)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            profile.UpdatedAtUtc = DateTime.UtcNow;
+            return Task.CompletedTask;
+        }
+        private static string NormalizeGenderText(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            var value = text.Trim().ToLowerInvariant();
+
+            value = value
+                .Replace("đ", "d")
+                .Replace("nữ", "nu");
+
+            var map = new Dictionary<char, char>
+            {
+                ['à'] = 'a',
+                ['á'] = 'a',
+                ['ạ'] = 'a',
+                ['ả'] = 'a',
+                ['ã'] = 'a',
+                ['â'] = 'a',
+                ['ầ'] = 'a',
+                ['ấ'] = 'a',
+                ['ậ'] = 'a',
+                ['ẩ'] = 'a',
+                ['ẫ'] = 'a',
+                ['ă'] = 'a',
+                ['ằ'] = 'a',
+                ['ắ'] = 'a',
+                ['ặ'] = 'a',
+                ['ẳ'] = 'a',
+                ['ẵ'] = 'a',
+                ['è'] = 'e',
+                ['é'] = 'e',
+                ['ẹ'] = 'e',
+                ['ẻ'] = 'e',
+                ['ẽ'] = 'e',
+                ['ê'] = 'e',
+                ['ề'] = 'e',
+                ['ế'] = 'e',
+                ['ệ'] = 'e',
+                ['ể'] = 'e',
+                ['ễ'] = 'e',
+                ['ì'] = 'i',
+                ['í'] = 'i',
+                ['ị'] = 'i',
+                ['ỉ'] = 'i',
+                ['ĩ'] = 'i',
+                ['ò'] = 'o',
+                ['ó'] = 'o',
+                ['ọ'] = 'o',
+                ['ỏ'] = 'o',
+                ['õ'] = 'o',
+                ['ô'] = 'o',
+                ['ồ'] = 'o',
+                ['ố'] = 'o',
+                ['ộ'] = 'o',
+                ['ổ'] = 'o',
+                ['ỗ'] = 'o',
+                ['ơ'] = 'o',
+                ['ờ'] = 'o',
+                ['ớ'] = 'o',
+                ['ợ'] = 'o',
+                ['ở'] = 'o',
+                ['ỡ'] = 'o',
+                ['ù'] = 'u',
+                ['ú'] = 'u',
+                ['ụ'] = 'u',
+                ['ủ'] = 'u',
+                ['ũ'] = 'u',
+                ['ư'] = 'u',
+                ['ừ'] = 'u',
+                ['ứ'] = 'u',
+                ['ự'] = 'u',
+                ['ử'] = 'u',
+                ['ữ'] = 'u',
+                ['ỳ'] = 'y',
+                ['ý'] = 'y',
+                ['ỵ'] = 'y',
+                ['ỷ'] = 'y',
+                ['ỹ'] = 'y'
+            };
+
+            var chars = value.Select(c => map.ContainsKey(c) ? map[c] : c).ToArray();
+            value = new string(chars);
+
+            while (value.Contains("  "))
+            {
+                value = value.Replace("  ", " ");
+            }
+
+            return value;
         }
     }
 }

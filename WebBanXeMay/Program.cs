@@ -5,6 +5,7 @@ using WebBanXeMay.Data;
 using WebBanXeMay.Models;
 using WebBanXeMay.Hubs;
 using WebBanXeMay.Configurations;
+using WebBanXeMay.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
@@ -29,7 +30,7 @@ builder.Services.AddOptions<ToolApiOptions>()
     .ValidateDataAnnotations()
     .Validate(x => !string.IsNullOrWhiteSpace(x.ApiKey), "ToolApi:ApiKey is required.")
     .ValidateOnStart();
-
+builder.Services.AddScoped<IInputTextSanitizer, InputTextSanitizer>();
 // ===== Identity + Default UI (Razor Pages) =====
 builder.Services.AddDefaultIdentity<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = false)
     .AddRoles<IdentityRole>()

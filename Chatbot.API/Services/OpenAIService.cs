@@ -192,6 +192,27 @@ namespace Chatbot.API.Services
                 };
             }
         }
+        private static string NormalizeOpenAIRole(string? role)
+        {
+            if (string.IsNullOrWhiteSpace(role))
+                return "user";
+
+            var normalized = role.Trim().ToLowerInvariant();
+
+            return normalized switch
+            {
+                "user" => "user",
+                "assistant" => "assistant",
+                "bot" => "assistant",
+                "model" => "assistant",
+                "ai" => "assistant",
+                "system" => "system",
+                "tool" => "tool",
+                "function" => "function",
+                "developer" => "developer",
+                _ => "user"
+            };
+        }
         private JsonArray BuildInitialMessages(List<ChatMessage> history, string userMessage, string? ragContext = null)
         {
             var messages = new JsonArray
@@ -219,11 +240,16 @@ namespace Chatbot.API.Services
 
             foreach (var msg in GetRecentHistory(history))
             {
-                messages.Add(new JsonObject
+                var safeRole = NormalizeOpenAIRole(msg.Role);
+
+                if (safeRole == "user" || safeRole == "assistant")
                 {
-                    ["role"] = msg.Role,
-                    ["content"] = msg.Content
-                });
+                    messages.Add(new JsonObject
+                    {
+                        ["role"] = safeRole,
+                        ["content"] = msg.Content
+                    });
+                }
             }
 
             messages.Add(new JsonObject

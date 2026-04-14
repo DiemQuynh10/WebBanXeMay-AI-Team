@@ -1,6 +1,7 @@
 ﻿using Chatbot.API.Helpers;
 using Chatbot.API.Models.Requests;
 using Chatbot.API.Models.Responses;
+using Chatbot.API.Services;
 using Chatbot.API.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,13 +17,14 @@ namespace Chatbot.API.Controllers
         private readonly IConversationHistoryService _historyService;
         private readonly ILogger<ChatController> _logger;
         private readonly IConversationPreferenceService _conversationPreferenceService;
-
+        private readonly IInputTextSanitizer _inputTextSanitizer;
         public ChatController(
     IChatService chatService,
     IConversationMemoryService memoryService,
     IClarificationStateService clarificationStateService,
     IConversationHistoryService historyService,
     IConversationPreferenceService conversationPreferenceService,
+    IInputTextSanitizer inputTextSanitizer,
     ILogger<ChatController> logger)
         {
             _chatService = chatService;
@@ -30,6 +32,7 @@ namespace Chatbot.API.Controllers
             _clarificationStateService = clarificationStateService;
             _historyService = historyService;
             _conversationPreferenceService = conversationPreferenceService;
+            _inputTextSanitizer = inputTextSanitizer;
             _logger = logger;
         }
         [HttpPost]
@@ -45,6 +48,12 @@ namespace Chatbot.API.Controllers
                         errorMessage = "Request không hợp lệ."
                     });
                 }
+
+                _logger.LogInformation("ChatController BEFORE sanitize: {Message}", request.Message);
+
+                request.Message = _inputTextSanitizer.Sanitize(request.Message);
+
+                _logger.LogInformation("ChatController AFTER sanitize: {Message}", request.Message);
 
                 if (string.IsNullOrWhiteSpace(request.Message))
                 {

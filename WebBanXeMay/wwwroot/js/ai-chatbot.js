@@ -58,7 +58,8 @@
     const response = await fetch("/ai-chat/reset", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+        Accept: "application/json",
       },
       body: JSON.stringify({ conversationId }),
     });
@@ -218,76 +219,69 @@
     return `${numeric.toLocaleString("vi-VN")} VNĐ`;
   }
 
+  function buildProductDetailUrl(product) {
+    const slug = String(product?.slug ?? product?.Slug ?? "").trim();
+    if (!slug) {
+      return null;
+    }
+
+    return `/SanPham/Details?slug=${encodeURIComponent(slug)}`;
+  }
+
   function renderProductCards(products) {
     if (!Array.isArray(products) || products.length === 0) {
       return "";
     }
 
-    return products
-      .map((product) => {
-        const name = (product?.ten ?? product?.Ten ?? "Sản phẩm").trim();
-        const price = formatPrice(product?.gia ?? product?.Gia);
-        const stock = Number(product?.soLuong ?? product?.SoLuong);
-        const stockText = Number.isFinite(stock) ? stock : "N/A";
-        const brand = (product?.thuongHieu ?? product?.ThuongHieu ?? "").trim();
-        const category = (product?.loai ?? product?.Loai ?? "").trim();
-        const cc = String(product?.cc ?? product?.CC ?? "").trim();
-        const imageUrl = String(product?.imageUrl ?? product?.ImageUrl ?? "").trim();
+    return (
+      `<div class="ai-shop-card-list">` +
+      products
+        .map((product) => {
+          const name = (product?.ten ?? product?.Ten ?? "Sản phẩm").trim();
+          const price = formatPrice(product?.gia ?? product?.Gia);
+          const imageUrl = String(product?.imageUrl ?? product?.ImageUrl ?? "").trim();
+          const safeImageUrl = imageUrl || "/images/no-image.png";
+          const detailUrl = buildProductDetailUrl(product);
 
-        const details = [
-          `<div>💰 Giá: ${escapeHtml(price)}</div>`,
-          `<div>📦 Còn hàng: ${escapeHtml(String(stockText))}</div>`,
-          brand ? `<div>🏷️ Hãng: ${escapeHtml(brand)}</div>` : "",
-          category ? `<div>🛵 Loại: ${escapeHtml(category)}</div>` : "",
-          cc ? `<div>⚙️ Phân khối: ${escapeHtml(cc)}</div>` : "",
-        ]
-          .filter(Boolean)
-          .join("");
+          const openTag = detailUrl
+            ? `<a href="${escapeAttribute(detailUrl)}" class="ai-shop-card" target="_blank" rel="noopener noreferrer">`
+            : `<div class="ai-shop-card">`;
+          const closeTag = detailUrl ? "</a>" : "</div>";
+          const linkHint = detailUrl
+            ? `<div class="ai-shop-card-link-text">Nhấn để xem chi tiết...</div>`
+            : "";
 
-        const imageHtml = imageUrl
-          ? `<img src="${escapeAttribute(imageUrl)}" alt="${escapeAttribute(name)}" class="ai-product-image" />`
-          : "";
-
-        return `
-          <div class="ai-product-card">
-            ${imageHtml}
-            <div class="ai-msg-text"><strong>${escapeHtml(name)}</strong>${details}</div>
-          </div>
-        `;
-      })
-      .join("");
+          return `
+            ${openTag}
+              <div class="ai-shop-card-media">
+                <img src="${escapeAttribute(safeImageUrl)}" class="ai-shop-card-thumb" alt="${escapeAttribute(name)}" />
+              </div>
+              <div class="ai-shop-card-body">
+                <div class="ai-shop-card-name">${escapeHtml(name)}</div>
+                <div class="ai-shop-card-price">${escapeHtml(price)}</div>
+                ${linkHint}
+              </div>
+            ${closeTag}
+          `;
+        })
+        .join("") +
+      `</div>`
+    );
   }
 
   function formatBotMessage(content, products = []) {
-    if (!content) return "";
-
-    const imageRegex = /!\[(.*?)\]\((.*?)\)/g;
-    let textOnly = content;
-    let imageHtml = "";
-    let match;
-
-    while ((match = imageRegex.exec(content)) !== null) {
-      const alt = match[1] || "image";
-      const url = match[2] || "";
-
-      if (url) {
-        imageHtml += `
-                    <div class="ai-product-card">
-                        <img src="${escapeAttribute(url)}"
-                             alt="${escapeAttribute(alt)}"
-                             class="ai-product-image" />
-                    </div>
-                `;
-      }
-    }
-
-    textOnly = textOnly.replace(imageRegex, "").trim();
+    const textOnly = String(content || "")
+      .replace(/!\[(.*?)\]\((.*?)\)/g, "")
+      .trim();
 
     const safeText = renderMarkdownSafe(textOnly);
-
     const productHtml = renderProductCards(products);
 
-    return `<div class="ai-msg-text">${safeText}</div>${imageHtml}${productHtml}`;
+    if (!safeText) {
+      return productHtml;
+    }
+
+    return `<div class="ai-msg-text">${safeText}</div>${productHtml}`;
   }
 
   function toggleEmptyState(show) {
@@ -435,7 +429,8 @@
     const response = await fetch("/ai-chat/send", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+        Accept: "application/json",
       },
       body: JSON.stringify(payload),
     });

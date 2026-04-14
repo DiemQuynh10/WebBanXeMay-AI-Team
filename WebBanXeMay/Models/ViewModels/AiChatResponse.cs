@@ -15,11 +15,11 @@
 
     public class AiChatResponse
     {
-        public bool Success {  get; set; }
+        public bool Success { get; set; }
         public string Reply { get; set; } = string.Empty;
-        public string? UsedTool {  get; set; }
-        public string? ErrorMessage {  get; set; }
-        public string? ConversationId {  get; set; }
+        public string? UsedTool { get; set; }
+        public string? ErrorMessage { get; set; }
+        public string? ConversationId { get; set; }
         public List<AiChatProductCard>? Products { get; set; }
     }
 }

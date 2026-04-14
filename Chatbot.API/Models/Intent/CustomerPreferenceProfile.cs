@@ -59,6 +59,11 @@
 
         public string? LastUserMessage { get; set; }
         public string? LastIntentType { get; set; }
+        public bool HasPendingOrderLookup { get; set; }
+        public int? PendingOrderId { get; set; }
+        public string? PendingOrderPhone { get; set; }
+        public List<string> BaseRecommendedProducts { get; set; } = new();
+        public List<int> BaseRecommendedProductIds { get; set; } = new();
 
         public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
     }
