@@ -68,9 +68,7 @@ namespace Chatbot.API.Services
                 result.Reason = "Lookup follow-up detected from previous product context";
                 return result;
             }
-            bool hasActiveRecommendationContext =
-    profile?.HasActiveRecommendationContext == true &&
-    profile.LastRecommendedProducts.Count > 0;
+            bool hasActiveRecommendationContext = HasRecommendationContext(profile);
 
             bool isExpandFollowUp =
                 hasActiveRecommendationContext &&
@@ -86,6 +84,21 @@ namespace Chatbot.API.Services
                 result.ShouldUseAiFallback = false;
                 result.ShouldUseRag = true;
                 result.Reason = "Recommendation follow-up routed to expand";
+                return result;
+            }
+            bool shouldForceExpandFollowUp =
+    ShouldForceExpandFromCurrentGoal(
+        normalizedMessage,
+        intent,
+        profile);
+
+            if (shouldForceExpandFollowUp)
+            {
+                result.FlowType = ChatFlowType.Recommendation;
+                result.ShouldUseDeterministicFlow = true;
+                result.ShouldUseAiFallback = false;
+                result.ShouldUseRag = true;
+                result.Reason = "Partial follow-up routed to expand from current goal";
                 return result;
             }
 
@@ -174,6 +187,76 @@ namespace Chatbot.API.Services
             result.ShouldUseAiFallback = true;
             result.Reason = "Fallback";
             return result;
+        }
+        private static bool HasRecommendationContext(CustomerPreferenceProfile? profile)
+        {
+            return profile?.HasActiveRecommendationContext == true &&
+                   profile.LastRecommendedProducts.Count > 0;
+        }
+        private static bool IsPartialRecommendationFollowUp(
+    string normalizedMessage,
+    ParsedIntent intent)
+        {
+            var text = (normalizedMessage ?? string.Empty).Trim().ToLowerInvariant();
+
+            bool hasStructuredFilter =
+                !string.IsNullOrWhiteSpace(intent.Brand) ||
+                !string.IsNullOrWhiteSpace(intent.Category) ||
+                intent.PriceMin.HasValue ||
+                intent.PriceMax.HasValue ||
+                intent.TargetPrice.HasValue ||
+                intent.IsBrandSwitch ||
+                intent.IntentType == "brand_switch";
+
+            if (hasStructuredFilter)
+                return true;
+
+            if (text.Contains("xe ga") ||
+                text.Contains("xe số") ||
+                text.Contains("xe so") ||
+                text.Contains("honda") ||
+                text.Contains("yamaha") ||
+                text.Contains("suzuki") ||
+                text.Contains("sym") ||
+                text.Contains("piaggio") ||
+                text.Contains("tầm") ||
+                text.Contains("tam") ||
+                text.Contains("khoảng") ||
+                text.Contains("khoang") ||
+                text.Contains("trên") ||
+                text.Contains("duới") ||
+                text.Contains("dưới"))
+            {
+                return true;
+            }
+
+            return false;
+        }
+        private static bool ShouldForceExpandFromCurrentGoal(
+    string normalizedMessage,
+    ParsedIntent intent,
+    CustomerPreferenceProfile? profile)
+        {
+            if (!HasRecommendationContext(profile))
+                return false;
+
+            if (!IsPartialRecommendationFollowUp(normalizedMessage, intent))
+                return false;
+
+            var text = (normalizedMessage ?? string.Empty).Trim().ToLowerInvariant();
+
+            bool looksLikeComparison =
+                text.Contains("cái nào") ||
+                text.Contains("cai nao") ||
+                text.Contains("so sánh") ||
+                text.Contains("so sanh") ||
+                text.Contains("hợp hơn") ||
+                text.Contains("tot hon");
+
+            if (looksLikeComparison)
+                return false;
+
+            return true;
         }
     }
 }

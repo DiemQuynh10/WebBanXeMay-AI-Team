@@ -13,16 +13,19 @@ namespace Chatbot.API.Services
         private readonly IConversationPreferenceService _conversationPreferenceService;
         private readonly IProductRecommendationService _productRecommendationService;
         private readonly ILogger<ProductSearchFlowService> _logger;
+        private readonly IReplyStyleService _replyStyleService;
 
         public ProductSearchFlowService(
-    IWebBanXeMayToolClient toolClient,
-    IConversationPreferenceService conversationPreferenceService,
-    IProductRecommendationService productRecommendationService,
-    ILogger<ProductSearchFlowService> logger)
+     IWebBanXeMayToolClient toolClient,
+     IConversationPreferenceService conversationPreferenceService,
+     IProductRecommendationService productRecommendationService,
+     IReplyStyleService replyStyleService,
+     ILogger<ProductSearchFlowService> logger)
         {
             _toolClient = toolClient;
             _conversationPreferenceService = conversationPreferenceService;
             _productRecommendationService = productRecommendationService;
+            _replyStyleService = replyStyleService;
             _logger = logger;
         }
         public async Task<ChatResponse?> HandleAsync(
@@ -106,7 +109,13 @@ namespace Chatbot.API.Services
                     ConversationId = conversationId,
                     UsedAI = false,
                     UsedTool = ResolveToolName(effectiveBrand, effectiveCategory, effectiveMinPrice, effectiveMaxPrice),
-                    Reply = BuildEmptyReply(intent, effectiveBrand, effectiveCategory, effectiveMinPrice, effectiveMaxPrice, nearMatches),
+                    Reply = _replyStyleService.BuildSearchEmptyReply(
+    intent,
+    effectiveBrand,
+    effectiveCategory,
+    effectiveMinPrice,
+    effectiveMaxPrice,
+    nearMatches),
                     Products = nearMatches.Take(4).Select(MapToCard).ToList()
                 };
             }
@@ -119,14 +128,14 @@ namespace Chatbot.API.Services
                 ConversationId = conversationId,
                 UsedAI = false,
                 UsedTool = ResolveToolName(effectiveBrand, effectiveCategory, effectiveMinPrice, effectiveMaxPrice),
-                Reply = BuildSearchReply(
+                Reply = _replyStyleService.BuildSearchReply(
     items,
     intent,
     effectiveBrand,
     effectiveCategory,
     effectiveMinPrice,
     effectiveMaxPrice,
-    _productRecommendationService),
+    item => BuildShortReason(item, intent, effectiveBrand, effectiveCategory, _productRecommendationService)),
                 Products = items.Take(5).Select(MapToCard).ToList()
             };
         }
@@ -273,112 +282,6 @@ namespace Chatbot.API.Services
             }
 
             return ToolNames.SearchProducts;
-        }
-
-        private static string BuildEmptyReply(
-    ParsedIntent intent,
-    string? brand,
-    string? category,
-    decimal? minPrice,
-    decimal? maxPrice,
-    List<ProductSummaryDto> nearMatches)
-        {
-            var parts = new List<string>();
-
-            if (!string.IsNullOrWhiteSpace(category))
-                parts.Add(category);
-
-            if (!string.IsNullOrWhiteSpace(brand))
-                parts.Add($"hãng {brand}");
-
-            if (minPrice.HasValue && maxPrice.HasValue)
-                parts.Add($"giá từ {minPrice.Value:N0} đến {maxPrice.Value:N0} VNĐ");
-            else if (maxPrice.HasValue)
-                parts.Add($"giá dưới {maxPrice.Value:N0} VNĐ");
-            else if (minPrice.HasValue)
-                parts.Add($"giá từ {minPrice.Value:N0} VNĐ trở lên");
-
-            var filterText = parts.Count == 0
-                ? "tiêu chí này"
-                : string.Join(", ", parts);
-
-            if (nearMatches == null || nearMatches.Count == 0)
-            {
-                return $"Hiện mình chưa tìm thấy mẫu nào khớp sát với {filterText} trong dữ liệu. Bạn có thể nới nhẹ mức giá hoặc bớt một tiêu chí để mình lọc rộng hơn.";
-            }
-
-            var sb = new StringBuilder();
-            sb.AppendLine($"Hiện chưa có mẫu nào khớp hoàn toàn với {filterText} trong dữ liệu.");
-            sb.AppendLine("Tuy vậy, nếu nới điều kiện một chút, bạn có thể tham khảo:");
-            sb.AppendLine();
-
-            foreach (var item in nearMatches.Take(4))
-            {
-                sb.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ): còn {item.SoLuong} chiếc");
-            }
-
-            return sb.ToString().Trim();
-        }
-        private static string BuildSearchReply(
-    List<ProductSummaryDto> items,
-    ParsedIntent intent,
-    string? brand,
-    string? category,
-    decimal? minPrice,
-    decimal? maxPrice,
-    IProductRecommendationService productRecommendationService)
-        {
-            var shown = items.Take(5).ToList();
-            var intro = BuildIntro(shown.Count, brand, category, minPrice, maxPrice);
-
-            var sb = new StringBuilder();
-            sb.AppendLine(intro);
-            sb.AppendLine();
-
-            foreach (var item in shown)
-            {
-                var reason = BuildShortReason(item, intent, brand, category, productRecommendationService);
-                sb.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ) - {reason}");
-            }
-
-            if (items.Count > shown.Count)
-            {
-                sb.AppendLine();
-                sb.AppendLine($"Hiện mình đang thấy tổng cộng khoảng **{items.Count}** mẫu phù hợp trong dữ liệu, trên đây là các mẫu nổi bật trước.");
-            }
-
-            sb.AppendLine();
-            sb.AppendLine("Bạn có thể lọc tiếp theo hãng, loại xe hoặc mức giá sát hơn.");
-
-            return sb.ToString().Trim();
-        }
-
-        private static string BuildIntro(
-            int count,
-            string? brand,
-            string? category,
-            decimal? minPrice,
-            decimal? maxPrice)
-        {
-            var parts = new List<string>();
-
-            if (!string.IsNullOrWhiteSpace(category))
-                parts.Add(category);
-
-            if (!string.IsNullOrWhiteSpace(brand))
-                parts.Add(brand);
-
-            if (maxPrice.HasValue && !minPrice.HasValue)
-                parts.Add($"dưới {maxPrice.Value:N0} VNĐ");
-            else if (minPrice.HasValue && maxPrice.HasValue)
-                parts.Add($"từ {minPrice.Value:N0} đến {maxPrice.Value:N0} VNĐ");
-            else if (minPrice.HasValue)
-                parts.Add($"từ {minPrice.Value:N0} VNĐ trở lên");
-
-            if (parts.Count == 0)
-                return $"Mình tìm được {count} mẫu xe phù hợp:";
-
-            return $"Mình tìm được {count} mẫu khá phù hợp cho bộ lọc {string.Join(", ", parts)}:";
         }
 
         private static string BuildShortReason(

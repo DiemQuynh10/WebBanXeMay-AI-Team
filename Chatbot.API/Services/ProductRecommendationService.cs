@@ -84,11 +84,29 @@ namespace Chatbot.API.Services
             {
                 return new List<ProductSummaryDto>();
             }
+            var filteredProducts = products.ToList();
 
+            // Loại bỏ brand bị exclude
+            if (intent.ExcludedBrands != null && intent.ExcludedBrands.Any())
+            {
+                filteredProducts = filteredProducts
+                    .Where(p => !intent.ExcludedBrands.Any(ex =>
+                        string.Equals(p.ThuongHieu, ex, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+            }
+
+            // Loại bỏ category bị exclude
+            if (intent.ExcludedCategories != null && intent.ExcludedCategories.Any())
+            {
+                filteredProducts = filteredProducts
+                    .Where(p => !intent.ExcludedCategories.Any(ex =>
+                        ContainsAny(p.Loai ?? string.Empty, ex)))
+                    .ToList();
+            }
             var message = Normalize(normalizedMessage);
             var requestProfile = BuildRequestProfile(intent, profile, message);
 
-            var rankedCandidates = products
+            var rankedCandidates = filteredProducts
                 .Select(p =>
                 {
                     var context = BuildProductContext(p);
@@ -99,7 +117,7 @@ namespace Chatbot.API.Services
                         Product = p,
                         Context = context,
                         Score = score,
-                        PriceDistance = GetPriceDistanceForSort(p, intent)
+                        PriceDistance = GetPriceDistanceForSort(p, intent, profile)
                     };
                 })
                 .Where(x => x.Score > HardRejectScore)
@@ -108,7 +126,12 @@ namespace Chatbot.API.Services
                 .ThenByDescending(x => x.Product.SoLuong)
                 .ThenBy(x => x.Product.Gia)
                 .ToList();
-
+            Console.WriteLine(
+    $"[ProductRecommendationService] RankedCandidates={rankedCandidates.Count}, " +
+    $"Take={take}, IsOpenConsultation={requestProfile.IsOpenConsultation}, " +
+    $"PreferredBrand={requestProfile.PreferredBrand}, PreferredCategory={requestProfile.PreferredCategory}, " +
+    $"ForWork={requestProfile.ForWork}, WantsFuelSaving={requestProfile.WantsFuelSaving}, " +
+    $"WantsLargeStorage={requestProfile.WantsLargeStorage}, NeedsLowSeat={requestProfile.NeedsLowSeat}");
             if (rankedCandidates.Count == 0)
             {
                 return new List<ProductSummaryDto>();
@@ -117,7 +140,8 @@ namespace Chatbot.API.Services
             var selected = requestProfile.IsOpenConsultation
                 ? SelectDiverseProducts(rankedCandidates, Math.Max(1, take))
                 : rankedCandidates.Take(Math.Max(1, take)).ToList();
-
+            Console.WriteLine(
+    $"[ProductRecommendationService] SelectedProducts={string.Join(", ", selected.Select(x => x.Product.Ten))}");
             return selected
                 .Select(x => x.Product)
                 .ToList();
@@ -876,25 +900,81 @@ namespace Chatbot.API.Services
             if (profile.WantsFuelSaving)
             {
                 if (ContainsAny(product.Tags, "tiet kiem", "it ton xang"))
+                {
                     score += FuelSavingBonus;
+                }
+                else if (ContainsAny(product.Name, "wave", "future", "sirius", "vision", "jupiter"))
+                {
+                    score += 10;
+                }
+                else if (ContainsAny(product.Name, "air blade", "freego", "address", "lead"))
+                {
+                    score += 5;
+                }
                 else
-                    score -= 4;
+                {
+                    score -= 6;
+                }
+
+                if (product.EngineCc.HasValue)
+                {
+                    if (product.EngineCc.Value <= 125)
+                        score += 4;
+                    else if (product.EngineCc.Value >= 150)
+                        score -= 4;
+                }
             }
 
             if (profile.WantsLargeStorage)
             {
                 if (ContainsAny(product.Tags, "cop rong", "de do", "chua do"))
+                {
                     score += LargeStorageBonus;
+                }
+                else if (ContainsAny(product.Name, "freego", "lead", "latte"))
+                {
+                    score += 10;
+                }
                 else
-                    score -= 4;
+                {
+                    score -= 6;
+                }
             }
 
             if (profile.NeedsLowSeat)
             {
                 if (ContainsAny(product.Tags, "yen thap", "de chong chan"))
-                    score += 10;
+                {
+                    score += 12;
+                }
+                else if (product.SeatHeightMm.HasValue && product.SeatHeightMm.Value <= 770m)
+                {
+                    score += 8;
+                }
+                else if (product.SeatHeightMm.HasValue && product.SeatHeightMm.Value >= 785m)
+                {
+                    score -= 8;
+                }
                 else
+                {
                     score -= 4;
+                }
+            }
+
+            if (profile.WantsEasyControl)
+            {
+                if (ContainsAny(product.Tags, "de dieu khien", "de di", "linh hoat"))
+                {
+                    score += 10;
+                }
+                else if (product.VehicleType == VehicleType.Scooter)
+                {
+                    score += 5;
+                }
+                else
+                {
+                    score -= 4;
+                }
             }
 
             return score;
@@ -1169,7 +1249,54 @@ namespace Chatbot.API.Services
 
             return score;
         }
+        private static bool ShouldUseOpenConsultationMode(
+    ParsedIntent intent,
+    CustomerPreferenceProfile conversationProfile,
+    string message)
+        {
+            bool hasBrand =
+                !string.IsNullOrWhiteSpace(intent.Brand) ||
+                !string.IsNullOrWhiteSpace(conversationProfile.PreferredBrand);
 
+            bool hasCategory =
+                !string.IsNullOrWhiteSpace(intent.Category) ||
+                !string.IsNullOrWhiteSpace(conversationProfile.PreferredCategory);
+
+            bool hasBudget =
+                intent.TargetPrice.HasValue ||
+                intent.PriceMin.HasValue ||
+                intent.PriceMax.HasValue ||
+                conversationProfile.TargetPrice.HasValue ||
+                conversationProfile.PriceMin.HasValue ||
+                conversationProfile.PriceMax.HasValue;
+
+            bool hasUsageSignal =
+                intent.ForWork || intent.ForSchool || intent.ForCity || intent.ForTour ||
+                conversationProfile.ForWork || conversationProfile.ForSchool ||
+                conversationProfile.ForCity || conversationProfile.ForTour;
+
+            bool hasNeedSignal =
+                intent.WantsFuelSaving || intent.WantsLargeStorage || intent.WantsEasyControl || intent.NeedsLowSeat ||
+                conversationProfile.WantsFuelSaving || conversationProfile.WantsLargeStorage ||
+                conversationProfile.WantsEasyControl || conversationProfile.NeedsLowSeat;
+
+            bool hasTargetSignal =
+                !string.IsNullOrWhiteSpace(intent.Target) ||
+                !string.IsNullOrWhiteSpace(conversationProfile.Target);
+
+            // Chỉ xem là open consultation khi thật sự còn khá mở
+            return !hasBrand &&
+                   !hasCategory &&
+                   !hasBudget &&
+                   !hasUsageSignal &&
+                   !hasNeedSignal &&
+                   !hasTargetSignal &&
+                   !ContainsAny(message,
+                       "xe ga", "xe so", "xe con",
+                       "honda", "yamaha", "suzuki", "sym", "piaggio",
+                       "tiet kiem xang", "cop rong", "de chong chan",
+                       "di lam", "di hoc", "di pho");
+        }
         private static RequestProfile BuildRequestProfile(
             ParsedIntent intent,
             CustomerPreferenceProfile conversationProfile,
@@ -1278,7 +1405,7 @@ namespace Chatbot.API.Services
                 PrefersMaleStyle = genderPreference.PrefersMaleStyle,
                 PrefersFemaleStyle = genderPreference.PrefersFemaleStyle,
 
-                IsOpenConsultation = true,
+                IsOpenConsultation = ShouldUseOpenConsultationMode(intent, conversationProfile, message),
 
                 HeightCm = conversationProfile.HeightCm ?? ExtractHeightCm(message),
                 NeedsCompactFit = needsCompactFit,
@@ -1711,21 +1838,36 @@ namespace Chatbot.API.Services
             return styles;
         }
 
-        private static decimal GetPriceDistanceForSort(ProductSummaryDto product, ParsedIntent intent)
+        private static decimal GetPriceDistanceForSort(
+    ProductSummaryDto product,
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile)
         {
-            if (intent.FilterType == PriceFilterType.Around && intent.TargetPrice.HasValue)
+            var targetPrice = intent.TargetPrice ?? profile.TargetPrice;
+            var minPrice = intent.PriceMin ?? profile.PriceMin;
+            var maxPrice = intent.PriceMax ?? profile.PriceMax;
+            var filterType = intent.FilterType != PriceFilterType.None
+                ? intent.FilterType
+                : profile.FilterType;
+
+            if (filterType == PriceFilterType.Around && targetPrice.HasValue)
             {
-                return Math.Abs(product.Gia - intent.TargetPrice.Value);
+                return Math.Abs(product.Gia - targetPrice.Value);
             }
 
-            if (intent.PriceMax.HasValue && product.Gia > intent.PriceMax.Value)
+            if (maxPrice.HasValue && product.Gia > maxPrice.Value)
             {
-                return product.Gia - intent.PriceMax.Value;
+                return product.Gia - maxPrice.Value;
             }
 
-            if (intent.PriceMin.HasValue && product.Gia < intent.PriceMin.Value)
+            if (minPrice.HasValue && product.Gia < minPrice.Value)
             {
-                return intent.PriceMin.Value - product.Gia;
+                return minPrice.Value - product.Gia;
+            }
+
+            if (targetPrice.HasValue)
+            {
+                return Math.Abs(product.Gia - targetPrice.Value);
             }
 
             return 0m;

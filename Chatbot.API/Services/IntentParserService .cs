@@ -664,8 +664,21 @@ namespace Chatbot.API.Services
 
         private static void ParseExcludedBrand(string text, ParsedIntent result)
         {
-            if (ContainsAny(text, "khong thich honda", "khong muon honda", "ne honda", "ghet honda", "dung honda", "bo honda", "loai honda"))
+            if (ContainsAny(text,
+    "khong thich honda",
+    "khong muon honda",
+    "ne honda",
+    "ghet honda",
+    "dung honda",
+    "bo honda",
+    "bo honda di",
+    "khong lay honda",
+    "khong lay honda nua",
+    "loai honda",
+    "loai honda ra"))
+            {
                 result.ExcludedBrands.Add("Honda");
+            }
 
             if (ContainsAny(text, "khong thich yamaha", "khong muon yamaha", "ne yamaha", "ghet yamaha", "dung yamaha", "bo yamaha", "loai yamaha"))
                 result.ExcludedBrands.Add("Yamaha");

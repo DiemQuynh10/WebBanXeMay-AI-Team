@@ -13,16 +13,24 @@ namespace Chatbot.API.Services
         private readonly IProductRecommendationService _productRecommendationService;
         private readonly IConversationPreferenceService _conversationPreferenceService;
         private readonly ILogger<RefinementService> _logger;
-
+        private readonly IRecommendationLLMService _recommendationLLMService;
+        private readonly IReplyStyleService _replyStyleService;
+        private readonly IReplyRewriteService _replyRewriteService;
         public RefinementService(
-            IWebBanXeMayToolClient toolClient,
-            IProductRecommendationService productRecommendationService,
-            IConversationPreferenceService conversationPreferenceService,
-            ILogger<RefinementService> logger)
+     IWebBanXeMayToolClient toolClient,
+     IProductRecommendationService productRecommendationService,
+     IConversationPreferenceService conversationPreferenceService,
+     IRecommendationLLMService recommendationLLMService,
+     IReplyStyleService replyStyleService,
+     IReplyRewriteService replyRewriteService,
+     ILogger<RefinementService> logger)
         {
             _toolClient = toolClient;
             _productRecommendationService = productRecommendationService;
             _conversationPreferenceService = conversationPreferenceService;
+            _recommendationLLMService = recommendationLLMService;
+            _replyStyleService = replyStyleService;
+            _replyRewriteService = replyRewriteService;
             _logger = logger;
         }
         private async Task<List<ProductSummaryDto>> LoadPreviousProductsAsync(
@@ -81,7 +89,7 @@ namespace Chatbot.API.Services
                 return null;
             }
 
-            var hasHardFilterChange = HasHardFilterChange(intent);
+            var hasHardFilterChange = HasHardFilterChange(normalizedMessage, intent);
             var hasSoftPreferenceChange = HasSoftPreferenceChange(normalizedMessage, intent);
             _logger.LogInformation(
     "Refinement entry. ConversationId={ConversationId}, Message={Message}, Brand={Brand}, Category={Category}, ExcludedCategories={ExcludedCategories}, ExcludedBrands={ExcludedBrands}, PriceMin={PriceMin}, PriceMax={PriceMax}, TargetPrice={TargetPrice}, FilterType={FilterType}, HardChange={HardChange}, SoftChange={SoftChange}",
@@ -203,37 +211,36 @@ namespace Chatbot.API.Services
                                 rankedRelaxed,
                                 "refine");
 
-                            var brandReply = new StringBuilder();
-                            brandReply.AppendLine($"Nếu vẫn giữ nhu cầu trước đó thì trong tầm giá hiện tại mình chưa thấy mẫu **{intent.Brand}** nào thật sự sát.");
-                            brandReply.AppendLine();
-                            brandReply.AppendLine($"Nếu nới nhẹ hơn một chút thì mình thấy các mẫu **{intent.Brand}** này đáng cân nhắc:");
-                            brandReply.AppendLine();
+                            var brandDraftReply = _replyStyleService.BuildRefinementBrandRelaxedReply(
+     rankedRelaxed,
+     intent);
 
-                            foreach (var item in rankedRelaxed)
-                            {
-                                brandReply.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ): đúng hãng {intent.Brand}, còn {item.SoLuong} chiếc");
-                            }
-
-                            brandReply.AppendLine();
-                            brandReply.AppendLine("Bạn có thể lọc tiếp thêm theo loại xe, cốp rộng, dễ chống chân hoặc siết lại mức giá.");
+                            var brandReply = await _replyRewriteService.RewriteAsync(
+                                normalizedMessage,
+                                brandDraftReply);
 
                             return new ChatResponse
                             {
                                 Success = true,
                                 ConversationId = conversationId,
                                 UsedAI = false,
-                                Reply = brandReply.ToString().Trim(),
+                                Reply = brandReply,
                                 Products = ChatProductCardMapper.MapMany(rankedRelaxed, 4)
                             };
                         }
                     }
+                    var draftNoMatch = BuildSmartRefinementNoMatchReply(intent, profile);
+
+                    var noMatchReply = await _replyRewriteService.RewriteAsync(
+                        normalizedMessage,
+                        draftNoMatch);
 
                     return new ChatResponse
                     {
                         Success = true,
                         ConversationId = conversationId,
                         UsedAI = false,
-                        Reply = "Trong nhóm đang xét, mình chưa thấy mẫu nào khớp thêm tiêu chí mới. Bạn có thể nới nhẹ giá hoặc đổi sang hãng khác để mình lọc tiếp."
+                        Reply = noMatchReply
                     };
                 }
                 var rankedHard = _productRecommendationService.RankProducts(
@@ -242,14 +249,29 @@ namespace Chatbot.API.Services
                     profile,
                     normalizedMessage,
                     take: Math.Min(4, items.Count));
-
+                _logger.LogInformation(
+    "Hard refinement rule ranking completed. ConversationId={ConversationId}, CandidateCount={CandidateCount}, RankedHardCount={RankedHardCount}",
+    conversationId,
+    items.Count,
+    rankedHard.Count);
                 await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
                     conversationId,
                     rankedHard,
                     "refine");
 
-                var hardReply = BuildRefineReply(rankedHard, intent, normalizedMessage);
+                var hardDraftReply = _replyStyleService.BuildRefinementReply(
+     rankedHard,
+     intent,
+     normalizedMessage,
+     item => BuildSimpleRefineReason(item, intent, normalizedMessage));
 
+                var hardReply = await _replyRewriteService.RewriteAsync(
+                    normalizedMessage,
+                    hardDraftReply);
+                _logger.LogInformation(
+    "Hard refinement final result. ConversationId={ConversationId}, FinalProductCount={FinalProductCount}",
+    conversationId,
+    rankedHard.Count);
                 return new ChatResponse
                 {
                     Success = true,
@@ -264,14 +286,16 @@ namespace Chatbot.API.Services
             {
                 EnrichSoftPreferenceIntent(normalizedMessage, intent);
 
-                List<ProductSummaryDto> candidateProducts;
+                List<ProductSummaryDto> candidateProducts = previousProducts.ToList();
 
-                bool shouldRefetchBroader = ShouldRefetchBroaderCandidatesForSoftRefine(normalizedMessage, intent);
+                // Bước 1: luôn ưu tiên current set trước
+                var shouldRefetchBroader = ShouldRefetchBroaderForSoftRefine(candidateProducts, intent);
 
                 if (shouldRefetchBroader)
                 {
                     decimal? minPrice = intent.PriceMin ?? profile.PriceMin;
                     decimal? maxPrice = intent.PriceMax ?? profile.PriceMax;
+
                     // Carry lại target price từ profile để bộ rank giữ được "trọng tâm giá" gần nhất
                     if (!intent.TargetPrice.HasValue && profile.TargetPrice.HasValue)
                     {
@@ -282,6 +306,7 @@ namespace Chatbot.API.Services
                     {
                         intent.FilterType = profile.FilterType;
                     }
+
                     string? brand = !string.IsNullOrWhiteSpace(intent.Brand) ? intent.Brand : profile.PreferredBrand;
                     string? category = !string.IsNullOrWhiteSpace(intent.Category) ? intent.Category : profile.PreferredCategory;
 
@@ -306,35 +331,35 @@ namespace Chatbot.API.Services
                         category: category,
                         take: 30);
 
-                    candidateProducts = toolResult?.Items?
+                    var broaderCandidates = toolResult?.Items?
                         .Where(x => x != null)
                         .ToList() ?? new List<ProductSummaryDto>();
 
-                    candidateProducts = ProductPriceFilterHelper.ApplyStrictPriceFilter(candidateProducts, intent);
+                    broaderCandidates = ProductPriceFilterHelper.ApplyStrictPriceFilter(broaderCandidates, intent);
 
                     if (intent.ExcludedCategories.Any())
                     {
-                        candidateProducts = candidateProducts
+                        broaderCandidates = broaderCandidates
                             .Where(x => !intent.ExcludedCategories.Any(ex => IsSameCategory(x.Loai, ex)))
                             .ToList();
                     }
 
                     if (intent.ExcludedBrands.Any())
                     {
-                        candidateProducts = candidateProducts
+                        broaderCandidates = broaderCandidates
                             .Where(x => !intent.ExcludedBrands.Any(ex =>
                                 string.Equals(x.ThuongHieu, ex, StringComparison.OrdinalIgnoreCase)))
                             .ToList();
                     }
 
-                    // nếu refetch mà không ra gì thì fallback về nhóm cũ
-                    if (candidateProducts.Count == 0)
+                    // Chỉ dùng broader set nếu nó thực sự có dữ liệu
+                    if (broaderCandidates.Count > 0)
                     {
-                        candidateProducts = previousProducts.ToList();
+                        candidateProducts = broaderCandidates;
                     }
 
                     _logger.LogInformation(
-                        "Soft refinement with broader refetch. ConversationId={ConversationId}, CandidateCount={CandidateCount}, Brand={Brand}, Category={Category}, MinPrice={MinPrice}, MaxPrice={MaxPrice}, WantsFuelSaving={WantsFuelSaving}, WantsLargeStorage={WantsLargeStorage}, NeedsLowSeat={NeedsLowSeat}, ComparisonFeature={ComparisonFeature}",
+                        "Soft refinement broader refetch executed. ConversationId={ConversationId}, CandidateCount={CandidateCount}, Brand={Brand}, Category={Category}, MinPrice={MinPrice}, MaxPrice={MaxPrice}, WantsFuelSaving={WantsFuelSaving}, WantsLargeStorage={WantsLargeStorage}, NeedsLowSeat={NeedsLowSeat}, ComparisonFeature={ComparisonFeature}",
                         conversationId,
                         candidateProducts.Count,
                         brand,
@@ -348,10 +373,8 @@ namespace Chatbot.API.Services
                 }
                 else
                 {
-                    candidateProducts = previousProducts.ToList();
-
                     _logger.LogInformation(
-                        "Soft refinement rerank within previous products only. ConversationId={ConversationId}, CandidateCount={CandidateCount}, WantsFuelSaving={WantsFuelSaving}, WantsLargeStorage={WantsLargeStorage}, NeedsLowSeat={NeedsLowSeat}, ComparisonFeature={ComparisonFeature}",
+                        "Soft refinement using current set first. ConversationId={ConversationId}, CandidateCount={CandidateCount}, WantsFuelSaving={WantsFuelSaving}, WantsLargeStorage={WantsLargeStorage}, NeedsLowSeat={NeedsLowSeat}, ComparisonFeature={ComparisonFeature}",
                         conversationId,
                         candidateProducts.Count,
                         intent.WantsFuelSaving,
@@ -374,21 +397,72 @@ namespace Chatbot.API.Services
                         candidateProducts = previousProducts.ToList();
                     }
                 }
-                var rankedSoft = _productRecommendationService.RankProducts(
-                    candidateProducts,
-                    intent,
-                    profile,
-                    normalizedMessage,
-                    take: Math.Min(4, candidateProducts.Count));
+                var rankedSoftByRule = _productRecommendationService.RankProducts(
+      candidateProducts,
+      intent,
+      profile,
+      normalizedMessage,
+      take: Math.Min(5, candidateProducts.Count));
+                _logger.LogInformation(
+    "Soft refinement rule ranking completed. ConversationId={ConversationId}, CandidateCount={CandidateCount}, RankedByRuleCount={RankedByRuleCount}",
+    conversationId,
+    candidateProducts.Count,
+    rankedSoftByRule.Count);
+                var rankedSoft = rankedSoftByRule;
+
+                if (rankedSoftByRule.Count >= 3)
+                {
+                    try
+                    {
+                        var llmResult = await _recommendationLLMService.RerankAsync(
+                            normalizedMessage,
+                            intent,
+                            profile,
+                            rankedSoftByRule);
+
+                        var llmRanked = ApplyLlmRerank(
+                            rankedSoftByRule,
+                            llmResult,
+                            Math.Min(4, rankedSoftByRule.Count));
+
+                        if (llmRanked.Count > 0)
+                        {
+                            _logger.LogInformation(
+                                "Soft refinement LLM rerank applied. ConversationId={ConversationId}, RuleCount={RuleCount}, LlmSelectedCount={LlmSelectedCount}",
+                                conversationId,
+                                rankedSoftByRule.Count,
+                                llmRanked.Count);
+
+                            rankedSoft = llmRanked;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "LLM rerank failed in RefinementService. Fallback to rule ranking.");
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Skip LLM rerank in soft refinement because only {RuleCount} rule-ranked candidates remain. ConversationId={ConversationId}",
+                        rankedSoftByRule.Count,
+                        conversationId);
+                }
 
                 if (rankedSoft == null || rankedSoft.Count == 0)
                 {
+                    var draftNoMatch = BuildSmartRefinementNoMatchReply(intent, profile);
+
+                    var noMatchReply = await _replyRewriteService.RewriteAsync(
+                        normalizedMessage,
+                        draftNoMatch);
+
                     return new ChatResponse
                     {
                         Success = true,
                         ConversationId = conversationId,
                         UsedAI = false,
-                        Reply = "Trong nhóm đang xét, mình chưa thấy mẫu nào nổi bật hơn theo tiêu chí mới. Bạn có thể đổi thêm hãng, giá hoặc loại xe để mình lọc tiếp."
+                        Reply = noMatchReply
                     };
                 }
 
@@ -397,8 +471,20 @@ namespace Chatbot.API.Services
                     rankedSoft,
                     "refine");
 
-                var softReply = BuildRefineReply(rankedSoft, intent, normalizedMessage);
+                var softDraftReply = _replyStyleService.BuildRefinementReply(
+     rankedSoft,
+     intent,
+     normalizedMessage,
+     item => BuildSimpleRefineReason(item, intent, normalizedMessage));
 
+                var softReply = await _replyRewriteService.RewriteAsync(
+                    normalizedMessage,
+                    softDraftReply);
+                _logger.LogInformation(
+    "Soft refinement final result. ConversationId={ConversationId}, FinalProductCount={FinalProductCount}, ComparisonFeature={ComparisonFeature}",
+    conversationId,
+    rankedSoft.Count,
+    intent.ComparisonFeature);
                 return new ChatResponse
                 {
                     Success = true,
@@ -410,10 +496,10 @@ namespace Chatbot.API.Services
             }
             IEnumerable<ProductSummaryDto> filtered = previousProducts;
 
-            if (!string.IsNullOrWhiteSpace(intent.Brand))
+            if (intent.ExcludedBrands.Any())
             {
                 filtered = filtered.Where(x =>
-     !intent.ExcludedBrands.Any(ex => string.Equals(x.ThuongHieu, ex, StringComparison.OrdinalIgnoreCase)));
+                    !intent.ExcludedBrands.Any(ex => string.Equals(x.ThuongHieu, ex, StringComparison.OrdinalIgnoreCase)));
             }
 
             if (intent.ExcludedCategories.Any())
@@ -422,22 +508,22 @@ namespace Chatbot.API.Services
                     !intent.ExcludedCategories.Any(ex => IsSameCategory(x.Loai, ex)));
             }
 
-            if (intent.ExcludedBrands.Any())
-            {
-                filtered = filtered.Where(x =>
-                    !intent.ExcludedBrands.Any(ex => x.ThuongHieu.Equals(ex, StringComparison.OrdinalIgnoreCase)));
-            }
-
             var filteredList = filtered.ToList();
 
             if (filteredList.Count == 0)
             {
+                var draftNoMatch = BuildSmartRefinementNoMatchReply(intent, profile);
+
+                var noMatchReply = await _replyRewriteService.RewriteAsync(
+                    normalizedMessage,
+                    draftNoMatch);
+
                 return new ChatResponse
                 {
                     Success = true,
                     ConversationId = conversationId,
                     UsedAI = false,
-                    Reply = BuildNoMatchReply(intent)
+                    Reply = noMatchReply
                 };
             }
 
@@ -445,12 +531,18 @@ namespace Chatbot.API.Services
 
             if (filteredList.Count == 0)
             {
+                var draftNoMatch = _replyStyleService.BuildRefinementNoMatchReply(intent);
+
+                var noMatchReply = await _replyRewriteService.RewriteAsync(
+                    normalizedMessage,
+                    draftNoMatch);
+
                 return new ChatResponse
                 {
                     Success = true,
                     ConversationId = conversationId,
                     UsedAI = false,
-                    Reply = BuildNoMatchReply(intent)
+                    Reply = noMatchReply
                 };
             }
 
@@ -550,7 +642,19 @@ namespace Chatbot.API.Services
 
             if (ranked == null || ranked.Count == 0)
             {
-                return null;
+                var draftNoMatch = BuildSmartRefinementNoMatchReply(intent, profile);
+
+                var noMatchReply = await _replyRewriteService.RewriteAsync(
+                    normalizedMessage,
+                    draftNoMatch);
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    Reply = noMatchReply
+                };
             }
 
             await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
@@ -558,7 +662,15 @@ namespace Chatbot.API.Services
                 ranked,
                 "refine");
 
-            var reply = BuildRefineReply(ranked, intent, normalizedMessage);
+            var draftReply = _replyStyleService.BuildRefinementReply(
+      ranked,
+      intent,
+      normalizedMessage,
+      item => BuildSimpleRefineReason(item, intent, normalizedMessage));
+
+            var reply = await _replyRewriteService.RewriteAsync(
+                normalizedMessage,
+                draftReply);
 
             return new ChatResponse
             {
@@ -611,6 +723,92 @@ namespace Chatbot.API.Services
                 intent.ComparisonFeature ??= "school_fit";
             }
         }
+        private static int GetSoftPreferenceMatchScore(ProductSummaryDto item, ParsedIntent intent)
+        {
+            if (item == null) return 0;
+
+            int score = 0;
+            var name = item.Ten ?? string.Empty;
+
+            if (intent.WantsLargeStorage)
+            {
+                if (name.Contains("Freego", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Lead", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Latte", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Address", StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 2;
+                }
+            }
+
+            if (intent.NeedsLowSeat || intent.WantsEasyControl)
+            {
+                if (name.Contains("Vision", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Zip", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Latte", StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 2;
+                }
+            }
+
+            if (intent.WantsFuelSaving)
+            {
+                if (name.Contains("Wave", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Future", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Vision", StringComparison.OrdinalIgnoreCase) ||
+                    name.Contains("Sirius", StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 2;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(intent.Brand) &&
+                string.Equals(item.ThuongHieu, intent.Brand, StringComparison.OrdinalIgnoreCase))
+            {
+                score += 1;
+            }
+
+            if (!string.IsNullOrWhiteSpace(intent.Category) &&
+                IsSameCategory(item.Loai, intent.Category))
+            {
+                score += 1;
+            }
+
+            return score;
+        }
+
+        private static bool ShouldRefetchBroaderForSoftRefine(
+     List<ProductSummaryDto> currentProducts,
+     ParsedIntent intent)
+        {
+            if (currentProducts == null || currentProducts.Count == 0)
+                return true;
+
+            if (currentProducts.Count <= 1)
+                return true;
+
+            var matchCount = currentProducts.Count(x => GetSoftPreferenceMatchScore(x, intent) > 0);
+
+            // 1) Nếu có ít nhất 2 mẫu match thì chắc chắn giữ current set
+            if (matchCount >= 2)
+                return false;
+
+            // 2) Nếu current set chỉ có 2 mẫu mà đã có 1 mẫu match,
+            //    thì vẫn ưu tiên current set trước để tránh refetch quá sớm
+            if (currentProducts.Count <= 2 && matchCount >= 1)
+                return false;
+
+            // 3) Nếu đang là refine mềm theo đúng ngữ cảnh hiện tại
+            //    và current set không quá nhỏ, cho current set một cơ hội trước
+            if ((intent.WantsLargeStorage || intent.WantsFuelSaving || intent.NeedsLowSeat || intent.WantsEasyControl)
+                && currentProducts.Count >= 3
+                && matchCount >= 1)
+            {
+                return false;
+            }
+
+            return true;
+        }
         private static bool ShouldRefetchBroaderCandidatesForSoftRefine(string message, ParsedIntent intent)
         {
             var text = (message ?? string.Empty).Trim().ToLowerInvariant();
@@ -656,48 +854,45 @@ namespace Chatbot.API.Services
 
             return text;
         }
-
-        private static string BuildNoMatchReply(ParsedIntent intent)
+        private static List<ProductSummaryDto> ApplyLlmRerank(
+     IReadOnlyList<ProductSummaryDto> rankedByRule,
+     LLMRecommendationResult? llmResult,
+     int take)
         {
-            if (intent.FilterType == PriceFilterType.MaxOnly && intent.PriceMax.HasValue)
+            if (rankedByRule == null || rankedByRule.Count == 0)
+                return new List<ProductSummaryDto>();
+
+            if (llmResult?.Recommendations == null || llmResult.Recommendations.Count == 0)
+                return rankedByRule.Take(take).ToList();
+
+            var byId = rankedByRule.ToDictionary(x => x.Id, x => x);
+
+            var orderedLlmRecs = llmResult.Recommendations
+                .Where(x => x != null)
+                .GroupBy(x => x.ProductId)
+                .Select(g => g.OrderByDescending(x => x.Score).First())
+                .OrderByDescending(x => x.Score)
+                .ThenByDescending(x => x.ProductId)
+                .ToList();
+
+            var selected = new List<ProductSummaryDto>();
+
+            foreach (var rec in orderedLlmRecs)
             {
-                return $"Trong nhóm mình vừa gợi ý, hiện chưa có mẫu nào thật sự nằm **dưới {intent.PriceMax.Value:N0} VNĐ**.";
+                if (byId.TryGetValue(rec.ProductId, out var product))
+                {
+                    selected.Add(product);
+                }
             }
 
-            if (intent.FilterType == PriceFilterType.MinOnly && intent.PriceMin.HasValue)
+            if (selected.Count > 0)
             {
-                return $"Trong nhóm mình vừa gợi ý, hiện chưa có mẫu nào thật sự nằm **từ {intent.PriceMin.Value:N0} VNĐ trở lên**.";
+                return selected.Take(take).ToList();
             }
 
-            if (intent.FilterType == PriceFilterType.Range &&
-                intent.PriceMin.HasValue &&
-                intent.PriceMax.HasValue)
-            {
-                return $"Trong nhóm mình vừa gợi ý, hiện chưa có mẫu nào thật sự nằm trong khoảng **{intent.PriceMin.Value:N0} - {intent.PriceMax.Value:N0} VNĐ**.";
-            }
-
-            if (intent.FilterType == PriceFilterType.Around && intent.TargetPrice.HasValue)
-            {
-                return $"Trong nhóm mình vừa gợi ý, hiện chưa có mẫu nào thật sự đủ sát mức **khoảng {intent.TargetPrice.Value:N0} VNĐ**.";
-            }
-
-            if (!string.IsNullOrWhiteSpace(intent.Brand))
-            {
-                return $"Trong nhóm mình vừa gợi ý thì hiện không còn mẫu **{intent.Brand}** nào thật sự phù hợp nữa.";
-            }
-
-            if (intent.ExcludedBrands.Any())
-            {
-                return $"Trong nhóm mình vừa gợi ý, sau khi bỏ **{string.Join(", ", intent.ExcludedBrands)}** thì hiện chưa còn mẫu nào thật sự phù hợp.";
-            }
-
-            if (intent.ExcludedCategories.Any())
-            {
-                return $"Trong nhóm mình vừa gợi ý, sau khi bỏ **{string.Join(", ", intent.ExcludedCategories)}** thì hiện chưa còn mẫu nào thật sự phù hợp.";
-            }
-
-            return "Trong nhóm mình vừa gợi ý thì sau khi lọc theo tiêu chí này hiện chưa còn mẫu nào thật sự phù hợp.";
+            return rankedByRule.Take(take).ToList();
         }
+       
         private static string DetectRefineMode(string message, ParsedIntent intent)
         {
             var text = (message ?? string.Empty).Trim().ToLowerInvariant();
@@ -740,104 +935,106 @@ namespace Chatbot.API.Services
 
             return "narrow";
         }
-        private static string BuildRefineIntro(string refineMode, ParsedIntent intent, string message)
-        {
-            var text = (message ?? string.Empty).Trim().ToLowerInvariant();
-
-            if (refineMode == "expand")
-            {
-                if (!string.IsNullOrWhiteSpace(intent.Brand))
-                {
-                    return $"Nếu giữ nhu cầu trước đó và ưu tiên thêm {intent.Brand}, mình thấy các mẫu này khá đáng chú ý:";
-                }
-
-                if (!string.IsNullOrWhiteSpace(intent.Category))
-                {
-                    return $"Nếu giữ nhu cầu trước đó và lọc thêm theo {intent.Category}, mình thấy các mẫu này khá phù hợp:";
-                }
-
-                return "Nếu giữ nhu cầu trước đó và lọc tiếp theo tiêu chí mới, mình thấy các mẫu này khá đáng chú ý:";
-            }
-
-            if (intent.PriceMax.HasValue && !intent.PriceMin.HasValue)
-            {
-                return $"Nếu lọc hẹp hơn theo mức giá dưới {intent.PriceMax.Value:N0} VNĐ, hiện mình thấy các mẫu này phù hợp hơn:";
-            }
-
-            if (intent.PriceMin.HasValue && intent.PriceMax.HasValue)
-            {
-                return $"Nếu lọc hẹp hơn theo khoảng giá từ {intent.PriceMin.Value:N0} đến {intent.PriceMax.Value:N0} VNĐ, hiện mình thấy các mẫu này phù hợp hơn:";
-            }
-
-            if (text.Contains("cốp rộng") || text.Contains("cop rong"))
-            {
-                return "Nếu ưu tiên cốp rộng hơn trong nhóm đang xét, mình thấy các mẫu này đáng cân nhắc hơn:";
-            }
-
-            if (text.Contains("dễ chống chân") || text.Contains("de chong chan"))
-            {
-                return "Nếu ưu tiên dễ chống chân hơn trong nhóm đang xét, mình thấy các mẫu này phù hợp hơn:";
-            }
-
-            return "Nếu lọc hẹp hơn từ nhóm trước, hiện mình thấy các mẫu này phù hợp hơn:";
-        }
-        private string BuildRefineReply(
-    IReadOnlyList<ProductSummaryDto> products,
-    ParsedIntent intent,
-    string message)
-        {
-            var refineMode = DetectRefineMode(message, intent);
-            var intro = BuildRefineIntro(refineMode, intent, message);
-
-            var sb = new StringBuilder();
-            sb.AppendLine(intro);
-            sb.AppendLine();
-
-            foreach (var item in products)
-            {
-                var reason = BuildSimpleRefineReason(item, intent, message);
-                sb.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ): {reason}");
-            }
-
-            sb.AppendLine();
-            sb.AppendLine("Bạn có thể lọc tiếp thêm một chút nữa như đổi hãng, siết giá hoặc thêm tiêu chí sử dụng.");
-
-            return sb.ToString().Trim();
-        }
+     
         private static string BuildSimpleRefineReason(
-    ProductSummaryDto item,
-    ParsedIntent intent,
-    string message)
+     ProductSummaryDto item,
+     ParsedIntent intent,
+     string message)
         {
             var text = (message ?? string.Empty).Trim().ToLowerInvariant();
 
+            // 1. Ưu tiên tiêu chí mềm trước
+            if (text.Contains("cốp rộng") || text.Contains("cop rong"))
+                return "mẫu này đáng cân nhắc hơn nếu bạn ưu tiên cốp rộng và tiện mang đồ";
+
+            if (text.Contains("dễ chống chân") || text.Contains("de chong chan") ||
+                text.Contains("yên thấp") || text.Contains("yen thap"))
+                return "mẫu này dễ phù hợp hơn nếu bạn ưu tiên dễ chống chân và dễ làm quen";
+
+            if (text.Contains("tiết kiệm xăng") || text.Contains("tiet kiem xang"))
+                return "mẫu này đáng cân nhắc hơn nếu bạn ưu tiên tiết kiệm xăng";
+
+            if (text.Contains("đi làm") || text.Contains("di lam"))
+                return "mẫu này hợp hơn nếu bạn ưu tiên đi làm hằng ngày";
+
+            if (text.Contains("đi học") || text.Contains("di hoc") ||
+                text.Contains("sinh viên") || text.Contains("sinh vien"))
+                return "mẫu này hợp hơn nếu bạn ưu tiên đi học hằng ngày";
+
+            // 2. Sau đó mới fallback sang brand / category / price
             if (!string.IsNullOrWhiteSpace(intent.Brand))
-                return $"đúng hãng {intent.Brand}, còn {item.SoLuong} chiếc";
+                return $"mẫu này đúng hãng {intent.Brand} và hiện còn {item.SoLuong} chiếc";
 
             if (!string.IsNullOrWhiteSpace(intent.Category))
-                return $"đúng nhóm {intent.Category}, còn {item.SoLuong} chiếc";
+                return $"mẫu này đúng nhóm {intent.Category} và hiện còn {item.SoLuong} chiếc";
 
-            if (intent.PriceMax.HasValue || intent.PriceMin.HasValue)
-                return $"nằm trong mức giá đang lọc, còn {item.SoLuong} chiếc";
+            if (intent.PriceMax.HasValue || intent.PriceMin.HasValue || intent.TargetPrice.HasValue)
+                return $"mẫu này đang nằm khá sát mức giá bạn vừa lọc và hiện còn {item.SoLuong} chiếc";
 
-            if (text.Contains("cốp rộng") || text.Contains("cop rong"))
-                return $"đang là một lựa chọn đáng cân nhắc khi ưu tiên cốp rộng";
-
-            if (text.Contains("dễ chống chân") || text.Contains("de chong chan"))
-                return $"đang là một lựa chọn đáng cân nhắc khi ưu tiên dễ chống chân";
-
-            return $"đang là một phương án phù hợp hơn sau khi lọc tiếp";
+            return "mẫu này đang là phương án phù hợp hơn sau khi lọc tiếp";
         }
-        private static bool HasHardFilterChange(ParsedIntent intent)
+        private static bool HasHardFilterChange(string message, ParsedIntent intent)
         {
-            return
-                !string.IsNullOrWhiteSpace(intent.Brand) ||
-                !string.IsNullOrWhiteSpace(intent.Category) ||
+            var text = (message ?? string.Empty).Trim().ToLowerInvariant();
+
+            bool mentionsBrandInCurrentTurn =
+                !string.IsNullOrWhiteSpace(intent.Brand) &&
+                text.Contains((intent.Brand ?? string.Empty).ToLowerInvariant());
+
+            bool mentionsCategoryInCurrentTurn =
+                (!string.IsNullOrWhiteSpace(intent.Category) &&
+                 (text.Contains("xe ga") ||
+                  text.Contains("xe số") ||
+                  text.Contains("xe so") ||
+                  text.Contains("côn tay") ||
+                  text.Contains("con tay")));
+
+            bool hasExplicitBrandOrCategoryThisTurn =
+                mentionsBrandInCurrentTurn ||
+                mentionsCategoryInCurrentTurn ||
+                intent.ExcludedCategories.Any() ||
+                intent.ExcludedBrands.Any();
+
+            bool hasExplicitPricePhrase =
+                text.Contains("dưới ") ||
+                text.Contains("duoi ") ||
+                text.Contains("trên ") ||
+                text.Contains("tren ") ||
+                text.Contains("từ ") ||
+                text.Contains("tu ") ||
+                text.Contains("đến ") ||
+                text.Contains("den ") ||
+                text.Contains("khoảng ") ||
+                text.Contains("khoang ") ||
+                text.Contains("tầm ") ||
+                text.Contains("tam ") ||
+                text.Contains("quanh ") ||
+                text.Contains("triệu") ||
+                text.Contains("trieu") ||
+                text.Contains("tr");
+
+            bool hasPriceIntent =
                 intent.PriceMin.HasValue ||
                 intent.PriceMax.HasValue ||
                 intent.TargetPrice.HasValue ||
-                intent.ExcludedCategories.Any() ||
-                intent.ExcludedBrands.Any();
+                intent.FilterType != PriceFilterType.None;
+
+            bool isSoftOnlyPhrase =
+                text.Contains("cốp rộng") ||
+                text.Contains("cop rong") ||
+                text.Contains("dễ chống chân") ||
+                text.Contains("de chong chan") ||
+                text.Contains("yên thấp") ||
+                text.Contains("yen thap") ||
+                text.Contains("tiết kiệm xăng") ||
+                text.Contains("tiet kiem xang") ||
+                text.Contains("đi êm") ||
+                text.Contains("di em");
+
+            if (isSoftOnlyPhrase && !hasExplicitBrandOrCategoryThisTurn && !hasExplicitPricePhrase)
+                return false;
+
+            return hasExplicitBrandOrCategoryThisTurn || (hasPriceIntent && hasExplicitPricePhrase);
         }
         private static bool HasSoftPreferenceChange(string message, ParsedIntent intent)
         {
@@ -854,6 +1051,50 @@ namespace Chatbot.API.Services
                 text.Contains("de chong chan") ||
                 text.Contains("tiết kiệm xăng") ||
                 text.Contains("tiet kiem xang");
+        }
+        private string BuildSmartRefinementNoMatchReply(ParsedIntent intent, CustomerPreferenceProfile profile)
+        {
+            // Ưu tiên giải thích theo brand + category + budget
+            if (!string.IsNullOrWhiteSpace(intent.Brand) &&
+                !string.IsNullOrWhiteSpace(intent.Category) &&
+                (intent.PriceMax.HasValue || intent.PriceMin.HasValue || intent.TargetPrice.HasValue))
+            {
+                if (intent.PriceMax.HasValue && !intent.PriceMin.HasValue)
+                {
+                    return $"Hiện tại {intent.Brand} gần như không có mẫu {intent.Category} trong tầm dưới {intent.PriceMax.Value:N0} VNĐ. Bạn có thể tăng ngân sách hoặc đổi sang hãng khác để mình lọc tiếp.";
+                }
+
+                if (intent.PriceMin.HasValue && intent.PriceMax.HasValue)
+                {
+                    return $"Hiện tại {intent.Brand} gần như không có mẫu {intent.Category} trong khoảng {intent.PriceMin.Value:N0} - {intent.PriceMax.Value:N0} VNĐ. Bạn có thể nới nhẹ ngân sách hoặc đổi hãng để mình lọc tiếp.";
+                }
+
+                return $"Hiện tại {intent.Brand} gần như không có mẫu {intent.Category} thật sự phù hợp với mức giá bạn đang nhắm tới. Bạn có thể tăng ngân sách hoặc đổi sang hãng khác để mình lọc tiếp.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(intent.Category) &&
+                (intent.PriceMax.HasValue || intent.PriceMin.HasValue || intent.TargetPrice.HasValue))
+            {
+                if (intent.PriceMax.HasValue && !intent.PriceMin.HasValue)
+                {
+                    return $"Hiện tại nhóm {intent.Category} trong tầm dưới {intent.PriceMax.Value:N0} VNĐ khá ít lựa chọn với tiêu chí này. Bạn có thể nới nhẹ ngân sách hoặc đổi hãng để mình lọc tiếp.";
+                }
+            }
+            if (intent.PriceMin.HasValue && intent.PriceMax.HasValue)
+            {
+                return $"Hiện tại nhóm {intent.Category} trong khoảng {intent.PriceMin.Value:N0} - {intent.PriceMax.Value:N0} VNĐ khá ít lựa chọn với tiêu chí này. Bạn có thể nới nhẹ ngân sách hoặc đổi hãng để mình lọc tiếp.";
+            }
+
+            if (intent.TargetPrice.HasValue)
+            {
+                return $"Hiện tại nhóm {intent.Category} quanh mức {intent.TargetPrice.Value:N0} VNĐ khá ít lựa chọn với tiêu chí này. Bạn có thể nới nhẹ ngân sách hoặc đổi hãng để mình lọc tiếp.";
+            }
+
+            if (intent.PriceMin.HasValue && !intent.PriceMax.HasValue)
+            {
+                return $"Hiện tại nhóm {intent.Category} từ {intent.PriceMin.Value:N0} VNĐ trở lên vẫn chưa có nhiều lựa chọn thật sự phù hợp với tiêu chí này. Bạn có thể đổi hãng hoặc điều chỉnh thêm điều kiện để mình lọc tiếp.";
+            }
+            return _replyStyleService.BuildRefinementNoMatchReply(intent);
         }
     }
 }

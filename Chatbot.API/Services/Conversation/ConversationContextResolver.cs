@@ -122,6 +122,7 @@ namespace Chatbot.API.Services.Conversation
 
                 MergePreferenceCollectionsFromProfile(effectiveIntent, existingProfile);
             }
+            ApplyCurrentTurnExclusionOverride(parsedIntent, effectiveIntent);
             var explicitTarget = ResolveExplicitGenderTarget(normalizedMessage);
             bool hasExplicitTarget = !string.IsNullOrWhiteSpace(explicitTarget);
 
@@ -147,6 +148,7 @@ namespace Chatbot.API.Services.Conversation
                 effectiveIntent.PrefersMaleStyle = existingProfile.PrefersMaleStyle;
                 effectiveIntent.PrefersFemaleStyle = existingProfile.PrefersFemaleStyle;
             }
+            ApplyCurrentTurnExclusionOverride(parsedIntent, effectiveIntent);
             RemoveResolvedExclusions(effectiveIntent);
             if (!string.IsNullOrWhiteSpace(effectiveIntent.Category))
             {
@@ -197,10 +199,11 @@ namespace Chatbot.API.Services.Conversation
                 var preservedExcludedCategories = existingProfile.ExcludedCategories
                     .Where(x => string.IsNullOrWhiteSpace(effectiveIntent.Category) ||
                                 !string.Equals(x, effectiveIntent.Category, StringComparison.OrdinalIgnoreCase));
-
                 effectiveIntent.ExcludedBrands.UnionWith(preservedExcludedBrands);
                 effectiveIntent.ExcludedCategories.UnionWith(preservedExcludedCategories);
                 effectiveIntent.RequestedStyles.UnionWith(existingProfile.RequestedStyles);
+
+                ApplyCurrentTurnExclusionOverride(parsedIntent, effectiveIntent);
 
                 RemoveResolvedExclusions(effectiveIntent);
             }
@@ -517,6 +520,35 @@ namespace Chatbot.API.Services.Conversation
             {
                 intent.ExcludedBrands.RemoveWhere(x =>
                     string.Equals(x, intent.Brand, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+        private static void ApplyCurrentTurnExclusionOverride(
+    ParsedIntent parsedIntent,
+    ParsedIntent effectiveIntent)
+        {
+            if (parsedIntent == null || effectiveIntent == null)
+                return;
+
+            if (parsedIntent.ExcludedBrands.Any())
+            {
+                effectiveIntent.ExcludedBrands.UnionWith(parsedIntent.ExcludedBrands);
+
+                if (!string.IsNullOrWhiteSpace(effectiveIntent.Brand) &&
+                    parsedIntent.ExcludedBrands.Contains(effectiveIntent.Brand, StringComparer.OrdinalIgnoreCase))
+                {
+                    effectiveIntent.Brand = null;
+                }
+            }
+
+            if (parsedIntent.ExcludedCategories.Any())
+            {
+                effectiveIntent.ExcludedCategories.UnionWith(parsedIntent.ExcludedCategories);
+
+                if (!string.IsNullOrWhiteSpace(effectiveIntent.Category) &&
+                    parsedIntent.ExcludedCategories.Contains(effectiveIntent.Category, StringComparer.OrdinalIgnoreCase))
+                {
+                    effectiveIntent.Category = null;
+                }
             }
         }
         private static void MergePreferenceCollectionsFromProfile(

@@ -20,12 +20,16 @@ namespace Chatbot.API.Services
             return Task.FromResult(profile);
         }
 
-        public Task<CustomerPreferenceProfile> MergeAsync(string conversationId, ParsedIntent intent)
+        public Task<CustomerPreferenceProfile> MergeAsync(
+    string conversationId,
+    ParsedIntent intent,
+    bool isFreshRecommendation = false)
         {
             var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
             {
                 ConversationId = id
             });
+
             var rawMessage = NormalizeGenderText(intent.RawMessage);
 
             bool messageExplicitlyMentionsMale =
@@ -42,39 +46,131 @@ namespace Chatbot.API.Services
                 rawMessage.Contains("cho nu") ||
                 rawMessage.Contains("phai nu") ||
                 rawMessage.Contains("phu nu");
-            if (intent.FilterType != PriceFilterType.None)
+
+            if (isFreshRecommendation)
             {
-                profile.FilterType = intent.FilterType;
+                // =========================
+                // 1) RESET recommendation-sensitive fields
+                // =========================
+                profile.PriceMin = null;
+                profile.PriceMax = null;
+                profile.TargetPrice = null;
+                profile.FilterType = PriceFilterType.None;
 
-                switch (intent.FilterType)
+                profile.PreferredCategory = null;
+                profile.PreferredBrand = null;
+                profile.Target = null;
+
+                profile.ExcludedCategories.Clear();
+                profile.ExcludedBrands.Clear();
+
+                profile.HeightCm = null;
+                profile.NeedsLowSeat = false;
+
+                profile.ForSchool = false;
+                profile.ForWork = false;
+                profile.ForCity = false;
+                profile.ForTour = false;
+
+                profile.WantsEasyControl = false;
+                profile.WantsFuelSaving = false;
+                profile.WantsLargeStorage = false;
+
+                profile.PrefersMaleStyle = false;
+                profile.PrefersFemaleStyle = false;
+
+                profile.RequestedStyles.Clear();
+
+                // reset compare-related context nếu đang bắt đầu recommendation mới
+                profile.HasActiveCompareContext = false;
+                profile.LastComparisonFeature = null;
+
+                // =========================
+                // 2) APPLY new recommendation intent
+                // =========================
+                if (intent.FilterType != PriceFilterType.None)
                 {
-                    case PriceFilterType.Range:
-                        profile.PriceMin = intent.PriceMin;
-                        profile.PriceMax = intent.PriceMax;
-                        profile.TargetPrice = null;
-                        break;
+                    profile.FilterType = intent.FilterType;
 
-                    case PriceFilterType.MaxOnly:
-                        profile.PriceMin = null; 
-                        profile.PriceMax = intent.PriceMax;
-                        profile.TargetPrice = null;
-                        break;
+                    switch (intent.FilterType)
+                    {
+                        case PriceFilterType.Range:
+                            profile.PriceMin = intent.PriceMin;
+                            profile.PriceMax = intent.PriceMax;
+                            profile.TargetPrice = null;
+                            break;
 
-                    case PriceFilterType.MinOnly:
-                        profile.PriceMin = intent.PriceMin;
-                        profile.PriceMax = null; 
-                        profile.TargetPrice = null;
-                        break;
+                        case PriceFilterType.MaxOnly:
+                            profile.PriceMin = null;
+                            profile.PriceMax = intent.PriceMax;
+                            profile.TargetPrice = null;
+                            break;
 
-                    case PriceFilterType.Around:
-                        profile.TargetPrice = intent.TargetPrice;
-                        profile.PriceMin = intent.PriceMin;
-                        profile.PriceMax = intent.PriceMax;
-                        break;
+                        case PriceFilterType.MinOnly:
+                            profile.PriceMin = intent.PriceMin;
+                            profile.PriceMax = null;
+                            profile.TargetPrice = null;
+                            break;
 
-                    default:
-                        break;
+                        case PriceFilterType.Around:
+                            profile.TargetPrice = intent.TargetPrice;
+                            profile.PriceMin = intent.PriceMin;
+                            profile.PriceMax = intent.PriceMax;
+                            break;
+
+                        default:
+                            break;
+                    }
                 }
+                else
+                {
+                    profile.PriceMin = intent.PriceMin;
+                    profile.PriceMax = intent.PriceMax;
+                    profile.TargetPrice = intent.TargetPrice;
+                }
+
+                if (!string.IsNullOrWhiteSpace(intent.Category))
+                {
+                    profile.PreferredCategory = intent.Category;
+                }
+
+                if (!string.IsNullOrWhiteSpace(intent.Brand))
+                {
+                    profile.PreferredBrand = intent.Brand;
+                }
+
+                if (!string.IsNullOrWhiteSpace(intent.Target))
+                {
+                    profile.Target = intent.Target;
+                }
+
+                foreach (var item in intent.ExcludedCategories)
+                    profile.ExcludedCategories.Add(item);
+
+                foreach (var item in intent.ExcludedBrands)
+                    profile.ExcludedBrands.Add(item);
+
+                if (intent.HeightCm.HasValue)
+                    profile.HeightCm = intent.HeightCm;
+
+                profile.NeedsLowSeat = intent.NeedsLowSeat;
+
+                profile.ForSchool = intent.ForSchool;
+                profile.ForWork = intent.ForWork;
+                profile.ForCity = intent.ForCity;
+                profile.ForTour = intent.ForTour;
+
+                profile.WantsEasyControl = intent.WantsEasyControl;
+                profile.WantsFuelSaving = intent.WantsFuelSaving;
+                profile.WantsLargeStorage = intent.WantsLargeStorage;
+
+                profile.PrefersMaleStyle = intent.PrefersMaleStyle;
+                profile.PrefersFemaleStyle = intent.PrefersFemaleStyle;
+
+                foreach (var style in intent.RequestedStyles)
+                    profile.RequestedStyles.Add(style);
+
+                // Ưu tiên tín hiệu giới tính nếu user nói rõ trong message
                 if (messageExplicitlyMentionsMale)
                 {
                     profile.Target = "nam";
@@ -90,94 +186,152 @@ namespace Chatbot.API.Services
             }
             else
             {
-                if (intent.PriceMin.HasValue)
-                    profile.PriceMin = intent.PriceMin;
-
-                if (intent.PriceMax.HasValue)
-                    profile.PriceMax = intent.PriceMax;
-
-                if (intent.TargetPrice.HasValue)
-                    profile.TargetPrice = intent.TargetPrice;
-            }
-
-            if (!string.IsNullOrWhiteSpace(intent.Category))
-            {
-                profile.PreferredCategory = intent.Category;
-                profile.ExcludedCategories.RemoveWhere(x =>
-                    string.Equals(x, intent.Category, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (!string.IsNullOrWhiteSpace(intent.Brand))
-            {
-                profile.PreferredBrand = intent.Brand;
-                profile.ExcludedBrands.RemoveWhere(x =>
-                    string.Equals(x, intent.Brand, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (!string.IsNullOrWhiteSpace(intent.Target))
-            {
-                var normalizedTarget = NormalizeGenderText(intent.Target);
-
-                if (messageExplicitlyMentionsMale && normalizedTarget.Contains("nam"))
+                // =========================
+                // LOGIC MERGE CŨ
+                // =========================
+                if (intent.FilterType != PriceFilterType.None)
                 {
-                    profile.Target = "nam";
+                    profile.FilterType = intent.FilterType;
+
+                    switch (intent.FilterType)
+                    {
+                        case PriceFilterType.Range:
+                            profile.PriceMin = intent.PriceMin;
+                            profile.PriceMax = intent.PriceMax;
+                            profile.TargetPrice = null;
+                            break;
+
+                        case PriceFilterType.MaxOnly:
+                            profile.PriceMin = null;
+                            profile.PriceMax = intent.PriceMax;
+                            profile.TargetPrice = null;
+                            break;
+
+                        case PriceFilterType.MinOnly:
+                            profile.PriceMin = intent.PriceMin;
+                            profile.PriceMax = null;
+                            profile.TargetPrice = null;
+                            break;
+
+                        case PriceFilterType.Around:
+                            profile.TargetPrice = intent.TargetPrice;
+                            profile.PriceMin = intent.PriceMin;
+                            profile.PriceMax = intent.PriceMax;
+                            break;
+
+                        default:
+                            break;
+                    }
+
+                    if (messageExplicitlyMentionsMale)
+                    {
+                        profile.Target = "nam";
+                        profile.PrefersMaleStyle = true;
+                        profile.PrefersFemaleStyle = false;
+                    }
+                    else if (messageExplicitlyMentionsFemale)
+                    {
+                        profile.Target = "nữ";
+                        profile.PrefersFemaleStyle = true;
+                        profile.PrefersMaleStyle = false;
+                    }
+                }
+                else
+                {
+                    if (intent.PriceMin.HasValue)
+                        profile.PriceMin = intent.PriceMin;
+
+                    if (intent.PriceMax.HasValue)
+                        profile.PriceMax = intent.PriceMax;
+
+                    if (intent.TargetPrice.HasValue)
+                        profile.TargetPrice = intent.TargetPrice;
+                }
+
+                if (!string.IsNullOrWhiteSpace(intent.Category))
+                {
+                    profile.PreferredCategory = intent.Category;
+                    profile.ExcludedCategories.RemoveWhere(x =>
+                        string.Equals(x, intent.Category, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (!string.IsNullOrWhiteSpace(intent.Brand))
+                {
+                    profile.PreferredBrand = intent.Brand;
+                    profile.ExcludedBrands.RemoveWhere(x =>
+                        string.Equals(x, intent.Brand, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (!string.IsNullOrWhiteSpace(intent.Target))
+                {
+                    var normalizedTarget = NormalizeGenderText(intent.Target);
+
+                    if (messageExplicitlyMentionsMale && normalizedTarget.Contains("nam"))
+                    {
+                        profile.Target = "nam";
+                        profile.PrefersMaleStyle = true;
+                        profile.PrefersFemaleStyle = false;
+                    }
+                    else if (messageExplicitlyMentionsFemale && normalizedTarget.Contains("nu"))
+                    {
+                        profile.Target = "nữ";
+                        profile.PrefersFemaleStyle = true;
+                        profile.PrefersMaleStyle = false;
+                    }
+
+                    if (messageExplicitlyMentionsMale)
+                    {
+                        profile.Target = "nam";
+                        profile.PrefersMaleStyle = true;
+                        profile.PrefersFemaleStyle = false;
+                    }
+                    else if (messageExplicitlyMentionsFemale)
+                    {
+                        profile.Target = "nữ";
+                        profile.PrefersFemaleStyle = true;
+                        profile.PrefersMaleStyle = false;
+                    }
+                }
+
+                foreach (var item in intent.ExcludedCategories)
+                    profile.ExcludedCategories.Add(item);
+
+                foreach (var item in intent.ExcludedBrands)
+                    profile.ExcludedBrands.Add(item);
+
+                if (intent.HeightCm.HasValue)
+                    profile.HeightCm = intent.HeightCm;
+
+                if (intent.NeedsLowSeat)
+                    profile.NeedsLowSeat = true;
+
+                if (intent.ForSchool) profile.ForSchool = true;
+                if (intent.ForWork) profile.ForWork = true;
+                if (intent.ForCity) profile.ForCity = true;
+                if (intent.ForTour) profile.ForTour = true;
+
+                if (intent.WantsEasyControl) profile.WantsEasyControl = true;
+                if (intent.WantsFuelSaving) profile.WantsFuelSaving = true;
+                if (intent.WantsLargeStorage) profile.WantsLargeStorage = true;
+
+                if (messageExplicitlyMentionsMale && intent.PrefersMaleStyle && !intent.PrefersFemaleStyle)
+                {
                     profile.PrefersMaleStyle = true;
                     profile.PrefersFemaleStyle = false;
                 }
-                else if (messageExplicitlyMentionsFemale && normalizedTarget.Contains("nu"))
+                else if (messageExplicitlyMentionsFemale && intent.PrefersFemaleStyle && !intent.PrefersMaleStyle)
                 {
-                    profile.Target = "nữ";
                     profile.PrefersFemaleStyle = true;
                     profile.PrefersMaleStyle = false;
                 }
-                if (messageExplicitlyMentionsMale)
-                {
-                    profile.Target = "nam";
-                    profile.PrefersMaleStyle = true;
-                    profile.PrefersFemaleStyle = false;
-                }
-                else if (messageExplicitlyMentionsFemale)
-                {
-                    profile.Target = "nữ";
-                    profile.PrefersFemaleStyle = true;
-                    profile.PrefersMaleStyle = false;
-                }
-            }
-            foreach (var item in intent.ExcludedCategories)
-                profile.ExcludedCategories.Add(item);
 
-            foreach (var item in intent.ExcludedBrands)
-                profile.ExcludedBrands.Add(item);
-
-            if (intent.HeightCm.HasValue)
-                profile.HeightCm = intent.HeightCm;
-
-            if (intent.NeedsLowSeat)
-                profile.NeedsLowSeat = true;
-
-            if (intent.ForSchool) profile.ForSchool = true;
-            if (intent.ForWork) profile.ForWork = true;
-            if (intent.ForCity) profile.ForCity = true;
-            if (intent.ForTour) profile.ForTour = true;
-
-            if (intent.WantsEasyControl) profile.WantsEasyControl = true;
-            if (intent.WantsFuelSaving) profile.WantsFuelSaving = true;
-            if (intent.WantsLargeStorage) profile.WantsLargeStorage = true;
-
-            if (messageExplicitlyMentionsMale && intent.PrefersMaleStyle && !intent.PrefersFemaleStyle)
-            {
-                profile.PrefersMaleStyle = true;
-                profile.PrefersFemaleStyle = false;
-            }
-            else if (messageExplicitlyMentionsFemale && intent.PrefersFemaleStyle && !intent.PrefersMaleStyle)
-            {
-                profile.PrefersFemaleStyle = true;
-                profile.PrefersMaleStyle = false;
+                foreach (var style in intent.RequestedStyles)
+                    profile.RequestedStyles.Add(style);
             }
 
-            foreach (var style in intent.RequestedStyles)
-                profile.RequestedStyles.Add(style);
-
+            // =========================
+            // Metadata / shared updates
+            // =========================
             if (intent.MentionedProducts.Any())
             {
                 profile.LastMentionedProducts = intent.MentionedProducts
@@ -210,19 +364,27 @@ namespace Chatbot.API.Services
             profile.TurnCount++;
             profile.LastUserMessage = intent.RawMessage;
             profile.UpdatedAtUtc = DateTime.UtcNow;
+
             Console.WriteLine(
-    $"[ConversationPreferenceService] Merge result | RawMessage={intent.RawMessage} | " +
-    $"messageExplicitlyMentionsMale={messageExplicitlyMentionsMale} | " +
-    $"messageExplicitlyMentionsFemale={messageExplicitlyMentionsFemale} | " +
-    $"intent.Target={intent.Target} | " +
-    $"intent.PrefersMaleStyle={intent.PrefersMaleStyle} | " +
-    $"intent.PrefersFemaleStyle={intent.PrefersFemaleStyle} | " +
-    $"profile.Target={profile.Target} | " +
-    $"profile.PrefersMaleStyle={profile.PrefersMaleStyle} | " +
-    $"profile.PrefersFemaleStyle={profile.PrefersFemaleStyle}");
+        $"[ConversationPreferenceService] Merge result | RawMessage={intent.RawMessage} | " +
+        $"isFreshRecommendation={isFreshRecommendation} | " +
+        $"messageExplicitlyMentionsMale={messageExplicitlyMentionsMale} | " +
+        $"messageExplicitlyMentionsFemale={messageExplicitlyMentionsFemale} | " +
+        $"intent.Target={intent.Target} | " +
+        $"intent.PrefersMaleStyle={intent.PrefersMaleStyle} | " +
+        $"intent.PrefersFemaleStyle={intent.PrefersFemaleStyle} | " +
+        $"profile.Target={profile.Target} | " +
+        $"profile.PrefersMaleStyle={profile.PrefersMaleStyle} | " +
+        $"profile.PrefersFemaleStyle={profile.PrefersFemaleStyle} | " +
+        $"profile.PriceMin={profile.PriceMin} | " +
+        $"profile.PriceMax={profile.PriceMax} | " +
+        $"profile.TargetPrice={profile.TargetPrice} | " +
+        $"profile.ForWork={profile.ForWork} | " +
+        $"profile.WantsLargeStorage={profile.WantsLargeStorage} | " +
+        $"profile.NeedsLowSeat={profile.NeedsLowSeat}");
+
             return Task.FromResult(profile);
         }
-
         public Task UpdateCurrentRecommendedProductsAsync(
     string conversationId,
     IEnumerable<ProductSummaryDto> products,
@@ -439,7 +601,120 @@ namespace Chatbot.API.Services
             _store.TryRemove(conversationId, out _);
             return Task.CompletedTask;
         }
+        private static void ApplyFreshRecommendationProfile(
+    CustomerPreferenceProfile profile,
+    ParsedIntent intent,
+    bool messageExplicitlyMentionsMale,
+    bool messageExplicitlyMentionsFemale)
+        {
+            // Reset các field recommendation-sensitive
+            profile.PriceMin = null;
+            profile.PriceMax = null;
+            profile.TargetPrice = null;
+            profile.FilterType = PriceFilterType.None;
 
+            profile.PreferredBrand = null;
+            profile.PreferredCategory = null;
+            profile.Target = null;
+
+            profile.HeightCm = null;
+            profile.NeedsLowSeat = false;
+
+            profile.ForSchool = false;
+            profile.ForWork = false;
+            profile.ForCity = false;
+            profile.ForTour = false;
+
+            profile.WantsEasyControl = false;
+            profile.WantsFuelSaving = false;
+            profile.WantsLargeStorage = false;
+
+            profile.PrefersMaleStyle = false;
+            profile.PrefersFemaleStyle = false;
+
+            profile.ExcludedCategories.Clear();
+            profile.ExcludedBrands.Clear();
+            profile.RequestedStyles.Clear();
+
+            // Gán lại từ intent mới
+            if (intent.FilterType != PriceFilterType.None)
+            {
+                profile.FilterType = intent.FilterType;
+
+                switch (intent.FilterType)
+                {
+                    case PriceFilterType.Range:
+                        profile.PriceMin = intent.PriceMin;
+                        profile.PriceMax = intent.PriceMax;
+                        break;
+
+                    case PriceFilterType.MaxOnly:
+                        profile.PriceMax = intent.PriceMax;
+                        break;
+
+                    case PriceFilterType.MinOnly:
+                        profile.PriceMin = intent.PriceMin;
+                        break;
+
+                    case PriceFilterType.Around:
+                        profile.TargetPrice = intent.TargetPrice;
+                        profile.PriceMin = intent.PriceMin;
+                        profile.PriceMax = intent.PriceMax;
+                        break;
+                }
+            }
+            else
+            {
+                profile.PriceMin = intent.PriceMin;
+                profile.PriceMax = intent.PriceMax;
+                profile.TargetPrice = intent.TargetPrice;
+            }
+
+            if (!string.IsNullOrWhiteSpace(intent.Category))
+                profile.PreferredCategory = intent.Category;
+
+            if (!string.IsNullOrWhiteSpace(intent.Brand))
+                profile.PreferredBrand = intent.Brand;
+
+            if (!string.IsNullOrWhiteSpace(intent.Target))
+                profile.Target = intent.Target;
+
+            if (intent.HeightCm.HasValue)
+                profile.HeightCm = intent.HeightCm;
+
+            profile.NeedsLowSeat = intent.NeedsLowSeat;
+
+            profile.ForSchool = intent.ForSchool;
+            profile.ForWork = intent.ForWork;
+            profile.ForCity = intent.ForCity;
+            profile.ForTour = intent.ForTour;
+
+            profile.WantsEasyControl = intent.WantsEasyControl;
+            profile.WantsFuelSaving = intent.WantsFuelSaving;
+            profile.WantsLargeStorage = intent.WantsLargeStorage;
+
+            foreach (var item in intent.ExcludedCategories)
+                profile.ExcludedCategories.Add(item);
+
+            foreach (var item in intent.ExcludedBrands)
+                profile.ExcludedBrands.Add(item);
+
+            foreach (var style in intent.RequestedStyles)
+                profile.RequestedStyles.Add(style);
+
+            if (messageExplicitlyMentionsMale)
+            {
+                profile.Target = "nam";
+                profile.PrefersMaleStyle = true;
+                profile.PrefersFemaleStyle = false;
+            }
+            else if (messageExplicitlyMentionsFemale)
+            {
+                profile.Target = "nữ";
+                profile.PrefersFemaleStyle = true;
+                profile.PrefersMaleStyle = false;
+            }
+        }
         public string BuildProfileSummary(CustomerPreferenceProfile profile)
         {
             var parts = new List<string>();

@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
 using Chatbot.API.Helpers;
 using Chatbot.API.Models.Chat;
 using Chatbot.API.Models.Intent;
@@ -153,17 +154,62 @@ namespace Chatbot.API.Services
             }
 
             var contextResolution = _conversationContextResolver.Resolve(
-    normalizedMessage,
-    parsedIntent,
-    existingProfile,
-    existingProfile.ActiveFlow);
+     normalizedMessage,
+     parsedIntent,
+     existingProfile,
+     existingProfile.ActiveFlow);
 
             var effectiveIntent = contextResolution.EffectiveIntent;
+            var contextDecision = contextResolution.ContextDecision;
 
-            // Merge profile thật sự sau khi đã resolve context
+            if (LooksLikeExplicitFreshRecommendationRequest(normalizedMessage, parsedIntent))
+            {
+                contextDecision = RecommendationContextDecision.StartFreshRecommendation;
+                effectiveIntent = SanitizeFreshRecommendationIntent(parsedIntent, effectiveIntent);
+
+                _logger.LogInformation(
+                    "Force context decision to StartFreshRecommendation. ConversationId={ConversationId}, Message={Message}, Brand={Brand}, Category={Category}, FilterType={FilterType}",
+                    conversationId,
+                    normalizedMessage,
+                    parsedIntent.Brand,
+                    parsedIntent.Category,
+                    parsedIntent.FilterType);
+            }
+            else if (ShouldOverrideToExpandFromCurrentGoal(
+                        normalizedMessage,
+                        parsedIntent,
+                        existingProfile,
+                        contextDecision))
+            {
+                contextDecision = RecommendationContextDecision.ExpandFromCurrentGoal;
+
+                if (existingProfile != null)
+                {
+                    effectiveIntent = MergeExpandFollowUpIntent(
+                        parsedIntent,
+                        effectiveIntent,
+                        existingProfile);
+                }
+
+                _logger.LogInformation(
+                    "Override context decision to ExpandFromCurrentGoal. ConversationId={ConversationId}, Message={Message}, Category={Category}, Brand={Brand}",
+                    conversationId,
+                    normalizedMessage,
+                    parsedIntent.Category,
+                    parsedIntent.Brand);
+            }
+            else if (contextDecision == RecommendationContextDecision.StartFreshRecommendation)
+            {
+                effectiveIntent = SanitizeFreshRecommendationIntent(parsedIntent, effectiveIntent);
+            }
+
+            var isFreshRecommendation =
+    contextDecision == RecommendationContextDecision.StartFreshRecommendation;
+            ApplyCurrentTurnPriceOverride(parsedIntent, effectiveIntent);
             var mergedProfile = await _conversationPreferenceService.MergeAsync(
                 conversationId,
-                effectiveIntent);
+                effectiveIntent,
+                isFreshRecommendation);
 
             var baseRouting = _chatFlowRouter.Route(
                 normalizedMessage,
@@ -171,11 +217,11 @@ namespace Chatbot.API.Services
                 mergedProfile);
 
             var finalRouting = _flowDecisionService.ResolveFinalRouting(
-                normalizedMessage,
-                effectiveIntent,
-                mergedProfile,
-                contextResolution.ContextDecision,
-                baseRouting);
+    normalizedMessage,
+    effectiveIntent,
+    mergedProfile,
+    contextDecision,
+    baseRouting);
 
             mergedProfile.ActiveFlow = finalRouting.FlowType;
             mergedProfile.UpdatedAtUtc = DateTime.UtcNow;
@@ -203,7 +249,7 @@ namespace Chatbot.API.Services
                 effectiveIntent.PriceMax,
                 effectiveIntent.TargetPrice,
                 effectiveIntent.FilterType,
-                contextResolution.ContextDecision,
+                contextDecision,
                 finalRouting.FlowType);
 
             _logger.LogInformation(
@@ -396,6 +442,297 @@ namespace Chatbot.API.Services
                 text == "mức giá";
 
             return mentionsLessThanTwoNewProducts && looksLikeCompareFollowUp;
+        }
+        private static bool ShouldOverrideToExpandFromCurrentGoal(
+    string normalizedMessage,
+    ParsedIntent parsedIntent,
+    CustomerPreferenceProfile? existingProfile,
+    RecommendationContextDecision currentDecision)
+        {
+            if (currentDecision != RecommendationContextDecision.StartFreshRecommendation)
+                return false;
+
+            if (existingProfile?.HasActiveRecommendationContext != true ||
+                existingProfile.LastRecommendedProducts == null ||
+                existingProfile.LastRecommendedProducts.Count == 0)
+            {
+                return false;
+            }
+
+            var text = (normalizedMessage ?? string.Empty).Trim().ToLowerInvariant();
+
+            bool hasNewStructuredFilter =
+                !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
+                !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
+                parsedIntent.PriceMin.HasValue ||
+                parsedIntent.PriceMax.HasValue ||
+                parsedIntent.TargetPrice.HasValue ||
+                parsedIntent.IsBrandSwitch ||
+                parsedIntent.IntentType == "brand_switch";
+
+            if (!hasNewStructuredFilter)
+                return false;
+
+            bool introducesNewGoal =
+                !string.IsNullOrWhiteSpace(parsedIntent.Target) ||
+                parsedIntent.ForWork ||
+                parsedIntent.ForSchool ||
+                parsedIntent.ForCity ||
+                parsedIntent.ForTour ||
+                parsedIntent.WantsFuelSaving ||
+                parsedIntent.WantsLargeStorage ||
+                parsedIntent.WantsEasyControl ||
+                parsedIntent.NeedsLowSeat;
+
+            // Nếu user chỉ đổi hãng / loại / giá nhưng không tạo goal mới,
+            // thì phải expand từ goal hiện tại chứ không reset.
+            if (!introducesNewGoal)
+                return true;
+
+            bool looksLikeShortFollowUp =
+                text.Contains("thì sao") ||
+                text.Contains("thi sao") ||
+                text.Contains("còn") ||
+                text.Contains("con ") ||
+                text.Contains("đổi sang") ||
+                text.Contains("doi sang");
+
+            return looksLikeShortFollowUp;
+        }
+        private static ParsedIntent MergeExpandFollowUpIntent(
+    ParsedIntent parsedIntent,
+    ParsedIntent effectiveIntent,
+    CustomerPreferenceProfile profile)
+        {
+            var merged = effectiveIntent.Clone();
+
+            if (string.IsNullOrWhiteSpace(merged.Target))
+                merged.Target = profile.Target;
+
+            if (!merged.ForWork)
+                merged.ForWork = profile.ForWork;
+
+            if (!merged.ForSchool)
+                merged.ForSchool = profile.ForSchool;
+
+            if (!merged.ForCity)
+                merged.ForCity = profile.ForCity;
+
+            if (!merged.ForTour)
+                merged.ForTour = profile.ForTour;
+
+            if (!merged.PriceMin.HasValue)
+                merged.PriceMin = profile.PriceMin;
+
+            if (!merged.PriceMax.HasValue)
+                merged.PriceMax = profile.PriceMax;
+
+            if (!merged.TargetPrice.HasValue)
+                merged.TargetPrice = profile.TargetPrice;
+
+            if (merged.FilterType == PriceFilterType.None)
+                merged.FilterType = profile.FilterType;
+
+            if (!merged.WantsFuelSaving)
+                merged.WantsFuelSaving = profile.WantsFuelSaving;
+
+            if (!merged.WantsLargeStorage)
+                merged.WantsLargeStorage = profile.WantsLargeStorage;
+
+            if (!merged.WantsEasyControl)
+                merged.WantsEasyControl = profile.WantsEasyControl;
+
+            if (!merged.NeedsLowSeat)
+                merged.NeedsLowSeat = profile.NeedsLowSeat;
+
+            if (!merged.HeightCm.HasValue)
+                merged.HeightCm = profile.HeightCm;
+
+            if (!merged.PrefersMaleStyle)
+                merged.PrefersMaleStyle = profile.PrefersMaleStyle;
+
+            if (!merged.PrefersFemaleStyle)
+                merged.PrefersFemaleStyle = profile.PrefersFemaleStyle;
+
+            return merged;
+        }
+        private static ParsedIntent SanitizeFreshRecommendationIntent(
+    ParsedIntent parsedIntent,
+    ParsedIntent effectiveIntent)
+        {
+            var clean = effectiveIntent.Clone();
+
+            // Chỉ giữ lại các tín hiệu user thật sự nói ở turn hiện tại
+            clean.Brand = parsedIntent.Brand;
+            clean.Category = parsedIntent.Category;
+            clean.Target = parsedIntent.Target;
+
+            clean.PriceMin = parsedIntent.PriceMin;
+            clean.PriceMax = parsedIntent.PriceMax;
+            clean.TargetPrice = parsedIntent.TargetPrice;
+            clean.FilterType = parsedIntent.FilterType;
+
+            clean.ForWork = parsedIntent.ForWork;
+            clean.ForSchool = parsedIntent.ForSchool;
+            clean.ForCity = parsedIntent.ForCity;
+            clean.ForTour = parsedIntent.ForTour;
+
+            clean.WantsFuelSaving = parsedIntent.WantsFuelSaving;
+            clean.WantsLargeStorage = parsedIntent.WantsLargeStorage;
+            clean.WantsEasyControl = parsedIntent.WantsEasyControl;
+            clean.NeedsLowSeat = parsedIntent.NeedsLowSeat;
+
+            clean.HeightCm = parsedIntent.HeightCm;
+
+            clean.PrefersMaleStyle = parsedIntent.PrefersMaleStyle;
+            clean.PrefersFemaleStyle = parsedIntent.PrefersFemaleStyle;
+
+            clean.ExcludedBrands = new HashSet<string>(
+                parsedIntent.ExcludedBrands,
+                StringComparer.OrdinalIgnoreCase);
+
+            clean.ExcludedCategories = new HashSet<string>(
+                parsedIntent.ExcludedCategories,
+                StringComparer.OrdinalIgnoreCase);
+
+            clean.RequestedStyles = new HashSet<string>(
+                parsedIntent.RequestedStyles,
+                StringComparer.OrdinalIgnoreCase);
+
+            clean.MentionedProducts = new List<string>(parsedIntent.MentionedProducts);
+            clean.ComparisonFeature = parsedIntent.ComparisonFeature;
+
+            return clean;
+        }
+        private static void ApplyCurrentTurnPriceOverride(
+    ParsedIntent parsedIntent,
+    ParsedIntent effectiveIntent)
+        {
+            if (parsedIntent == null || effectiveIntent == null)
+                return;
+
+            bool hasExplicitPrice =
+                parsedIntent.FilterType != PriceFilterType.None ||
+                parsedIntent.PriceMin.HasValue ||
+                parsedIntent.PriceMax.HasValue ||
+                parsedIntent.TargetPrice.HasValue;
+
+            if (!hasExplicitPrice)
+                return;
+
+            effectiveIntent.FilterType = parsedIntent.FilterType;
+
+            switch (parsedIntent.FilterType)
+            {
+                case PriceFilterType.MaxOnly:
+                    effectiveIntent.PriceMin = null;
+                    effectiveIntent.PriceMax = parsedIntent.PriceMax;
+                    effectiveIntent.TargetPrice = null;
+                    break;
+
+                case PriceFilterType.MinOnly:
+                    effectiveIntent.PriceMin = parsedIntent.PriceMin;
+                    effectiveIntent.PriceMax = null;
+                    effectiveIntent.TargetPrice = null;
+                    break;
+
+                case PriceFilterType.Range:
+                    effectiveIntent.PriceMin = parsedIntent.PriceMin;
+                    effectiveIntent.PriceMax = parsedIntent.PriceMax;
+                    effectiveIntent.TargetPrice = null;
+                    break;
+
+                case PriceFilterType.Around:
+                    effectiveIntent.PriceMin = parsedIntent.PriceMin;
+                    effectiveIntent.PriceMax = parsedIntent.PriceMax;
+                    effectiveIntent.TargetPrice = parsedIntent.TargetPrice;
+                    break;
+
+                default:
+                    // fallback an toàn
+                    effectiveIntent.PriceMin = parsedIntent.PriceMin;
+                    effectiveIntent.PriceMax = parsedIntent.PriceMax;
+                    effectiveIntent.TargetPrice = parsedIntent.TargetPrice;
+                    break;
+            }
+
+            // Chặn trường hợp min > max do merge cũ còn sót
+            if (effectiveIntent.PriceMin.HasValue &&
+                effectiveIntent.PriceMax.HasValue &&
+                effectiveIntent.PriceMin.Value > effectiveIntent.PriceMax.Value)
+            {
+                if (parsedIntent.FilterType == PriceFilterType.MaxOnly)
+                {
+                    effectiveIntent.PriceMin = null;
+                }
+                else if (parsedIntent.FilterType == PriceFilterType.MinOnly)
+                {
+                    effectiveIntent.PriceMax = null;
+                }
+            }
+        }
+        private static bool LooksLikeExplicitFreshRecommendationRequest(
+    string normalizedMessage,
+    ParsedIntent parsedIntent)
+        {
+            var text = (normalizedMessage ?? string.Empty).Trim().ToLowerInvariant();
+            bool isShortRefineFollowUp =
+    text == "xe ga thôi" ||
+    text == "xe ga thoi" ||
+    text == "xe số thôi" ||
+    text == "xe so thoi" ||
+    text == "côn tay thôi" ||
+    text == "con tay thoi" ||
+    text.StartsWith("bỏ ") ||
+    text.StartsWith("bo ") ||
+    text.StartsWith("không lấy ") ||
+    text.StartsWith("khong lay ") ||
+    text.StartsWith("loại ") ||
+    text.StartsWith("loai ") ||
+    text.StartsWith("dưới ") ||
+    text.StartsWith("duoi ") ||
+    text.StartsWith("trên ") ||
+    text.StartsWith("tren ");
+
+            if (isShortRefineFollowUp)
+                return false;
+            bool hasRecommendationVerb =
+    text.Contains("tư vấn") ||
+    text.Contains("tu van") ||
+    text.Contains("từ vấn") ||   
+    text.Contains("tuvấn") ||
+    text.Contains("gợi ý") ||
+    text.Contains("goi y") ||
+    text.Contains("gợi") ||
+    text.StartsWith("xe ") ||
+    text.Contains("xe ga") ||
+    text.Contains("xe số") ||
+    text.Contains("xe so") ||
+    text.Contains("côn tay") ||
+    text.Contains("con tay");
+
+            bool hasFreshConstraint =
+                !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
+                !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
+                parsedIntent.PriceMin.HasValue ||
+                parsedIntent.PriceMax.HasValue ||
+                parsedIntent.TargetPrice.HasValue ||
+                parsedIntent.FilterType != PriceFilterType.None;
+            bool hasStrongFreshPattern =
+    (!string.IsNullOrWhiteSpace(parsedIntent.Brand) && !string.IsNullOrWhiteSpace(parsedIntent.Category)) ||
+    (!string.IsNullOrWhiteSpace(parsedIntent.Brand) && parsedIntent.FilterType != PriceFilterType.None) ||
+    (!string.IsNullOrWhiteSpace(parsedIntent.Category) && parsedIntent.FilterType != PriceFilterType.None);
+            bool isClassicShortFollowUp =
+                text.StartsWith("còn ") ||
+                text.StartsWith("con ") ||
+                text.EndsWith("thì sao") ||
+                text.EndsWith("thi sao") ||
+                text == "xe ga thì sao" ||
+                text == "xe số thì sao" ||
+                text == "xe so thi sao";
+
+            return (hasRecommendationVerb && hasFreshConstraint && !isClassicShortFollowUp)
+       || hasStrongFreshPattern;
         }
     }
 }

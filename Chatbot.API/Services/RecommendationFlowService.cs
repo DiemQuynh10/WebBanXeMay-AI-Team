@@ -1,10 +1,12 @@
 ﻿using System.Text;
+using Chatbot.API.Configurations;
 using Chatbot.API.Helpers;
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.Responses;
 using Chatbot.API.Models.ToolApi;
 using Chatbot.API.Services.Interfaces;
 using Chatbot.API.Tools;
+using Microsoft.Extensions.Options;
 
 namespace Chatbot.API.Services
 {
@@ -15,21 +17,31 @@ namespace Chatbot.API.Services
         private readonly IProductRecommendationService _productRecommendationService;
         private readonly IRecommendationClarificationService _recommendationClarificationService;
         private readonly ILogger<RecommendationFlowService> _logger;
-
+        private readonly IRecommendationLLMService _recommendationLLMService;
+        private readonly IReplyStyleService _replyStyleService;
+        private readonly IReplyRewriteService _replyRewriteService;
+        private readonly ReplyRewriteOptions _replyRewriteOptions;
         public RecommendationFlowService(
-            IWebBanXeMayToolClient toolClient,
-            IConversationPreferenceService conversationPreferenceService,
-            IProductRecommendationService productRecommendationService,
-            IRecommendationClarificationService recommendationClarificationService,
-            ILogger<RecommendationFlowService> logger)
+     IWebBanXeMayToolClient toolClient,
+     IConversationPreferenceService conversationPreferenceService,
+     IProductRecommendationService productRecommendationService,
+     IRecommendationClarificationService recommendationClarificationService,
+     IRecommendationLLMService recommendationLLMService,
+     IReplyStyleService replyStyleService,
+     IReplyRewriteService replyRewriteService,
+     IOptions<ReplyRewriteOptions> replyRewriteOptions,
+     ILogger<RecommendationFlowService> logger)
         {
             _toolClient = toolClient;
             _conversationPreferenceService = conversationPreferenceService;
             _productRecommendationService = productRecommendationService;
             _recommendationClarificationService = recommendationClarificationService;
+            _recommendationLLMService = recommendationLLMService;
+            _replyStyleService = replyStyleService;
+            _replyRewriteService = replyRewriteService;
+            _replyRewriteOptions = replyRewriteOptions.Value;
             _logger = logger;
         }
-
         public async Task<ChatResponse?> HandleAsync(
             string conversationId,
             string normalizedMessage,
@@ -69,49 +81,53 @@ namespace Chatbot.API.Services
                 ? intent.Category
                 : profile.PreferredCategory;
 
-            decimal? minPrice = intent.PriceMin ?? profile.PriceMin;
-            decimal? maxPrice = intent.PriceMax ?? profile.PriceMax;
+            var (minPrice, maxPrice) = ResolveRecommendationPriceRange(intent, profile);
 
-            if (intent.FilterType == PriceFilterType.Around && intent.TargetPrice.HasValue)
-            {
-                var target = intent.TargetPrice.Value;
-                var delta = target <= 20_000_000m ? 2_000_000m
-                    : target <= 35_000_000m ? 3_000_000m
-                    : target <= 50_000_000m ? 4_000_000m
-                    : 5_000_000m;
+            // 1) Strict query đầu tiên
+            var items = await GetStrictCandidatesAsync(
+                requestedBrand,
+                effectiveCategory,
+                minPrice,
+                maxPrice);
 
-                minPrice = Math.Max(0, target - delta);
-                maxPrice = target + delta;
-            }
+            _logger.LogInformation(
+                "Recommendation strict query. ConversationId={ConversationId}, Brand={Brand}, Category={Category}, MinPrice={MinPrice}, MaxPrice={MaxPrice}, CandidateCount={CandidateCount}",
+                conversationId,
+                requestedBrand,
+                effectiveCategory,
+                minPrice,
+                maxPrice,
+                items.Count);
 
-            var toolResult = await _toolClient.GetProductsByFiltersAsync(
-     brand: requestedBrand,
-     minPrice: minPrice,
-     maxPrice: maxPrice,
-     category: effectiveCategory,
-     take: 30);
-
-            var items = toolResult?.Items?
-                .Where(x => x != null)
-                .ToList() ?? new List<ProductSummaryDto>();
-
+            // 2) Nếu strict query không ra gì và có category thì bỏ category trước
             if (items.Count == 0 && !string.IsNullOrWhiteSpace(effectiveCategory))
             {
-                toolResult = await _toolClient.GetProductsByFiltersAsync(
-                    brand: requestedBrand,
-                    minPrice: minPrice,
-                    maxPrice: maxPrice,
-                    category: null,
-                    take: 30);
+                items = await GetStrictCandidatesAsync(
+                    requestedBrand,
+                    null,
+                    minPrice,
+                    maxPrice);
 
-                items = toolResult?.Items?
-                    .Where(x => x != null)
-                    .ToList() ?? new List<ProductSummaryDto>();
+                _logger.LogInformation(
+                    "Recommendation fallback query without category. ConversationId={ConversationId}, Brand={Brand}, MinPrice={MinPrice}, MaxPrice={MaxPrice}, CandidateCount={CandidateCount}",
+                    conversationId,
+                    requestedBrand,
+                    minPrice,
+                    maxPrice,
+                    items.Count);
             }
 
+            // 3) Nếu vẫn không ra gì mới nới rộng
             if (items.Count == 0)
             {
                 items = await TryGetBrandRelaxedCandidatesAsync(intent, profile, effectiveCategory);
+
+                _logger.LogInformation(
+                    "Recommendation relaxed fallback query. ConversationId={ConversationId}, Brand={Brand}, Category={Category}, CandidateCount={CandidateCount}",
+                    conversationId,
+                    requestedBrand,
+                    effectiveCategory,
+                    items.Count);
             }
 
             if (items.Count == 0)
@@ -122,7 +138,10 @@ namespace Chatbot.API.Services
                     ConversationId = conversationId,
                     UsedAI = false,
                     UsedTool = ToolNames.GetProductsByFilters,
-                    Reply = BuildNoRecommendationMatchReply(intent, profile, effectiveCategory)
+                    Reply = _replyStyleService.BuildRecommendationNoMatchReply(
+    intent,
+    profile,
+    effectiveCategory)
                 };
             }
             var strictlyFilteredItems = ProductPriceFilterHelper.ApplyStrictPriceFilter(items, intent);
@@ -139,13 +158,59 @@ namespace Chatbot.API.Services
                     requestedBrand,
                     effectiveCategory);
             }
-            var ranked = _productRecommendationService.RankProducts(
-                items,
-                intent,
-                profile,
-                normalizedMessage,
-                take: 4);
+            var rankedByRule = _productRecommendationService.RankProducts(
+    items,
+    intent,
+    profile,
+    normalizedMessage,
+    take: 5);
+            _logger.LogInformation(
+    "Recommendation rule ranking completed. ConversationId={ConversationId}, RankedByRuleCount={RankedByRuleCount}",
+    conversationId,
+    rankedByRule.Count);
+            var ranked = rankedByRule;
 
+            if (rankedByRule.Count > 1)
+            {
+                try
+                {
+                    var llmResult = await _recommendationLLMService.RerankAsync(
+                        normalizedMessage,
+                        intent,
+                        profile,
+                        rankedByRule);
+
+                    var llmRanked = ApplyLlmRerank(rankedByRule, llmResult);
+                    if (llmResult?.Recommendations != null && llmResult.Recommendations.Count > 0 && llmRanked.Count == 0)
+                    {
+                        _logger.LogWarning(
+                            "LLM rerank returned recommendations but none could be mapped back to rankedByRule. ConversationId={ConversationId}",
+                            conversationId);
+                    }
+
+                    if (llmRanked.Count > 0)
+                    {
+                        _logger.LogInformation(
+                            "LLM rerank applied. ConversationId={ConversationId}, RuleCount={RuleCount}, LlmSelectedCount={LlmSelectedCount}",
+                            conversationId,
+                            rankedByRule.Count,
+                            llmRanked.Count);
+
+                        ranked = llmRanked;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "LLM rerank failed in RecommendationFlowService. Fallback to rule ranking.");
+                }
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Skip LLM rerank because only one ranked candidate remains. ConversationId={ConversationId}",
+                    conversationId);
+            }
+            ranked = ranked.Take(4).ToList();
             if (ranked == null || ranked.Count == 0)
             {
                 return new ChatResponse
@@ -154,10 +219,12 @@ namespace Chatbot.API.Services
                     ConversationId = conversationId,
                     UsedAI = false,
                     UsedTool = ToolNames.GetProductsByFilters,
-                    Reply = "Mình có tìm thấy dữ liệu sản phẩm, nhưng chưa lọc ra được mẫu nổi bật thật sự phù hợp. Bạn nói thêm một tiêu chí ngắn như cốp rộng, dễ chống chân hoặc hãng muốn ưu tiên nhé."
+                    Reply = _replyStyleService.BuildRecommendationNoMatchReply(
+                        intent,
+                        profile,
+                        effectiveCategory)
                 };
             }
-
             await _conversationPreferenceService.SetBaseRecommendedProductsAsync(
                 conversationId,
                 ranked);
@@ -167,8 +234,23 @@ namespace Chatbot.API.Services
                 ranked,
                 "fresh_consultation");
 
-            var reply = BuildRecommendationReply(ranked, intent);
+            var draftReply = _replyStyleService.BuildRecommendationReply(
+    ranked,
+    intent,
+    item => _productRecommendationService.BuildMainReason(item, intent));
 
+            var reply = draftReply;
+
+            if (_replyRewriteOptions.EnableRecommendationRewrite)
+            {
+                reply = await _replyRewriteService.RewriteAsync(
+                    normalizedMessage,
+                    draftReply);
+            }
+            _logger.LogInformation(
+    "Recommendation final result. ConversationId={ConversationId}, FinalProductCount={FinalProductCount}",
+    conversationId,
+    ranked.Count);
             return new ChatResponse
             {
                 Success = true,
@@ -179,35 +261,40 @@ namespace Chatbot.API.Services
                 Products = ChatProductCardMapper.MapMany(ranked, 4)
             };
         }
-        private static string BuildNoRecommendationMatchReply(
+        private static (decimal? minPrice, decimal? maxPrice) ResolveRecommendationPriceRange(
     ParsedIntent intent,
-    CustomerPreferenceProfile profile,
-    string? effectiveCategory)
+    CustomerPreferenceProfile profile)
         {
-            var brand = intent.Brand ?? profile.PreferredBrand;
-            var category = !string.IsNullOrWhiteSpace(intent.Category) ? intent.Category : effectiveCategory;
+            decimal? minPrice = intent.PriceMin ?? profile.PriceMin;
+            decimal? maxPrice = intent.PriceMax ?? profile.PriceMax;
 
-            bool hasBudget =
-                intent.TargetPrice.HasValue ||
-                intent.PriceMin.HasValue ||
-                intent.PriceMax.HasValue;
-
-            if (!string.IsNullOrWhiteSpace(brand) && !string.IsNullOrWhiteSpace(category) && hasBudget)
+            if (intent.FilterType == PriceFilterType.Around && intent.TargetPrice.HasValue)
             {
-                return $"Hiện mình chưa thấy mẫu **{category}** của **{brand}** nào thật sự khớp sát mức giá bạn đang muốn. Bạn có thể nới nhẹ ngân sách hoặc bỏ bớt một tiêu chí để mình lọc tiếp sát hơn.";
+                var target = intent.TargetPrice.Value;
+                var delta = ProductPriceFilterHelper.GetAroundDelta(target);
+
+                minPrice = Math.Max(0, target - delta);
+                maxPrice = target + delta;
             }
 
-            if (!string.IsNullOrWhiteSpace(brand) && hasBudget)
-            {
-                return $"Hiện mình chưa thấy mẫu **{brand}** nào thật sự khớp sát mức giá bạn đang muốn. Bạn có thể nới nhẹ ngân sách hoặc để mình gợi ý thêm các mẫu gần nhất.";
-            }
+            return (minPrice, maxPrice);
+        }
+        private async Task<List<ProductSummaryDto>> GetStrictCandidatesAsync(
+    string? requestedBrand,
+    string? effectiveCategory,
+    decimal? minPrice,
+    decimal? maxPrice)
+        {
+            var toolResult = await _toolClient.GetProductsByFiltersAsync(
+                brand: requestedBrand,
+                minPrice: minPrice,
+                maxPrice: maxPrice,
+                category: effectiveCategory,
+                take: 30);
 
-            if (!string.IsNullOrWhiteSpace(category) && hasBudget)
-            {
-                return $"Hiện mình chưa thấy mẫu **{category}** nào thật sự khớp sát mức giá bạn đang muốn. Bạn có thể nới nhẹ ngân sách hoặc đổi sang hãng khác để mình lọc tiếp.";
-            }
-
-            return "Mình chưa lọc ra được mẫu nào thật sự phù hợp từ dữ liệu hiện tại. Bạn thử nói thêm một tiêu chí như loại xe, hãng hoặc mức giá sát hơn nhé.";
+            return toolResult?.Items?
+                .Where(x => x != null)
+                .ToList() ?? new List<ProductSummaryDto>();
         }
         private async Task<List<ProductSummaryDto>> TryGetBrandRelaxedCandidatesAsync(
     ParsedIntent intent,
@@ -215,16 +302,15 @@ namespace Chatbot.API.Services
     string? effectiveCategory)
         {
             var requestedBrand = intent.Brand ?? profile.PreferredBrand;
-
-            decimal? minPrice = intent.PriceMin ?? profile.PriceMin;
-            decimal? maxPrice = intent.PriceMax ?? profile.PriceMax;
+            bool userExplicitBrand = !string.IsNullOrWhiteSpace(intent.Brand);
+            var (minPrice, maxPrice) = ResolveRecommendationPriceRange(intent, profile);
 
             if (intent.FilterType == PriceFilterType.Around && intent.TargetPrice.HasValue)
             {
                 var target = intent.TargetPrice.Value;
-                var delta = ProductPriceFilterHelper.GetAroundDelta(target) + 3_000_000m;
-                minPrice = Math.Max(0, target - delta);
-                maxPrice = target + delta;
+                var relaxedDelta = ProductPriceFilterHelper.GetAroundDelta(target) + 3_000_000m;
+                minPrice = Math.Max(0, target - relaxedDelta);
+                maxPrice = target + relaxedDelta;
             }
             else
             {
@@ -249,14 +335,20 @@ namespace Chatbot.API.Services
 
             if (items.Count > 0)
                 return items;
+            // Bước 2: chỉ bỏ brand nếu brand hiện tại KHÔNG phải do user nói rõ
+            if (!userExplicitBrand)
+            {
+                result = await _toolClient.GetProductsByFiltersAsync(
+                    brand: null,
+                    minPrice: minPrice,
+                    maxPrice: maxPrice,
+                    category: effectiveCategory,
+                    take: 30);
 
-            // Bước 2: nếu vẫn không có thì thử giữ category, bỏ brand
-            result = await _toolClient.GetProductsByFiltersAsync(
-                brand: null,
-                minPrice: minPrice,
-                maxPrice: maxPrice,
-                category: effectiveCategory,
-                take: 30);
+                items = result?.Items?
+                    .Where(x => x != null)
+                    .ToList() ?? new List<ProductSummaryDto>();
+            }
 
             items = result?.Items?
                 .Where(x => x != null)
@@ -264,52 +356,45 @@ namespace Chatbot.API.Services
 
             return items;
         }
-        private string BuildRecommendationReply(
-    IReadOnlyList<ProductSummaryDto> ranked,
-    ParsedIntent intent)
+        private static List<ProductSummaryDto> ApplyLlmRerank(
+    IReadOnlyList<ProductSummaryDto> rankedByRule,
+    LLMRecommendationResult? llmResult)
         {
-            var sb = new StringBuilder();
+            if (rankedByRule == null || rankedByRule.Count == 0)
+                return new List<ProductSummaryDto>();
 
-            bool hasBudget =
-                intent.TargetPrice.HasValue ||
-                intent.PriceMin.HasValue ||
-                intent.PriceMax.HasValue;
+            if (llmResult?.Recommendations == null || llmResult.Recommendations.Count == 0)
+                return rankedByRule.Take(4).ToList();
 
-            bool hasBrandOrCategory =
-                !string.IsNullOrWhiteSpace(intent.Brand) ||
-                !string.IsNullOrWhiteSpace(intent.Category);
+            var byId = rankedByRule.ToDictionary(x => x.Id, x => x);
 
-            if (hasBudget && hasBrandOrCategory)
-            {
-                sb.AppendLine($"Mình thấy có {ranked.Count} mẫu khá gần với tiêu chí bạn đang muốn:");
-            }
-            else if (hasBudget)
-            {
-                sb.AppendLine($"Trong tầm bạn đang cân nhắc, mình thấy {ranked.Count} mẫu khá đáng chú ý:");
-            }
-            else
-            {
-                sb.AppendLine($"Mình thấy {ranked.Count} mẫu khá hợp với nhu cầu bạn đang nói tới:");
-            }
-            sb.AppendLine();
+            var orderedLlmRecs = llmResult.Recommendations
+                .Where(x => x != null)
+                .GroupBy(x => x.ProductId)
+                .Select(g => g.OrderByDescending(x => x.Score).First())
+                .OrderByDescending(x => x.Score)
+                .ThenByDescending(x => x.ProductId)
+                .ToList();
 
-            foreach (var item in ranked)
+            var selected = new List<ProductSummaryDto>();
+
+            foreach (var rec in orderedLlmRecs)
             {
-                var reason = _productRecommendationService.BuildMainReason(item, intent);
-                sb.AppendLine($"- **{item.Ten}** ({item.Gia:N0} VNĐ): {reason}");
+                if (byId.TryGetValue(rec.ProductId, out var product))
+                {
+                    selected.Add(product);
+                }
             }
 
-            sb.AppendLine();
-            if (string.IsNullOrWhiteSpace(intent.Brand) && string.IsNullOrWhiteSpace(intent.Category))
+            // Nếu LLM có chọn được sản phẩm hợp lệ,
+            // thì trả đúng nhóm đó, không nhồi thêm rule-ranking nữa.
+            if (selected.Count > 0)
             {
-                sb.AppendLine("Bạn có thể lọc tiếp theo hãng, loại xe hoặc tiêu chí như cốp rộng, dễ chống chân, tiết kiệm xăng.");
+                return selected.Take(4).ToList();
             }
-            else
-            {
-                sb.AppendLine("Bạn có thể lọc tiếp thêm theo mức giá, nhu cầu đi lại hoặc các tiêu chí như cốp rộng, dễ chống chân, tiết kiệm xăng.");
-            }
-            return sb.ToString().Trim();
+
+            // Chỉ fallback về rule ranking khi LLM không map được sản phẩm nào
+            return rankedByRule.Take(4).ToList();
         }
-      
     }
 }

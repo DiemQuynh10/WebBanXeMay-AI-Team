@@ -37,7 +37,14 @@ namespace Chatbot.API.Services
             _logger = logger;
         }
 
-        public async Task<ChatResponse> AskAsync(AIRequestContext context)
+        public Task<ChatResponse> AskAsync(AIRequestContext context)
+        {
+            return AskAsync(context, CancellationToken.None);
+        }
+
+        public async Task<ChatResponse> AskAsync(
+            AIRequestContext context,
+            CancellationToken cancellationToken)
         {
             var conversationId = string.IsNullOrWhiteSpace(context.ConversationId)
                 ? Guid.NewGuid().ToString()
@@ -74,7 +81,10 @@ namespace Chatbot.API.Services
                     ["messages"] = messages
                 };
 
-                var rawJson = await SendChatCompletionAsync(requestBody, "OpenAI first response");
+                var rawJson = await SendChatCompletionAsync(
+                    requestBody,
+                    "OpenAI first response",
+                    cancellationToken);
 
                 using var doc = JsonDocument.Parse(rawJson);
                 var message = doc.RootElement
@@ -116,7 +126,10 @@ namespace Chatbot.API.Services
                         ["messages"] = secondMessages
                     };
 
-                    var secondRawJson = await SendChatCompletionAsync(secondBody, "OpenAI second response");
+                    var secondRawJson = await SendChatCompletionAsync(
+                        secondBody,
+                        "OpenAI second response",
+                        cancellationToken);
 
                     using var secondDoc = JsonDocument.Parse(secondRawJson);
                     var secondMessage = secondDoc.RootElement
@@ -161,6 +174,21 @@ namespace Chatbot.API.Services
                     UsedTool = usedTool,
                     UsedAI = true,
                     ErrorMessage = null,
+                    ConversationId = conversationId
+                };
+            }
+            catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex,
+                    "OpenAI request cancelled by caller. ConversationId: {ConversationId}",
+                    conversationId);
+
+                return new ChatResponse
+                {
+                    Success = false,
+                    Reply = string.Empty,
+                    UsedAI = true,
+                    ErrorMessage = "OpenAI cancelled",
                     ConversationId = conversationId
                 };
             }
@@ -348,14 +376,17 @@ namespace Chatbot.API.Services
             return secondMessages;
         }
 
-        private async Task<string> SendChatCompletionAsync(JsonObject requestBody, string logLabel)
+        private async Task<string> SendChatCompletionAsync(
+     JsonObject requestBody,
+     string logLabel,
+     CancellationToken cancellationToken)
         {
             var httpRequest = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions");
             httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _settings.ApiKey);
             httpRequest.Content = new StringContent(requestBody.ToJsonString(), Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.SendAsync(httpRequest);
-            var rawJson = await response.Content.ReadAsStringAsync();
+            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
 
             _logger.LogInformation("{LogLabel} completed. ResponseLength: {Length}", logLabel, rawJson?.Length ?? 0);
 

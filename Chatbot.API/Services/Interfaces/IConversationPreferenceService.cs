@@ -6,7 +6,11 @@ namespace Chatbot.API.Services.Interfaces
     public interface IConversationPreferenceService
     {
         Task<CustomerPreferenceProfile> GetAsync(string conversationId);
-        Task<CustomerPreferenceProfile> MergeAsync(string conversationId, ParsedIntent intent);
+        Task<CustomerPreferenceProfile> MergeAsync(
+        string conversationId,
+        ParsedIntent intent,
+        bool isFreshRecommendation = false
+    );
 
         Task SetMentionedProductsAsync(string conversationId, IEnumerable<string> productNames);
         Task SetComparedProductsAsync(string conversationId, IEnumerable<string> productNames);

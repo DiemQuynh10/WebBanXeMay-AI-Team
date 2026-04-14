@@ -65,6 +65,11 @@ builder.Services.AddScoped<IFlowDecisionService, FlowDecisionService>();
 builder.Services.AddScoped<IRecommendationClarificationService, RecommendationClarificationService>();
 builder.Services.AddScoped<IChatFlowOrchestrator, ChatFlowOrchestrator>();
 builder.Services.AddScoped<IRecommendationFlowService, RecommendationFlowService>();
+builder.Services.AddScoped<IRecommendationLLMService, RecommendationLLMService>();
+builder.Services.AddScoped<IReplyStyleService, ReplyStyleService>();
+builder.Services.AddScoped<IReplyRewriteService, ReplyRewriteService>();
+builder.Services.Configure<ReplyRewriteOptions>(
+    builder.Configuration.GetSection("ReplyRewrite"));
 // Main chatbot services
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<ILLMIntentUnderstandingService, LLMIntentUnderstandingService>();
