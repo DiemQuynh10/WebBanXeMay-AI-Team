@@ -48,13 +48,6 @@ namespace Chatbot.API.Controllers
                         errorMessage = "Request không hợp lệ."
                     });
                 }
-
-                _logger.LogInformation("ChatController BEFORE sanitize: {Message}", request.Message);
-
-                request.Message = _inputTextSanitizer.Sanitize(request.Message);
-
-                _logger.LogInformation("ChatController AFTER sanitize: {Message}", request.Message);
-
                 if (string.IsNullOrWhiteSpace(request.Message))
                 {
                     return BadRequest(new
@@ -74,6 +67,13 @@ namespace Chatbot.API.Controllers
                 }
 
                 request.Message = ChatChannelMessageHelper.NormalizeQuickMenuInput(request.Message);
+// =======
+//                 _logger.LogInformation("ChatController BEFORE sanitize: {Message}", request.Message);
+
+//                 request.Message = _inputTextSanitizer.Sanitize(request.Message);
+
+//                 _logger.LogInformation("ChatController AFTER sanitize: {Message}", request.Message);
+// >>>>>>> dev
 
                 var result = await _chatService.ProcessMessageAsync(request);
 

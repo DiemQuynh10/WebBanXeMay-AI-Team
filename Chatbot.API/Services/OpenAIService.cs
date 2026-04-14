@@ -79,7 +79,7 @@ namespace Chatbot.API.Services
                     ["model"] = _settings.Model,
                     ["messages"] = messages,
                     ["functions"] = functionsArray,
-                    ["function_call"] = "auto",
+                    ["function_call"] = "auto", 
                     ["temperature"] = 0.2
                 };
 
@@ -237,8 +237,7 @@ namespace Chatbot.API.Services
                         safeRagContext
                 });
             }
-
-            foreach (var msg in GetRecentHistory(history))
+                foreach (var msg in GetRecentHistory(history))
             {
                 var safeRole = NormalizeOpenAIRole(msg.Role);
 
