@@ -16,6 +16,16 @@ namespace Chatbot.API.Services.Conversation
         {
             var routing = baseRouting ?? new FlowRoutingResult();
 
+            if (FlowIntentHeuristics.IsStaticKnowledgeQuestion(normalizedMessage))
+            {
+                routing.FlowType = ChatFlowType.Unknown;
+                routing.ShouldUseDeterministicFlow = false;
+                routing.ShouldUseAiFallback = true;
+                routing.ShouldUseRag = true;
+                routing.Reason = "Static knowledge question overrides conversation context";
+                return routing;
+            }
+
             bool hasRecommendationContext =
                 conversationProfile != null &&
                 conversationProfile.HasActiveRecommendationContext &&
@@ -73,6 +83,18 @@ namespace Chatbot.API.Services.Conversation
             bool forcedDirectCompare =
                 effectiveIntent.IsDirectCompare && currentMessageExplicitlyNamesTwoProducts;
 
+            if (contextDecision == RecommendationContextDecision.NarrowWithinCurrentSet &&
+                hasRecommendationContext &&
+                !currentMessageExplicitlyNamesTwoProducts)
+            {
+                routing.FlowType = ChatFlowType.Refinement;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Mapped from NarrowWithinCurrentSet";
+                return routing;
+            }
+
             if (forcedDirectCompare ||
                 string.Equals(effectiveIntent.IntentType, "compare", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(effectiveIntent.RouteFlow, ChatFlowType.Compare, StringComparison.OrdinalIgnoreCase))
@@ -122,6 +144,18 @@ namespace Chatbot.API.Services.Conversation
                     routing.ShouldUseRag = false;
                     routing.Reason = "Mapped from NarrowWithinCurrentSet";
                     return routing;
+            }
+
+            if (hasRecommendationContext &&
+                string.Equals(effectiveIntent.IntentType, "refine", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(routing.FlowType, ChatFlowType.Unknown, StringComparison.OrdinalIgnoreCase))
+            {
+                routing.FlowType = ChatFlowType.RecommendationFollowUp;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Forced by recommendation follow-up context";
+                return routing;
             }
 
             if (FlowIntentHeuristics.IsHardFilterOnlySearch(effectiveIntent, normalizedMessage) &&

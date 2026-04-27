@@ -8,6 +8,6 @@ namespace Chatbot.API.Models.Rag
         public string Query { get; set; } = string.Empty;
 
         [JsonPropertyName("top_k")]
-        public int TopK { get; set; } = 4;
+        public int TopK { get; set; } = 8;
     }
 }

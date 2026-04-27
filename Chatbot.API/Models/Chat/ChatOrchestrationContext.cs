@@ -10,6 +10,7 @@ namespace Chatbot.API.Models.Chat
 
         public string OriginalMessage { get; set; } = string.Empty;
         public string NormalizedMessage { get; set; } = string.Empty;
+        public string SemanticQuery { get; set; } = string.Empty;
 
         public CustomerPreferenceProfile ExistingProfile { get; set; } = new();
         public ParsedIntent ParsedIntent { get; set; } = new();

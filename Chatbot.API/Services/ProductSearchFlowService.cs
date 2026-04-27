@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using Chatbot.API.Helpers;
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.Responses;
 using Chatbot.API.Models.ToolApi;
@@ -31,13 +32,76 @@ namespace Chatbot.API.Services
             ParsedIntent intent,
             CustomerPreferenceProfile profile)
         {
+            static HashSet<string> BuildExcludedBrands(ParsedIntent currentIntent, CustomerPreferenceProfile currentProfile)
+            {
+                var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var brand in currentIntent.ExcludedBrands)
+                {
+                    if (!string.IsNullOrWhiteSpace(brand))
+                        excluded.Add(brand.Trim());
+                }
+
+                foreach (var brand in currentProfile.ExcludedBrands)
+                {
+                    if (!string.IsNullOrWhiteSpace(brand))
+                        excluded.Add(brand.Trim());
+                }
+
+                return excluded;
+            }
+
+            static HashSet<string> BuildExcludedCategories(ParsedIntent currentIntent, CustomerPreferenceProfile currentProfile)
+            {
+                var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var category in currentIntent.ExcludedCategories)
+                {
+                    if (!string.IsNullOrWhiteSpace(category))
+                        excluded.Add(category.Trim());
+                }
+
+                foreach (var category in currentProfile.ExcludedCategories)
+                {
+                    if (!string.IsNullOrWhiteSpace(category))
+                        excluded.Add(category.Trim());
+                }
+
+                return excluded;
+            }
+
+            static List<ProductSummaryDto> ApplyStrictExclusions(
+                IEnumerable<ProductSummaryDto> products,
+                HashSet<string> excludedBrands,
+                HashSet<string> excludedCategories)
+            {
+                var filtered = products
+                    .Where(x => x != null)
+                    .Where(x => !excludedBrands.Contains(x.ThuongHieu?.Trim() ?? string.Empty))
+                    .ToList();
+
+                if (excludedCategories.Count == 0)
+                    return filtered;
+
+                return filtered
+                    .Where(x => !excludedCategories.Contains(x.Loai?.Trim() ?? string.Empty))
+                    .ToList();
+            }
+
+            var excludedBrands = BuildExcludedBrands(intent, profile);
+            var excludedCategories = BuildExcludedCategories(intent, profile);
+            var hasIntentBrandExclusions = intent.ExcludedBrands.Any();
+
             bool hasSearchSignals =
     intent.IsProductSearch ||
     intent.PriceMin.HasValue ||
     intent.PriceMax.HasValue ||
     intent.TargetPrice.HasValue ||
     !string.IsNullOrWhiteSpace(intent.Brand) ||
-    !string.IsNullOrWhiteSpace(intent.Category);
+            !string.IsNullOrWhiteSpace(intent.Category) ||
+            intent.ExcludedBrands.Any() ||
+            intent.ExcludedCategories.Any() ||
+            intent.ExcludedProducts.Any();
 
             if (!hasSearchSignals)
             {
@@ -46,6 +110,16 @@ namespace Chatbot.API.Services
 
             var effectiveBrand = intent.Brand ?? profile.PreferredBrand;
             var effectiveCategory = intent.Category ?? profile.PreferredCategory;
+
+            if (ProductExclusionHelper.IsBrandExcludedByIntentOrProfile(effectiveBrand, intent, profile))
+            {
+                effectiveBrand = null;
+            }
+
+            if (ProductExclusionHelper.IsCategoryExcludedByIntentOrProfile(effectiveCategory, intent, profile))
+            {
+                effectiveCategory = null;
+            }
             var effectiveMinPrice = intent.PriceMin ?? profile.PriceMin;
             var effectiveMaxPrice = intent.PriceMax ?? profile.PriceMax;
             _logger.LogInformation(
@@ -90,15 +164,24 @@ namespace Chatbot.API.Services
             var items = result?.Items?
                 .Where(x => x != null)
                 .ToList() ?? new List<ProductSummaryDto>();
+            items = ProductExclusionHelper.ApplyExclusions(items, intent, profile);
+            items = ApplyStrictExclusions(items, excludedBrands, excludedCategories);
 
             if (items.Count == 0)
             {
-                var nearMatches = await FindNearMatchProductsAsync(
-                    effectiveBrand,
-                    effectiveCategory,
-                    effectiveMinPrice,
-                    effectiveMaxPrice,
-                    normalizedMessage);
+                var nearMatches = new List<ProductSummaryDto>();
+
+                if (!hasIntentBrandExclusions)
+                {
+                    nearMatches = await FindNearMatchProductsAsync(
+                        effectiveBrand,
+                        effectiveCategory,
+                        effectiveMinPrice,
+                        effectiveMaxPrice,
+                        normalizedMessage);
+                    nearMatches = ProductExclusionHelper.ApplyExclusions(nearMatches, intent, profile);
+                    nearMatches = ApplyStrictExclusions(nearMatches, excludedBrands, excludedCategories);
+                }
 
                 return new ChatResponse
                 {
@@ -112,6 +195,8 @@ namespace Chatbot.API.Services
             }
 
             await SaveSearchContextAsync(conversationId, items, intent);
+
+            items = ApplyStrictExclusions(items, excludedBrands, excludedCategories);
 
             return new ChatResponse
             {

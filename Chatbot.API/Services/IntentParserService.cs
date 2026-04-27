@@ -33,6 +33,15 @@ namespace Chatbot.API.Services
             "attila venus"
         };
 
+        private static readonly (string DisplayName, string[] Aliases)[] KnownBrands =
+        {
+            ("Honda", new[] { "honda" }),
+            ("Yamaha", new[] { "yamaha" }),
+            ("Suzuki", new[] { "suzuki" }),
+            ("SYM", new[] { "sym" }),
+            ("Piaggio", new[] { "piaggio" })
+        };
+
         public Task<ParsedIntent> ParseAsync(string message)
         {
             var result = new ParsedIntent
@@ -48,6 +57,7 @@ namespace Chatbot.API.Services
             // 1. Parse các thuộc tính nền
             ParseExcludedCategory(text, result);
             ParseExcludedBrand(text, result);
+            ParseExcludedProducts(text, result);
 
             ParseCategory(text, result);
             ParseBrand(text, result);
@@ -102,7 +112,8 @@ namespace Chatbot.API.Services
                 !string.IsNullOrWhiteSpace(result.Brand) ||
                 !string.IsNullOrWhiteSpace(result.Category) ||
                 result.ExcludedBrands.Any() ||
-                result.ExcludedCategories.Any();
+                result.ExcludedCategories.Any() ||
+                result.ExcludedProducts.Any();
 
             bool hasStrongPreferenceSignal =
                 result.WantsLargeStorage ||
@@ -118,7 +129,10 @@ namespace Chatbot.API.Services
                 text.StartsWith("minh can ") ||
                 text.StartsWith("toi muon ") ||
                 text.StartsWith("cho nu ") ||
-                text.StartsWith("cho nam ");
+                text.StartsWith("cho nam ") ||
+                text.StartsWith("dung goi y ") ||
+                text.StartsWith("ngoai tru ") ||
+                text.StartsWith("tru ");
 
             bool looksExpandFollowUp =
                 text.StartsWith("neu ") ||
@@ -127,6 +141,9 @@ namespace Chatbot.API.Services
                 text.StartsWith("bo ") ||
                 text.StartsWith("khong thich ") ||
                 text.StartsWith("khong muon ") ||
+                text.StartsWith("dung goi y ") ||
+                text.StartsWith("ngoai tru ") ||
+                text.StartsWith("tru ") ||
                 text.StartsWith("chi lay ") ||
                 text.StartsWith("xe ga ") ||
                 text.StartsWith("xe so ") ||
@@ -213,6 +230,17 @@ namespace Chatbot.API.Services
                     "bao nhieu",
                     "ton kho",
                     "con hang",
+                    "tra gop",
+                    "gop",
+                    "lai suat",
+                    "bao duong",
+                    "bao hanh",
+                    "dich vu",
+                    "thu tuc",
+                    "ho so",
+                    "quy trinh",
+                    "cac buoc",
+                    "chinh sach",
                     "don hang",
                     "ma don",
                     "tra don",
@@ -364,6 +392,16 @@ namespace Chatbot.API.Services
                 result.IsFollowUp = true;
                 result.FollowUpType = "switch_brand";
                 result.HasDeterministicProductIntent = true;
+                return;
+            }
+
+            if (result.HasExpandRecommendationSignal && result.HasFreshConsultationSignal)
+            {
+                result.IntentType = "recommend";
+                result.IsOpenRecommendation = true;
+                result.IsFollowUp = false;
+                result.FollowUpType = null;
+                result.HasDeterministicProductIntent = false;
                 return;
             }
 
@@ -538,6 +576,13 @@ namespace Chatbot.API.Services
             {
                 result.Category = null;
             }
+
+            if (result.ExcludedProducts.Any() && result.MentionedProducts.Any())
+            {
+                result.MentionedProducts = result.MentionedProducts
+                    .Where(x => !result.ExcludedProducts.Contains(x))
+                    .ToList();
+            }
         }
 
         private static void ParseCategory(string text, ParsedIntent result)
@@ -565,21 +610,21 @@ namespace Chatbot.API.Services
             }
 
             if (!result.ExcludedCategories.Contains("xe ga") &&
-                ContainsAny(text, "xe ga", "tay ga", "scooter"))
+                HasNonExcludedPhrase(text, "xe ga", "tay ga", "scooter"))
             {
                 result.Category = "xe ga";
                 return;
             }
 
             if (!result.ExcludedCategories.Contains("xe số") &&
-                ContainsAny(text, "xe so", "xe số"))
+                HasNonExcludedPhrase(text, "xe so", "xe số"))
             {
                 result.Category = "xe số";
                 return;
             }
 
             if (!result.ExcludedCategories.Contains("côn tay") &&
-                ContainsAny(text, "con tay", "côn tay", "xe con", "xe côn"))
+                HasNonExcludedPhrase(text, "con tay", "côn tay", "xe con", "xe côn"))
             {
                 result.Category = "côn tay";
             }
@@ -591,73 +636,48 @@ namespace Chatbot.API.Services
             bool likesXeSo = HasPositiveCategorySignal(text, "xe số");
             bool likesConTay = HasPositiveCategorySignal(text, "côn tay");
 
-            if (!likesXeGa && ContainsAny(text,
-                "khong thich xe ga",
-                "khong muon xe ga",
-                "ne xe ga",
-                "ghet xe ga",
-                "dung xe ga",
-                "bo xe ga",
-                "loai xe ga"))
+            if (!likesXeGa && IsCategoryExplicitlyExcluded(text, "xe ga"))
             {
                 result.ExcludedCategories.Add("xe ga");
             }
 
-            if (!likesXeSo && ContainsAny(text,
-                "khong thich xe so",
-                "khong muon xe so",
-                "ne xe so",
-                "ghet xe so",
-                "dung xe so",
-                "bo xe so",
-                "loai xe so"))
+            if (!likesXeSo && IsCategoryExplicitlyExcluded(text, "xe so"))
             {
                 result.ExcludedCategories.Add("xe số");
             }
 
-            if (!likesConTay && ContainsAny(text,
-                "khong thich xe con",
-                "khong muon xe con",
-                "ne xe con",
-                "ghet xe con",
-                "khong thich con tay",
-                "dung xe con",
-                "dung con tay",
-                "bo xe con",
-                "bo con tay",
-                "loai xe con",
-                "loai con tay"))
+            if (!likesConTay && (IsCategoryExplicitlyExcluded(text, "con tay") || IsCategoryExplicitlyExcluded(text, "xe con")))
             {
                 result.ExcludedCategories.Add("côn tay");
             }
         }
         private static void ParseBrand(string text, ParsedIntent result)
         {
-            if (!result.ExcludedBrands.Contains("Honda") && HasWholeWord(text, "honda"))
+            if (!result.ExcludedBrands.Contains("Honda") && HasNonExcludedWholeWord(text, "honda"))
             {
                 result.Brand = "Honda";
                 return;
             }
 
-            if (!result.ExcludedBrands.Contains("Yamaha") && HasWholeWord(text, "yamaha"))
+            if (!result.ExcludedBrands.Contains("Yamaha") && HasNonExcludedWholeWord(text, "yamaha"))
             {
                 result.Brand = "Yamaha";
                 return;
             }
 
-            if (!result.ExcludedBrands.Contains("Suzuki") && HasWholeWord(text, "suzuki"))
+            if (!result.ExcludedBrands.Contains("Suzuki") && HasNonExcludedWholeWord(text, "suzuki"))
             {
                 result.Brand = "Suzuki";
                 return;
             }
 
-            if (!result.ExcludedBrands.Contains("SYM") && HasWholeWord(text, "sym"))
+            if (!result.ExcludedBrands.Contains("SYM") && HasNonExcludedWholeWord(text, "sym"))
             {
                 result.Brand = "SYM";
                 return;
             }
 
-            if (!result.ExcludedBrands.Contains("Piaggio") && HasWholeWord(text, "piaggio"))
+            if (!result.ExcludedBrands.Contains("Piaggio") && HasNonExcludedWholeWord(text, "piaggio"))
             {
                 result.Brand = "Piaggio";
             }
@@ -665,20 +685,25 @@ namespace Chatbot.API.Services
 
         private static void ParseExcludedBrand(string text, ParsedIntent result)
         {
-            if (ContainsAny(text, "khong thich honda", "khong muon honda", "ne honda", "ghet honda", "dung honda", "bo honda", "loai honda"))
-                result.ExcludedBrands.Add("Honda");
+            foreach (var brand in KnownBrands)
+            {
+                if (brand.Aliases.Any(alias => IsBrandExplicitlyExcluded(text, alias)))
+                    result.ExcludedBrands.Add(brand.DisplayName);
+            }
+        }
 
-            if (ContainsAny(text, "khong thich yamaha", "khong muon yamaha", "ne yamaha", "ghet yamaha", "dung yamaha", "bo yamaha", "loai yamaha"))
-                result.ExcludedBrands.Add("Yamaha");
+        private static void ParseExcludedProducts(string text, ParsedIntent result)
+        {
+            foreach (var product in KnownProducts.OrderByDescending(x => x.Length))
+            {
+                if (product == "sh" && !IsExplicitShMention(text))
+                    continue;
 
-            if (ContainsAny(text, "khong thich suzuki", "khong muon suzuki", "ne suzuki", "ghet suzuki", "dung suzuki", "bo suzuki", "loai suzuki"))
-                result.ExcludedBrands.Add("Suzuki");
-
-            if (ContainsAny(text, "khong thich sym", "khong muon sym", "ne sym", "ghet sym", "dung sym", "bo sym", "loai sym"))
-                result.ExcludedBrands.Add("SYM");
-
-            if (ContainsAny(text, "khong thich piaggio", "khong muon piaggio", "ne piaggio", "ghet piaggio", "dung piaggio", "bo piaggio", "loai piaggio"))
-                result.ExcludedBrands.Add("Piaggio");
+                if (IsProductExplicitlyExcluded(text, product))
+                {
+                    result.ExcludedProducts.Add(ToDisplayProductName(product));
+                }
+            }
         }
         private static void ParseTarget(string text, ParsedIntent result)
         {
@@ -687,10 +712,10 @@ namespace Chatbot.API.Services
             if (ContainsAny(text, "sinh vien", "hoc sinh"))
                 targets.Add("sinh viên");
 
-            if (HasExplicitFemaleSignal(text))
+            if (HasExplicitFemaleSignal(text) && !IsTargetExplicitlyNegated(text, "nu"))
                 targets.Add("nữ");
 
-            if (HasExplicitMaleSignal(text))
+            if (HasExplicitMaleSignal(text) && !IsTargetExplicitlyNegated(text, "nam"))
                 targets.Add("nam");
 
             if (targets.Any())
@@ -1136,8 +1161,11 @@ namespace Chatbot.API.Services
                 "khong thich",
                 "khong muon",
                 "dung",
+                "dung goi y",
                 "ne",
                 "ghet",
+                "ngoai tru",
+                "tru",
                 "uu tien",
                 "bot",
                 "them dieu kien")
@@ -1284,6 +1312,140 @@ namespace Chatbot.API.Services
         private static bool ContainsAny(string text, params string[] keywords)
         {
             return keywords.Any(k => text.Contains(k));
+        }
+
+        private static bool HasNonExcludedWholeWord(string text, string entity)
+        {
+            return HasWholeWord(text, entity) && !IsEntityInExclusionScope(text, entity);
+        }
+
+        private static bool HasNonExcludedPhrase(string text, params string[] phrases)
+        {
+            return phrases.Any(phrase => HasWholePhrase(text, phrase) && !IsEntityInExclusionScope(text, phrase));
+        }
+
+        private static bool IsBrandExplicitlyExcluded(string text, string brand)
+        {
+            var escaped = Regex.Escape(brand);
+            var patterns = new[]
+            {
+                $@"\b(khong\s+thich|khong\s+muon|ghet|ne|bo|dung\s+goi\s+y|dung\s+de\s+xuat|loai\s+tru)\s+(xe\s+)?{escaped}\b",
+                $@"\b(ngoai\s+tru|tru)\s+(xe\s+)?{escaped}\b",
+                $@"\b{escaped}\s+(khong\s+duoc\s+goi\s+y|khong\s+duoc\s+de\s+xuat)\b"
+            };
+
+            return patterns.Any(p => Regex.IsMatch(text, p, RegexOptions.IgnoreCase))
+                   || IsEntityInExclusionScope(text, brand);
+        }
+
+        private static bool IsCategoryExplicitlyExcluded(string text, string category)
+        {
+            var escaped = Regex.Escape(category);
+            var patterns = new[]
+            {
+                $@"\b(khong\s+thich|khong\s+muon|ghet|ne|bo|dung\s+goi\s+y|dung\s+de\s+xuat|loai\s+tru)\s+{escaped}\b",
+                $@"\b(ngoai\s+tru|tru)\s+{escaped}\b"
+            };
+
+            return patterns.Any(p => Regex.IsMatch(text, p, RegexOptions.IgnoreCase))
+                   || IsEntityInExclusionScope(text, category);
+        }
+
+        private static bool IsProductExplicitlyExcluded(string text, string product)
+        {
+            var escaped = Regex.Escape(product);
+            var patterns = new[]
+            {
+                $@"\b(khong\s+thich|khong\s+muon|ghet|ne|bo|dung\s+goi\s+y|dung\s+de\s+xuat|loai\s+tru)\s+(xe\s+)?{escaped}\b",
+                $@"\b(ngoai\s+tru|tru)\s+(xe\s+)?{escaped}\b",
+                $@"\b{escaped}\s+(khong\s+duoc\s+goi\s+y|khong\s+duoc\s+de\s+xuat)\b"
+            };
+
+            return patterns.Any(p => Regex.IsMatch(text, p, RegexOptions.IgnoreCase))
+                   || IsEntityInExclusionScope(text, product);
+        }
+
+        private static bool IsTargetExplicitlyNegated(string text, string target)
+        {
+            return IsEntityInExclusionScope(text, target) ||
+                   Regex.IsMatch(
+                       text,
+                       $@"\b(khong\s+phai|khong\s+can|khong\s+cho|khong\s+hop)\s+(la\s+)?{Regex.Escape(target)}\b",
+                       RegexOptions.IgnoreCase);
+        }
+
+        private static bool IsEntityInExclusionScope(string text, string entity)
+        {
+            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(entity))
+                return false;
+
+            var pattern = $@"(?<!\p{{L}}|\p{{N}}){Regex.Escape(entity)}(?!\p{{L}}|\p{{N}})";
+            foreach (Match match in Regex.Matches(text, pattern, RegexOptions.IgnoreCase))
+            {
+                var prefixStart = Math.Max(0, match.Index - 80);
+                var prefix = text[prefixStart..match.Index];
+
+                var lastNegative = LastIndexOfAny(prefix,
+                    "khong thich",
+                    "khong muon",
+                    "khong can",
+                    "khong lay",
+                    "khong chon",
+                    "khong goi y",
+                    "khong de xuat",
+                    "khong phai",
+                    "khong hop",
+                    "khong nen",
+                    "khong",
+                    "dung goi y",
+                    "dung de xuat",
+                    "dung lay",
+                    "dung chon",
+                    "dung",
+                    "ngoai tru",
+                    "loai tru",
+                    "tru",
+                    "tranh",
+                    "ghet",
+                    "ne",
+                    "bo");
+
+                if (lastNegative < 0)
+                    continue;
+
+                var lastPositive = LastIndexOfAny(prefix,
+                    "nhung muon",
+                    "nhung thich",
+                    "ma muon",
+                    "ma thich",
+                    "muon",
+                    "thich",
+                    "uu tien",
+                    "chon",
+                    "lay",
+                    "can",
+                    "tu van",
+                    "goi y");
+
+                if (lastNegative >= lastPositive)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static int LastIndexOfAny(string text, params string[] values)
+        {
+            var result = -1;
+
+            foreach (var value in values)
+            {
+                var index = text.LastIndexOf(value, StringComparison.OrdinalIgnoreCase);
+                if (index > result)
+                    result = index;
+            }
+
+            return result;
         }
 
         private static string Normalize(string input)

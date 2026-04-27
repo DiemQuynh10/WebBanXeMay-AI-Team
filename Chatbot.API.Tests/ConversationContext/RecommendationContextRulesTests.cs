@@ -228,4 +228,84 @@ public class RecommendationContextRulesTests
 
         result.Should().BeFalse();
     }
+
+    [Fact]
+    public void ShouldResetContextForFreshConsultation_ShouldReturnTrue_WhenMessageStartsFreshStandaloneRecommendation()
+    {
+        var intent = new ParsedIntent
+        {
+            IntentType = "recommend",
+            Brand = "honda"
+        };
+
+        var profile = new CustomerPreferenceProfile
+        {
+            ConversationId = "conv-telegram-001",
+            TurnCount = 7,
+            HasActiveRecommendationContext = true,
+            PreferredBrand = "yamaha",
+            PreferredCategory = "xe ga",
+            LastRecommendedProducts = new List<string> { "Yamaha Latte", "Yamaha Janus" }
+        };
+
+        var result = RecommendationContextRules.ShouldResetContextForFreshConsultation(
+            "Tôi muốn mua xe honda",
+            intent,
+            profile);
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DecideRecommendationContextAction_ShouldReturnExpand_WhenUserRejectsCurrentCarAndRequestsAnother()
+    {
+        var intent = new ParsedIntent
+        {
+            IntentType = "followup",
+            IsFollowUp = true,
+            HasExpandRecommendationSignal = true
+        };
+
+        var profile = new CustomerPreferenceProfile
+        {
+            HasActiveRecommendationContext = true,
+            LastRecommendedProducts = new List<string> { "Honda Vision", "Yamaha Latte" },
+            BaseRecommendedProducts = new List<string> { "Honda Vision", "Yamaha Latte" }
+        };
+
+        var result = RecommendationContextRules.DecideRecommendationContextAction(
+            "không mua xe đó, tư vấn mẫu khác đi",
+            intent,
+            profile,
+            ChatFlowType.Recommendation);
+
+        result.Should().Be(RecommendationContextDecision.ExpandFromCurrentGoal);
+    }
+
+    [Fact]
+    public void DecideRecommendationContextAction_ShouldReturnNone_WhenMessageIsStaticKnowledgeQuestion()
+    {
+        var intent = new ParsedIntent
+        {
+            IntentType = "followup",
+            IsFollowUp = true,
+            PriceMin = 30000000,
+            PriceMax = 35000000
+        };
+
+        var profile = new CustomerPreferenceProfile
+        {
+            HasActiveRecommendationContext = true,
+            LastRecommendedProducts = new List<string> { "Honda Vision", "Yamaha Latte" },
+            BaseRecommendedProducts = new List<string> { "Honda Vision", "Yamaha Latte" }
+        };
+
+        var result = RecommendationContextRules.DecideRecommendationContextAction(
+            "tôi có 10 triệu muốn mua xe 35 triệu, trả góp 0% được không",
+            intent,
+            profile,
+            ChatFlowType.Recommendation);
+
+        result.Should().Be(RecommendationContextDecision.None);
+    }
 }

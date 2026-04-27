@@ -53,27 +53,6 @@ namespace Chatbot.API.Services
 
             await PostTelegramAsync(url, payload, "Telegram sendPhoto error");
         }
-        public async Task SendTypingAsync(long chatId)
-        {
-            var url = $"{_settings.BaseUrl}/bot{_settings.BotToken}/sendChatAction";
-
-            var payload = new
-            {
-                chat_id = chatId,
-                action = "typing"
-            };
-
-            var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var response = await _httpClient.PostAsync(url, content);
-            var responseBody = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new Exception($"Telegram sendChatAction error: {(int)response.StatusCode} - {responseBody}");
-            }
-        }
 
         public async Task SetWebhookAsync(string webhookUrl, string secretToken)
         {

@@ -1,4 +1,5 @@
 ﻿using System.Text.RegularExpressions;
+using Chatbot.API.Helpers;
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.ToolApi;
 
@@ -13,6 +14,18 @@ namespace Chatbot.API.Services.Conversation
             string? previousActiveFlow = null)
         {
             existingProfile ??= new CustomerPreferenceProfile();
+
+            if (FlowIntentHeuristics.IsStaticKnowledgeQuestion(normalizedMessage))
+            {
+                return new ContextResolutionResult
+                {
+                    EffectiveIntent = parsedIntent?.Clone() ?? new ParsedIntent(),
+                    ContextDecision = RecommendationContextDecision.None,
+                    ShouldResetContext = false,
+                    ShouldPreserveBudgetOnlyContext = false
+                };
+            }
+
             if (LooksLikeBudgetRestartWithSameGoal(normalizedMessage, parsedIntent, existingProfile))
             {
                 var restartIntent = parsedIntent.Clone();
@@ -443,10 +456,14 @@ namespace Chatbot.API.Services.Conversation
 
             if (includeBrandCategory)
             {
-                if (string.IsNullOrWhiteSpace(intent.Brand))
+                if (string.IsNullOrWhiteSpace(intent.Brand) &&
+                    !string.IsNullOrWhiteSpace(profile.PreferredBrand) &&
+                    !intent.ExcludedBrands.Contains(profile.PreferredBrand))
                     intent.Brand = profile.PreferredBrand;
 
-                if (string.IsNullOrWhiteSpace(intent.Category))
+                if (string.IsNullOrWhiteSpace(intent.Category) &&
+                    !string.IsNullOrWhiteSpace(profile.PreferredCategory) &&
+                    !intent.ExcludedCategories.Contains(profile.PreferredCategory))
                     intent.Category = profile.PreferredCategory;
             }
 
@@ -528,6 +545,7 @@ namespace Chatbot.API.Services.Conversation
 
             intent.ExcludedBrands.UnionWith(profile.ExcludedBrands);
             intent.ExcludedCategories.UnionWith(profile.ExcludedCategories);
+            intent.ExcludedProducts.UnionWith(profile.ExcludedProducts);
             intent.RequestedStyles.UnionWith(profile.RequestedStyles);
         }
     }

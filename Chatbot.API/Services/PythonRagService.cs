@@ -23,7 +23,7 @@ namespace Chatbot.API.Services
             _logger = logger;
         }
 
-        public async Task<RagQueryResponse?> QueryAsync(string query, int topK = 4)
+        public async Task<RagQueryResponse?> QueryAsync(string query, int topK = 8)
         {
             if (string.IsNullOrWhiteSpace(query))
             {

@@ -1,7 +1,19 @@
+using System.Net;
+using System.Text;
+using System.Text.RegularExpressions;
+
 namespace Chatbot.API.Helpers
 {
     public static class ChatChannelMessageHelper
     {
+        private static readonly Regex MarkdownBoldRegex = new(
+            @"(\*\*|__)([^\r\n]+?)\1",
+            RegexOptions.Compiled);
+
+        private static readonly Regex CompareRowRegex = new(
+            @"^\s*-\s*(?:\*\*|__)?(?<name>.+?)(?:\*\*|__)?\s*:\s*giá\s*(?<price>[\d\.,]+)\s*VNĐ(?:,\s*còn\s*(?<stock>\d+)\s*chiếc)?(?:,\s*hãng\s*(?<brand>[^,\.]+))?(?:,\s*(?:loại|thuộc nhóm)\s*(?<category>[^,\.]+))?(?:,\s*(?<cc>[^,\.]+))?\.?\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         public static bool TryGetStaticCommandReply(string? rawMessage, out string reply)
         {
             reply = string.Empty;
@@ -87,6 +99,183 @@ Gõ /menu để hiện lại menu nhanh.
             }
 
             return text.Replace("\r\n", "\n").Trim();
+        }
+
+        public static string FormatTelegramReply(string? text, string fallbackReply)
+        {
+            var normalized = FormatReply(text, fallbackReply);
+
+            if (TryBuildTelegramCompareTable(normalized, out var compareTableHtml))
+            {
+                return compareTableHtml;
+            }
+
+            return ConvertMarkdownToTelegramHtml(normalized);
+        }
+
+        private static bool TryBuildTelegramCompareTable(string text, out string formattedHtml)
+        {
+            formattedHtml = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            var lines = text.Replace("\r\n", "\n").Split('\n');
+            var rows = new List<(int Index, string Name, string Brand, string Category, string Cc, string Price, string Stock)>();
+
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                var match = CompareRowRegex.Match(line);
+                if (!match.Success)
+                {
+                    continue;
+                }
+
+                var name = match.Groups["name"].Value.Trim();
+                var price = match.Groups["price"].Value.Trim();
+                var stock = match.Groups["stock"].Success
+                    ? match.Groups["stock"].Value.Trim()
+                    : "-";
+                var brand = match.Groups["brand"].Success
+                    ? match.Groups["brand"].Value.Trim()
+                    : "-";
+                var category = match.Groups["category"].Success
+                    ? match.Groups["category"].Value.Trim()
+                    : "-";
+                var cc = match.Groups["cc"].Success
+                    ? match.Groups["cc"].Value.Trim()
+                    : "-";
+
+                if (cc.EndsWith("cc", StringComparison.OrdinalIgnoreCase))
+                {
+                    cc = cc[..^2].Trim();
+                }
+
+                rows.Add((i, name, brand, category, cc, price, stock));
+            }
+
+            if (rows.Count < 2)
+            {
+                return false;
+            }
+
+            var firstRowIndex = rows.Min(x => x.Index);
+            var lastRowIndex = rows.Max(x => x.Index);
+
+            var introLine = lines
+                .Take(firstRowIndex)
+                .Select(x => x.Trim())
+                .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
+
+            var tailLines = lines
+                .Skip(lastRowIndex + 1)
+                .Select(x => x.Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToList();
+
+            var tableText = BuildMonospaceCompareTable(rows);
+            var sb = new StringBuilder();
+
+            if (!string.IsNullOrWhiteSpace(introLine))
+            {
+                sb.AppendLine(ConvertMarkdownToTelegramHtml(introLine));
+            }
+
+            sb.Append("<pre>");
+            sb.Append(WebUtility.HtmlEncode(tableText));
+            sb.AppendLine("</pre>");
+
+            if (tailLines.Count > 0)
+            {
+                sb.AppendLine();
+                sb.Append(ConvertMarkdownToTelegramHtml(string.Join("\n", tailLines)));
+            }
+
+            formattedHtml = sb.ToString().Trim();
+            return true;
+        }
+
+        private static string BuildMonospaceCompareTable(
+            List<(int Index, string Name, string Brand, string Category, string Cc, string Price, string Stock)> rows)
+        {
+            const int maxNameWidth = 28;
+            const int maxBrandWidth = 10;
+            const int maxCategoryWidth = 12;
+            const int maxCcWidth = 6;
+            const int maxPriceWidth = 14;
+            const int maxStockWidth = 6;
+
+            var nameWidth = Math.Min(
+                maxNameWidth,
+                Math.Max("Mau xe".Length, rows.Max(x => x.Name.Length)));
+            var brandWidth = Math.Min(
+                maxBrandWidth,
+                Math.Max("Hang".Length, rows.Max(x => x.Brand.Length)));
+            var categoryWidth = Math.Min(
+                maxCategoryWidth,
+                Math.Max("Loai".Length, rows.Max(x => x.Category.Length)));
+            var ccWidth = Math.Min(
+                maxCcWidth,
+                Math.Max("CC".Length, rows.Max(x => x.Cc.Length)));
+            var priceWidth = Math.Min(
+                maxPriceWidth,
+                Math.Max("Gia (VND)".Length, rows.Max(x => x.Price.Length)));
+            var stockWidth = Math.Min(
+                maxStockWidth,
+                Math.Max("Ton".Length, rows.Max(x => x.Stock.Length)));
+
+            var sb = new StringBuilder();
+            var header =
+                $"{PadCell("Mau xe", nameWidth)} | {PadCell("Hang", brandWidth)} | {PadCell("Loai", categoryWidth)} | {PadCell("CC", ccWidth)} | {PadCell("Gia (VND)", priceWidth)} | {PadCell("Ton", stockWidth)}";
+
+            sb.AppendLine(header);
+            sb.AppendLine(new string('-', header.Length));
+
+            foreach (var row in rows)
+            {
+                sb.AppendLine(
+                    $"{PadCell(row.Name, nameWidth)} | {PadCell(row.Brand, brandWidth)} | {PadCell(row.Category, categoryWidth)} | {PadCell(row.Cc, ccWidth)} | {PadCell(row.Price, priceWidth)} | {PadCell(row.Stock, stockWidth)}");
+            }
+
+            return sb.ToString().TrimEnd();
+        }
+
+        private static string PadCell(string value, int width)
+        {
+            if (width <= 0)
+            {
+                return string.Empty;
+            }
+
+            var cleaned = (value ?? string.Empty).Trim();
+            if (cleaned.Length > width)
+            {
+                cleaned = width <= 3
+                    ? cleaned[..width]
+                    : cleaned[..(width - 3)] + "...";
+            }
+
+            return cleaned.PadRight(width);
+        }
+
+        private static string ConvertMarkdownToTelegramHtml(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return string.Empty;
+            }
+
+            // Encode user/model content first, then selectively map simple markdown bold markers.
+            var encoded = WebUtility.HtmlEncode(text);
+            return MarkdownBoldRegex.Replace(encoded, "<b>$2</b>");
         }
     }
 }

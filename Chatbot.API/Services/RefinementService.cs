@@ -124,6 +124,8 @@ namespace Chatbot.API.Services
                     .Where(x => x != null)
                     .ToList() ?? new List<ProductSummaryDto>();
 
+                items = ProductExclusionHelper.ApplyExclusions(items, intent, profile);
+
                 items = ProductPriceFilterHelper.ApplyStrictPriceFilter(items, intent);
                 if (!string.IsNullOrWhiteSpace(intent.Category))
                 {
@@ -163,6 +165,8 @@ namespace Chatbot.API.Services
                             string.Equals(x.ThuongHieu, ex, StringComparison.OrdinalIgnoreCase)))
                         .ToList();
                 }
+
+                items = ProductExclusionHelper.ApplyExclusions(items, intent, profile);
 
                 if (items.Count == 0)
                 {
@@ -310,6 +314,8 @@ namespace Chatbot.API.Services
                         .Where(x => x != null)
                         .ToList() ?? new List<ProductSummaryDto>();
 
+                    candidateProducts = ProductExclusionHelper.ApplyExclusions(candidateProducts, intent, profile);
+
                     candidateProducts = ProductPriceFilterHelper.ApplyStrictPriceFilter(candidateProducts, intent);
 
                     if (intent.ExcludedCategories.Any())
@@ -326,6 +332,8 @@ namespace Chatbot.API.Services
                                 string.Equals(x.ThuongHieu, ex, StringComparison.OrdinalIgnoreCase)))
                             .ToList();
                     }
+
+                    candidateProducts = ProductExclusionHelper.ApplyExclusions(candidateProducts, intent, profile);
 
                     // nếu refetch mà không ra gì thì fallback về nhóm cũ
                     if (candidateProducts.Count == 0)
@@ -429,6 +437,7 @@ namespace Chatbot.API.Services
             }
 
             var filteredList = filtered.ToList();
+            filteredList = ProductExclusionHelper.ApplyExclusions(filteredList, intent, profile);
 
             if (filteredList.Count == 0)
             {

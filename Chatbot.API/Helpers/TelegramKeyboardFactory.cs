@@ -16,5 +16,28 @@
                 one_time_keyboard = false
             };
         }
+
+        public static object? ProductLink(string? productUrl)
+        {
+            if (string.IsNullOrWhiteSpace(productUrl))
+            {
+                return null;
+            }
+
+            return new
+            {
+                inline_keyboard = new[]
+                {
+                    new[]
+                    {
+                        new
+                        {
+                            text = "Xem tren website",
+                            url = productUrl
+                        }
+                    }
+                }
+            };
+        }
     }
 }

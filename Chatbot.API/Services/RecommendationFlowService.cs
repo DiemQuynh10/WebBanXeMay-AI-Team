@@ -36,6 +36,99 @@ namespace Chatbot.API.Services
             ParsedIntent intent,
             CustomerPreferenceProfile profile)
         {
+            static HashSet<string> BuildExcludedBrandSet(ParsedIntent currentIntent, CustomerPreferenceProfile currentProfile)
+            {
+                var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var brand in currentIntent.ExcludedBrands)
+                {
+                    if (!string.IsNullOrWhiteSpace(brand))
+                        excluded.Add(brand.Trim());
+                }
+
+                foreach (var brand in currentProfile.ExcludedBrands)
+                {
+                    if (!string.IsNullOrWhiteSpace(brand))
+                        excluded.Add(brand.Trim());
+                }
+
+                return excluded;
+            }
+
+            static List<ProductSummaryDto> ApplyStrictBrandExclusion(
+                IEnumerable<ProductSummaryDto> products,
+                HashSet<string> excludedBrands)
+            {
+                if (excludedBrands.Count == 0)
+                    return products.Where(x => x != null).ToList();
+
+                return products
+                    .Where(x => x != null)
+                    .Where(x => !excludedBrands.Contains(x.ThuongHieu?.Trim() ?? string.Empty))
+                    .ToList();
+            }
+
+            static bool IsExpandIntent(string message)
+            {
+                if (string.IsNullOrWhiteSpace(message))
+                    return false;
+
+                var normalized = message.Trim().ToLowerInvariant();
+                return normalized.Contains("xe khac", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("xe khác", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("mau khac", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("mẫu khác", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("con mau nao", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("còn mẫu nào", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("con xe nao", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("còn xe nào", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("goi y them", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("gợi ý thêm", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("them lua chon", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("thêm lựa chọn", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("gia cao hon", StringComparison.OrdinalIgnoreCase) ||
+                       normalized.Contains("giá cao hơn", StringComparison.OrdinalIgnoreCase);
+            }
+
+            static bool WantsHigherPrice(string message)
+            {
+                if (string.IsNullOrWhiteSpace(message))
+                    return false;
+
+                return message.Contains("gia cao hon", StringComparison.OrdinalIgnoreCase) ||
+                       message.Contains("giá cao hơn", StringComparison.OrdinalIgnoreCase);
+            }
+
+            static List<ProductSummaryDto> ExcludePreviousRecommendations(
+                IEnumerable<ProductSummaryDto> products,
+                HashSet<int> previousIds,
+                HashSet<string> previousNames)
+            {
+                return products
+                    .Where(x => x != null)
+                    .Where(x => !previousIds.Contains(x.Id))
+                    .Where(x => !previousNames.Contains(x.Ten?.Trim() ?? string.Empty))
+                    .ToList();
+            }
+
+            var excludedBrands = BuildExcludedBrandSet(intent, profile);
+            var hasIntentBrandExclusions = intent.ExcludedBrands.Count > 0;
+            var isExpandIntent = IsExpandIntent(normalizedMessage);
+            var wantsHigherPrice = WantsHigherPrice(normalizedMessage);
+            var previousRecommendedIds = profile.LastRecommendedProductIds
+                .Distinct()
+                .ToHashSet();
+            var previousRecommendedNames = profile.LastRecommendedProducts
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (isExpandIntent)
+            {
+                await _conversationPreferenceService.ClearRecommendationContextAsync(conversationId);
+            }
+
             bool hasEnoughSignals =
                 _recommendationClarificationService.HasEnoughSignalsForDirectRecommendation(
                     normalizedMessage,
@@ -64,13 +157,22 @@ namespace Chatbot.API.Services
             }
 
             var requestedBrand = intent.Brand ?? profile.PreferredBrand;
+            if (ProductExclusionHelper.IsBrandExcludedByIntentOrProfile(requestedBrand, intent, profile))
+            {
+                requestedBrand = null;
+            }
 
             var effectiveCategory = !string.IsNullOrWhiteSpace(intent.Category)
                 ? intent.Category
                 : profile.PreferredCategory;
+            if (ProductExclusionHelper.IsCategoryExcludedByIntentOrProfile(effectiveCategory, intent, profile))
+            {
+                effectiveCategory = null;
+            }
 
             decimal? minPrice = intent.PriceMin ?? profile.PriceMin;
             decimal? maxPrice = intent.PriceMax ?? profile.PriceMax;
+            var take = isExpandIntent ? 50 : 30;
 
             if (intent.FilterType == PriceFilterType.Around && intent.TargetPrice.HasValue)
             {
@@ -80,8 +182,42 @@ namespace Chatbot.API.Services
                     : target <= 50_000_000m ? 4_000_000m
                     : 5_000_000m;
 
+                if (isExpandIntent)
+                {
+                    delta += 3_000_000m;
+                }
+
                 minPrice = Math.Max(0, target - delta);
                 maxPrice = target + delta;
+            }
+            else if (isExpandIntent)
+            {
+                if (wantsHigherPrice)
+                {
+                    if (maxPrice.HasValue)
+                    {
+                        minPrice = maxPrice.Value + 1;
+                        maxPrice = maxPrice.Value + 10_000_000m;
+                    }
+                    else if (minPrice.HasValue)
+                    {
+                        minPrice = minPrice.Value + 3_000_000m;
+                        maxPrice = minPrice.Value + 10_000_000m;
+                    }
+                    else if (profile.TargetPrice.HasValue)
+                    {
+                        minPrice = profile.TargetPrice.Value + 1;
+                        maxPrice = profile.TargetPrice.Value + 10_000_000m;
+                    }
+                }
+                else
+                {
+                    if (minPrice.HasValue)
+                        minPrice = Math.Max(0, minPrice.Value - 3_000_000m);
+
+                    if (maxPrice.HasValue)
+                        maxPrice = maxPrice.Value + 5_000_000m;
+                }
             }
 
             var toolResult = await _toolClient.GetProductsByFiltersAsync(
@@ -89,11 +225,17 @@ namespace Chatbot.API.Services
      minPrice: minPrice,
      maxPrice: maxPrice,
      category: effectiveCategory,
-     take: 30);
+     take: take);
 
             var items = toolResult?.Items?
                 .Where(x => x != null)
                 .ToList() ?? new List<ProductSummaryDto>();
+            items = ProductExclusionHelper.ApplyExclusions(items, intent, profile);
+            items = ApplyStrictBrandExclusion(items, excludedBrands);
+            if (isExpandIntent)
+            {
+                items = ExcludePreviousRecommendations(items, previousRecommendedIds, previousRecommendedNames);
+            }
 
             if (items.Count == 0 && !string.IsNullOrWhiteSpace(effectiveCategory))
             {
@@ -102,16 +244,27 @@ namespace Chatbot.API.Services
                     minPrice: minPrice,
                     maxPrice: maxPrice,
                     category: null,
-                    take: 30);
+                    take: take);
 
                 items = toolResult?.Items?
                     .Where(x => x != null)
                     .ToList() ?? new List<ProductSummaryDto>();
+                items = ProductExclusionHelper.ApplyExclusions(items, intent, profile);
+                items = ApplyStrictBrandExclusion(items, excludedBrands);
+                if (isExpandIntent)
+                {
+                    items = ExcludePreviousRecommendations(items, previousRecommendedIds, previousRecommendedNames);
+                }
             }
 
-            if (items.Count == 0)
+            if (items.Count == 0 && !hasIntentBrandExclusions)
             {
                 items = await TryGetBrandRelaxedCandidatesAsync(intent, profile, effectiveCategory);
+                items = ApplyStrictBrandExclusion(items, excludedBrands);
+                if (isExpandIntent)
+                {
+                    items = ExcludePreviousRecommendations(items, previousRecommendedIds, previousRecommendedNames);
+                }
             }
 
             if (items.Count == 0)
@@ -122,14 +275,42 @@ namespace Chatbot.API.Services
                     ConversationId = conversationId,
                     UsedAI = false,
                     UsedTool = ToolNames.GetProductsByFilters,
-                    Reply = BuildNoRecommendationMatchReply(intent, profile, effectiveCategory)
+                    Reply = isExpandIntent
+                        ? "Mình đã lọc rộng hơn nhưng hiện chưa thấy thêm mẫu mới nào khác với các xe vừa gợi ý."
+                        : BuildNoRecommendationMatchReply(intent, requestedBrand, effectiveCategory)
                 };
             }
             var strictlyFilteredItems = ProductPriceFilterHelper.ApplyStrictPriceFilter(items, intent);
+            strictlyFilteredItems = ApplyStrictBrandExclusion(strictlyFilteredItems, excludedBrands);
+            if (isExpandIntent)
+            {
+                strictlyFilteredItems = ExcludePreviousRecommendations(strictlyFilteredItems, previousRecommendedIds, previousRecommendedNames);
+            }
 
             if (strictlyFilteredItems.Count > 0)
             {
                 items = strictlyFilteredItems;
+            }
+
+            items = ProductExclusionHelper.ApplyExclusions(items, intent, profile);
+            items = ApplyStrictBrandExclusion(items, excludedBrands);
+            if (isExpandIntent)
+            {
+                items = ExcludePreviousRecommendations(items, previousRecommendedIds, previousRecommendedNames);
+            }
+
+            if (items.Count == 0)
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    UsedTool = ToolNames.GetProductsByFilters,
+                    Reply = isExpandIntent
+                        ? "Mình đã lọc rộng hơn nhưng hiện chưa thấy thêm mẫu mới nào khác với các xe vừa gợi ý."
+                        : BuildNoRecommendationMatchReply(intent, requestedBrand, effectiveCategory)
+                };
             }
             else
             {
@@ -145,6 +326,11 @@ namespace Chatbot.API.Services
                 profile,
                 normalizedMessage,
                 take: 4);
+            ranked = ApplyStrictBrandExclusion(ranked ?? new List<ProductSummaryDto>(), excludedBrands);
+            if (isExpandIntent)
+            {
+                ranked = ExcludePreviousRecommendations(ranked, previousRecommendedIds, previousRecommendedNames);
+            }
 
             if (ranked == null || ranked.Count == 0)
             {
@@ -154,7 +340,9 @@ namespace Chatbot.API.Services
                     ConversationId = conversationId,
                     UsedAI = false,
                     UsedTool = ToolNames.GetProductsByFilters,
-                    Reply = "Mình có tìm thấy dữ liệu sản phẩm, nhưng chưa lọc ra được mẫu nổi bật thật sự phù hợp. Bạn nói thêm một tiêu chí ngắn như cốp rộng, dễ chống chân hoặc hãng muốn ưu tiên nhé."
+                    Reply = isExpandIntent
+                        ? "Mình đã tìm rộng hơn nhưng chưa có thêm mẫu mới nào thực sự khác với những xe vừa gợi ý."
+                        : "Mình có tìm thấy dữ liệu sản phẩm, nhưng chưa lọc ra được mẫu nổi bật thật sự phù hợp. Bạn nói thêm một tiêu chí ngắn như cốp rộng, dễ chống chân hoặc hãng muốn ưu tiên nhé."
                 };
             }
 
@@ -165,7 +353,7 @@ namespace Chatbot.API.Services
             await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
                 conversationId,
                 ranked,
-                "fresh_consultation");
+                isExpandIntent ? "followup" : "fresh_consultation");
 
             var reply = BuildRecommendationReply(ranked, intent);
 
@@ -181,11 +369,11 @@ namespace Chatbot.API.Services
         }
         private static string BuildNoRecommendationMatchReply(
     ParsedIntent intent,
-    CustomerPreferenceProfile profile,
+    string? effectiveBrand,
     string? effectiveCategory)
         {
-            var brand = intent.Brand ?? profile.PreferredBrand;
-            var category = !string.IsNullOrWhiteSpace(intent.Category) ? intent.Category : effectiveCategory;
+            var brand = effectiveBrand;
+            var category = effectiveCategory;
 
             bool hasBudget =
                 intent.TargetPrice.HasValue ||
@@ -246,6 +434,7 @@ namespace Chatbot.API.Services
             var items = result?.Items?
                 .Where(x => x != null)
                 .ToList() ?? new List<ProductSummaryDto>();
+            items = ProductExclusionHelper.ApplyExclusions(items, intent, profile);
 
             if (items.Count > 0)
                 return items;
@@ -261,6 +450,7 @@ namespace Chatbot.API.Services
             items = result?.Items?
                 .Where(x => x != null)
                 .ToList() ?? new List<ProductSummaryDto>();
+            items = ProductExclusionHelper.ApplyExclusions(items, intent, profile);
 
             return items;
         }

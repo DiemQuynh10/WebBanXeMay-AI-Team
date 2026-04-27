@@ -48,6 +48,9 @@ namespace Chatbot.API.Controllers
                         errorMessage = "Request không hợp lệ."
                     });
                 }
+
+                request.Message = _inputTextSanitizer.Sanitize(request.Message);
+
                 if (string.IsNullOrWhiteSpace(request.Message))
                 {
                     return BadRequest(new
@@ -57,8 +60,6 @@ namespace Chatbot.API.Controllers
                     });
                 }
 
-                request.Message = request.Message.Trim();
-
                 if (ChatChannelMessageHelper.TryGetStaticCommandReply(request.Message, out var staticReply))
                 {
                     var commandResult = BuildStaticCommandResponse(request, staticReply);
@@ -67,13 +68,6 @@ namespace Chatbot.API.Controllers
                 }
 
                 request.Message = ChatChannelMessageHelper.NormalizeQuickMenuInput(request.Message);
-// =======
-//                 _logger.LogInformation("ChatController BEFORE sanitize: {Message}", request.Message);
-
-//                 request.Message = _inputTextSanitizer.Sanitize(request.Message);
-
-//                 _logger.LogInformation("ChatController AFTER sanitize: {Message}", request.Message);
-// >>>>>>> dev
 
                 var result = await _chatService.ProcessMessageAsync(request);
 

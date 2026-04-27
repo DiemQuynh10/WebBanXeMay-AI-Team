@@ -233,7 +233,9 @@ namespace Chatbot.API.Services
                     ["role"] = "system",
                     ["content"] =
                         "Dưới đây là ngữ cảnh tham khảo được truy xuất từ kho tri thức nội bộ. " +
-                        "Chỉ sử dụng khi phù hợp và không được mâu thuẫn với dữ liệu realtime từ tool API.\n\n" +
+                        "Ưu tiên dùng các phần liên quan để trả lời đúng trọng tâm; nếu context chỉ gần đúng thì vẫn rút ý phù hợp, " +
+                        "không báo thiếu dữ liệu. Chỉ fallback khi toàn bộ context hoàn toàn không liên quan. " +
+                        "Không được mâu thuẫn với dữ liệu realtime từ tool API.\n\n" +
                         safeRagContext
                 });
             }
@@ -286,7 +288,8 @@ namespace Chatbot.API.Services
                     ["role"] = "system",
                     ["content"] =
                         "Ngữ cảnh bổ sung từ kho tri thức nội bộ. Chỉ dùng để hỗ trợ diễn giải, " +
-                        "không được mâu thuẫn với dữ liệu tool realtime.\n\n" + safeRagContext
+                        "ưu tiên rút phần liên quan nếu context gần đúng, không báo thiếu dữ liệu khi context còn liên quan, " +
+                        "và không được mâu thuẫn với dữ liệu tool realtime.\n\n" + safeRagContext
                 });
             }
 

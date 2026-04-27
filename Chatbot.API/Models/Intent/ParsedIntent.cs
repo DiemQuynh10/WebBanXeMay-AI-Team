@@ -14,6 +14,7 @@
 
         public HashSet<string> ExcludedCategories { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> ExcludedBrands { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> ExcludedProducts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
         public int? HeightCm { get; set; }
         public bool NeedsLowSeat { get; set; }
@@ -66,6 +67,11 @@
         public string? LookupField { get; set; }
 
         /// <summary>
+        /// Structured policy/service slot, for example documents, process, interest, loan_term, warranty_period.
+        /// </summary>
+        public string? PolicySlot { get; set; }
+
+        /// <summary>
         /// Cho phép ChatService biết đây là câu phải ưu tiên deterministic trước AI.
         /// </summary>
         public bool HasDeterministicProductIntent { get; set; }
@@ -85,6 +91,7 @@
 
                 ExcludedCategories = new HashSet<string>(ExcludedCategories, StringComparer.OrdinalIgnoreCase),
                 ExcludedBrands = new HashSet<string>(ExcludedBrands, StringComparer.OrdinalIgnoreCase),
+                ExcludedProducts = new HashSet<string>(ExcludedProducts, StringComparer.OrdinalIgnoreCase),
 
                 HeightCm = HeightCm,
                 NeedsLowSeat = NeedsLowSeat,
@@ -128,6 +135,7 @@
                 RecommendationContextActionHint = RecommendationContextActionHint,
                 LookupTargetType = LookupTargetType,
                 LookupField = LookupField,
+                PolicySlot = PolicySlot,
 
                 HasDeterministicProductIntent = HasDeterministicProductIntent
             };

@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Text;
+using System.Text.RegularExpressions;
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.ToolApi;
 using Chatbot.API.Services.Interfaces;
@@ -28,20 +29,35 @@ namespace Chatbot.API.Services
             });
             var rawMessage = NormalizeGenderText(intent.RawMessage);
 
-            bool messageExplicitlyMentionsMale =
-                rawMessage.Contains(" nam ") ||
-                rawMessage.StartsWith("nam ") ||
-                rawMessage.EndsWith(" nam") ||
-                rawMessage.Contains("cho nam") ||
-                rawMessage.Contains("phai nam");
+            bool messageExplicitlyMentionsMale = ContainsAffirmativeAny(
+                rawMessage,
+                "nam",
+                "cho nam",
+                "phai nam",
+                "xe nam");
 
-            bool messageExplicitlyMentionsFemale =
-                rawMessage.Contains(" nu ") ||
-                rawMessage.StartsWith("nu ") ||
-                rawMessage.EndsWith(" nu") ||
-                rawMessage.Contains("cho nu") ||
-                rawMessage.Contains("phai nu") ||
-                rawMessage.Contains("phu nu");
+            bool messageExplicitlyMentionsFemale = ContainsAffirmativeAny(
+                rawMessage,
+                "nu",
+                "cho nu",
+                "phai nu",
+                "phu nu",
+                "xe nu");
+
+            bool messageExplicitlyRejectsMale = ContainsExplicitNegation(
+                rawMessage,
+                "nam",
+                "cho nam",
+                "xe nam");
+
+            bool messageExplicitlyRejectsFemale = ContainsExplicitNegation(
+                rawMessage,
+                "nu",
+                "cho nu",
+                "xe nu",
+                "phu nu");
+
+            ApplyExplicitNegativeSignals(profile, rawMessage);
             if (intent.FilterType != PriceFilterType.None)
             {
                 profile.FilterType = intent.FilterType;
@@ -149,6 +165,21 @@ namespace Chatbot.API.Services
             foreach (var item in intent.ExcludedBrands)
                 profile.ExcludedBrands.Add(item);
 
+            foreach (var item in intent.ExcludedProducts)
+                profile.ExcludedProducts.Add(item);
+
+            if (!string.IsNullOrWhiteSpace(profile.PreferredBrand) &&
+                profile.ExcludedBrands.Contains(profile.PreferredBrand))
+            {
+                profile.PreferredBrand = null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(profile.PreferredCategory) &&
+                profile.ExcludedCategories.Contains(profile.PreferredCategory))
+            {
+                profile.PreferredCategory = null;
+            }
+
             if (intent.HeightCm.HasValue)
                 profile.HeightCm = intent.HeightCm;
 
@@ -163,6 +194,24 @@ namespace Chatbot.API.Services
             if (intent.WantsEasyControl) profile.WantsEasyControl = true;
             if (intent.WantsFuelSaving) profile.WantsFuelSaving = true;
             if (intent.WantsLargeStorage) profile.WantsLargeStorage = true;
+
+            if (messageExplicitlyRejectsMale)
+            {
+                profile.PrefersMaleStyle = false;
+                if (string.Equals(profile.Target, "nam", StringComparison.OrdinalIgnoreCase))
+                {
+                    profile.Target = null;
+                }
+            }
+
+            if (messageExplicitlyRejectsFemale)
+            {
+                profile.PrefersFemaleStyle = false;
+                if (string.Equals(profile.Target, "nữ", StringComparison.OrdinalIgnoreCase))
+                {
+                    profile.Target = null;
+                }
+            }
 
             if (messageExplicitlyMentionsMale && intent.PrefersMaleStyle && !intent.PrefersFemaleStyle)
             {
@@ -327,6 +376,7 @@ namespace Chatbot.API.Services
 
             profile.ExcludedCategories.Clear();
             profile.ExcludedBrands.Clear();
+            profile.ExcludedProducts.Clear();
 
             profile.HeightCm = null;
             profile.NeedsLowSeat = false;
@@ -365,6 +415,10 @@ namespace Chatbot.API.Services
             profile.LastComparisonFeature = null;
             profile.LastIntentType = null;
             profile.LastUserMessage = null;
+            profile.LastSemanticIntent = null;
+            profile.LastSemanticFlowType = null;
+            profile.LastSemanticMeaning = null;
+            profile.LastSemanticResult = null;
 
             profile.LastResolvedBrandSwitchFrom = null;
             profile.LastResolvedBrandSwitchTo = null;
@@ -431,6 +485,22 @@ namespace Chatbot.API.Services
 
             profile.LastIntentType = intentType;
             profile.UpdatedAtUtc = DateTime.UtcNow;
+            return Task.CompletedTask;
+        }
+
+        public Task SetSemanticContextAsync(string conversationId, SemanticResult semanticResult)
+        {
+            var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
+            {
+                ConversationId = id
+            });
+
+            profile.LastSemanticResult = semanticResult.Clone();
+            profile.LastSemanticIntent = semanticResult.Intent;
+            profile.LastSemanticFlowType = semanticResult.FlowType;
+            profile.LastSemanticMeaning = semanticResult.NormalizedMeaning;
+            profile.UpdatedAtUtc = DateTime.UtcNow;
+
             return Task.CompletedTask;
         }
 
@@ -509,6 +579,15 @@ namespace Chatbot.API.Services
 
             if (!string.IsNullOrWhiteSpace(profile.LastIntentType))
                 parts.Add($"intent gần nhất: {profile.LastIntentType}");
+
+            if (!string.IsNullOrWhiteSpace(profile.LastSemanticIntent))
+                parts.Add($"semantic intent gần nhất: {profile.LastSemanticIntent}");
+
+            if (!string.IsNullOrWhiteSpace(profile.LastSemanticFlowType))
+                parts.Add($"semantic flow gần nhất: {profile.LastSemanticFlowType}");
+
+            if (!string.IsNullOrWhiteSpace(profile.LastSemanticMeaning))
+                parts.Add($"nghĩa semantic gần nhất: {profile.LastSemanticMeaning}");
 
             if (profile.HasActiveRecommendationContext)
                 parts.Add("đang có ngữ cảnh gợi ý trước đó");
@@ -662,6 +741,120 @@ namespace Chatbot.API.Services
             }
 
             return value;
+        }
+
+        private static void ApplyExplicitNegativeSignals(CustomerPreferenceProfile profile, string rawMessage)
+        {
+            if (string.IsNullOrWhiteSpace(rawMessage))
+            {
+                return;
+            }
+
+            if (ContainsExplicitNegation(rawMessage, "di hoc", "hoc hang ngay", "den truong"))
+            {
+                profile.ForSchool = false;
+            }
+
+            if (ContainsExplicitNegation(rawMessage, "di lam", "cong so", "chay dich vu", "dich vu"))
+            {
+                profile.ForWork = false;
+            }
+
+            if (ContainsExplicitNegation(rawMessage, "di pho", "trong pho", "do thi", "noi thanh"))
+            {
+                profile.ForCity = false;
+            }
+
+            if (ContainsExplicitNegation(rawMessage, "di tour", "duong dai", "di xa", "phuot"))
+            {
+                profile.ForTour = false;
+            }
+
+            if (ContainsExplicitNegation(rawMessage, "de dieu khien", "de di", "linh hoat", "de chong chan", "nhe", "gon"))
+            {
+                profile.WantsEasyControl = false;
+            }
+
+            if (ContainsExplicitNegation(rawMessage, "tiet kiem xang", "it ton xang", "hao xang thap", "ben xang"))
+            {
+                profile.WantsFuelSaving = false;
+            }
+
+            if (ContainsExplicitNegation(rawMessage, "cop rong", "de do", "chua do"))
+            {
+                profile.WantsLargeStorage = false;
+            }
+
+            if (ContainsExplicitNegation(rawMessage, "nguoi thap", "yen thap", "de chong chan"))
+            {
+                profile.NeedsLowSeat = false;
+            }
+
+            if (ContainsExplicitNegation(rawMessage, "the thao", "nang dong", "ca tinh", "thanh lich", "nhe nhang", "ham ho", "nho gon"))
+            {
+                profile.RequestedStyles.Clear();
+            }
+        }
+
+        private static bool ContainsAffirmativeAny(string text, params string[] keywords)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            foreach (var keyword in keywords)
+            {
+                if (string.IsNullOrWhiteSpace(keyword))
+                {
+                    continue;
+                }
+
+                if (!HasWholePhrase(text, keyword))
+                {
+                    continue;
+                }
+
+                if (IsNegatedPhrase(text, keyword))
+                {
+                    continue;
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool ContainsExplicitNegation(string text, params string[] keywords)
+        {
+            return keywords.Any(keyword => IsNegatedPhrase(text, keyword));
+        }
+
+        private static bool IsNegatedPhrase(string text, string phrase)
+        {
+            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(phrase))
+            {
+                return false;
+            }
+
+            var escaped = Regex.Escape(phrase.Trim());
+            var patterns = new[]
+            {
+                $@"\b(khong|ko|k|chua|dung|tranh|ne|bo)\s+(can\s+|muon\s+|thich\s+|uu\s+tien\s+|chon\s+|lay\s+|cho\s+|goi\s+y\s+|de\s+xuat\s+)?(xe\s+)?{escaped}\b",
+                $@"\b(khong\s+phai|ko\s+phai|khong\s+hop|khong\s+nen)\s+(xe\s+)?{escaped}\b",
+                $@"\b{escaped}\s+(thi\s+)?(khong|ko|chua)\b"
+            };
+
+            return patterns.Any(pattern => Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase));
+        }
+
+        private static bool HasWholePhrase(string text, string phrase)
+        {
+            return Regex.IsMatch(
+                text,
+                $@"(?<!\p{{L}}|\p{{N}}){Regex.Escape(phrase.Trim())}(?!\p{{L}}|\p{{N}})",
+                RegexOptions.IgnoreCase);
         }
     }
 }

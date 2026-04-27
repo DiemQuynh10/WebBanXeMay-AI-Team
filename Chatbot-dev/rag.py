@@ -19,7 +19,7 @@ KB_FILE = Path(__file__).parent / "knowledge_base.txt"
 CHROMA_DIR = Path(__file__).parent / "chroma_db"
 COLLECTION = "knowledge"
 EMBED_MODEL = "text-embedding-3-small"
-TOP_K = 5
+TOP_K = 8
 
 _openai_client = None
 _chroma_collection = None
@@ -61,20 +61,136 @@ def _normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", lowered.strip())
 
 
-def _extract_query_keywords(query: str) -> List[str]:
-    stopwords = {
-        "xe", "la", "hay", "cho", "toi", "minh", "ban", "giup", "voi", "nao",
-        "co", "khong", "duoc", "nen", "mua", "tu", "den", "tam", "khoang", "quanh",
-        "di", "hoc", "lam", "de", "va", "hoac", "nhung", "nhung"
-    }
-
-    words = re.findall(r"[a-z0-9]{2,}", _normalize_text(query))
-    return [w for w in words if w not in stopwords]
-
-
 def _extract_product_name(block: str) -> str | None:
     match = re.search(r"^\[(.+?)\]", block.strip(), flags=re.MULTILINE)
     return match.group(1).strip() if match else None
+
+
+def _infer_domain(text: str) -> str:
+    lower = _normalize_text(text)
+    domains = {
+        "installment": ["tra gop", "lai suat", "tra truoc", "vay", "tin dung", "ngan hang", "hd saison", "fe credit", "home credit", "tat toan"],
+        "warranty": ["bao hanh", "chinh hang", "dong co", "khung xe", "phu tung", "khong bao hanh"],
+        "maintenance": ["bao duong", "thay nhot", "bugi", "loc gio", "day curoa", "dinh ky"],
+        "paperwork": ["giay to", "bien so", "ca vet", "dang ky", "truoc ba", "cu tru", "ct07", "vneid", "bao bien"],
+        "delivery": ["giao hang", "van chuyen", "tan noi", "noi thanh", "ngoai thanh"],
+        "insurance": ["bao hiem", "tnds", "tai nan", "mat cap", "boi thuong"],
+        "promotion": ["khuyen mai", "uu dai", "giam", "tang", "sinh vien"],
+        "deposit": ["dat coc", "giu xe", "hoan coc"],
+        "tradein": ["thu cu", "doi moi", "trade-in", "len doi", "dinh gia"],
+        "payment": ["thanh toan", "chuyen khoan", "quet the", "visa", "mastercard", "phi giao dich", "online"],
+        "testride": ["lai thu", "test ride", "bang lai", "a1", "a2"],
+        "technology": ["abs", "cbs", "smartkey", "chia khoa", "fi", "phun xang"],
+    }
+
+    for domain, keywords in domains.items():
+        if any(k in lower for k in keywords):
+            return domain
+
+    return "general"
+
+
+def _infer_slot(text: str, domain: str) -> str:
+    lower = _normalize_text(text)
+    slots = {
+        "interest": ["lai suat", "0%", "0.5", "1.2", "1.5"],
+        "down_payment": ["tra truoc", "down payment", "0 dong", "20%", "50%"],
+        "loan_term": ["thoi gian vay", "12", "60 thang"],
+        "monthly_payment": ["hang thang", "moi thang", "1.5 trieu"],
+        "approval_time": ["duyet", "15", "30 phut", "nhan xe"],
+        "early_settlement": ["tat toan", "phi phat", "du no goc"],
+        "conditions": ["dieu kien", "do tuoi", "thu nhap", "cic", "no xau", "bao lanh"],
+        "documents": ["ho so", "giay to", "cmnd", "cccd", "ho khau", "kt3", "hop dong lao dong", "sao ke"],
+        "process": ["quy trinh", "buoc", "ky hop dong", "tham dinh"],
+        "warranty_period": ["bao hanh", "nam", "km", "khong gioi han"],
+        "warranty_exclusion": ["khong bao hanh", "hao mon", "lop xe", "ma phanh", "bugi", "bong den", "dau nhot"],
+        "service_package": ["goi", "500.000", "800.000", "1.200.000"],
+        "maintenance_schedule": ["500km", "3,000km", "6,000km", "12,000km", "dinh ky", "ro-dai"],
+        "fee": ["phi", "66.000", "100.000", "200.000", "500.000", "1.500.000", "2-4 trieu"],
+        "registration_time": ["bam bien", "ca vet", "1-3 ngay", "7-10 ngay"],
+        "refund": ["hoan", "hoan coc", "doi tra"],
+    }
+
+    for slot, keywords in slots.items():
+        if any(k in lower for k in keywords):
+            return slot
+
+    return "policy" if domain != "general" else "general"
+
+
+def _infer_brand(text: str) -> str:
+    lower = _normalize_text(text)
+    for brand in ["honda", "yamaha", "suzuki", "piaggio", "sym"]:
+        if re.search(rf"(?<![a-z0-9]){brand}(?![a-z0-9])", lower):
+            return brand
+    return ""
+
+
+def _is_policy_or_service_block(block: str) -> bool:
+    return _infer_domain(block) != "general"
+
+
+def _extract_structured_fact_chunks(block: str, section: str) -> List[Dict[str, Any]]:
+    if not _is_policy_or_service_block(block):
+        return []
+
+    chunks: List[Dict[str, Any]] = []
+    current_domain = _infer_domain(block)
+    current_brand = ""
+    heading = ""
+
+    for raw_line in block.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("---"):
+            continue
+
+        if line.startswith("[") and line.endswith("]"):
+            heading = line.strip("[]")
+            inferred = _infer_domain(heading)
+            if inferred != "general":
+                current_domain = inferred
+            continue
+
+        normalized = _normalize_text(line)
+        line_brand = _infer_brand(line)
+        if line_brand:
+            current_brand = line_brand
+
+        line_domain = _infer_domain(line)
+        domain = line_domain if line_domain != "general" else current_domain
+        slot = _infer_slot(line, domain)
+
+        is_fact = (
+            line.startswith("-") or
+            re.match(r"^\d+\.", line) or
+            ":" in line or
+            any(char.isdigit() for char in line)
+        )
+        if not is_fact:
+            continue
+
+        value = re.sub(r"^\s*[-+*]\s*", "", line)
+        value = re.sub(r"^\s*\d+\.\s*", "", value).strip()
+        if len(value) < 6:
+            continue
+
+        fact_text = (
+            f"domain: {domain}\n"
+            f"slot: {slot}\n"
+            f"brand: {line_brand or current_brand}\n"
+            f"value: {value}\n"
+            f"source: {heading or section}"
+        )
+        chunks.append({
+            "text": fact_text,
+            "section": section,
+            "product_name": "",
+            "domain": domain,
+            "slot": slot,
+            "brand": line_brand or current_brand,
+        })
+
+    return chunks
 
 
 def _infer_section(block: str) -> str:
@@ -126,17 +242,27 @@ def _split_into_chunks(text: str, chunk_size: int = 650) -> List[Dict[str, Any]]
         section = _infer_section(block)
         product_name = _extract_product_name(block)
 
-        def add_chunk(chunk_text: str):
+        def add_chunk(chunk_text: str, metadata: Dict[str, Any] | None = None):
             nonlocal chunk_id
             if not chunk_text.strip():
                 return
+            metadata = metadata or {}
             chunks.append({
                 "id": f"chunk_{chunk_id}",
                 "text": chunk_text.strip(),
-                "section": section,
-                "product_name": product_name or ""
+                "section": metadata.get("section", section),
+                "product_name": metadata.get("product_name", product_name or ""),
+                "domain": metadata.get("domain", ""),
+                "slot": metadata.get("slot", ""),
+                "brand": metadata.get("brand", ""),
             })
             chunk_id += 1
+
+        fact_chunks = _extract_structured_fact_chunks(block, section)
+        if fact_chunks:
+            for fact in fact_chunks:
+                add_chunk(fact["text"], fact)
+            return
 
         if len(block) <= chunk_size:
             add_chunk(block)
@@ -219,8 +345,24 @@ def build_index(force: bool = False):
             pass
 
     if not force and collection.count() > 0:
-        print(f"[RAG] Index đã có {collection.count()} chunks")
-        return collection.count()
+        try:
+            sample = collection.get(limit=1, include=["metadatas"])
+            metadata = (sample.get("metadatas") or [{}])[0] or {}
+            has_structured_metadata = "domain" in metadata and "slot" in metadata and "brand" in metadata
+        except Exception:
+            has_structured_metadata = False
+
+        if has_structured_metadata:
+            print(f"[RAG] Index đã có {collection.count()} chunks")
+            return collection.count()
+
+        print("[RAG] Existing index is old schema. Rebuilding structured fact index...")
+        try:
+            existing = collection.get()
+            if existing["ids"]:
+                collection.delete(ids=existing["ids"])
+        except Exception:
+            pass
 
     if not KB_FILE.exists():
         raise FileNotFoundError(f"Không tìm thấy {KB_FILE}")
@@ -247,7 +389,10 @@ def build_index(force: bool = False):
         embeddings.append(emb)
         metadatas.append({
             "section": chunk["section"],
-            "product_name": chunk["product_name"]
+            "product_name": chunk["product_name"],
+            "domain": chunk.get("domain", ""),
+            "slot": chunk.get("slot", ""),
+            "brand": chunk.get("brand", ""),
         })
 
     collection.add(
@@ -264,155 +409,153 @@ def build_index(force: bool = False):
 # -------------------------------------------------------
 # QUERY ENRICHMENT
 # -------------------------------------------------------
-def _extract_product_names_from_query(query: str) -> List[str]:
-    alias_to_product = {
-        "honda vision": "Honda Vision",
-        "honda air blade": "Honda Air Blade",
-        "honda pcx": "Honda PCX",
-        "honda sh": "Honda SH 150i",
-        "sh 150i": "Honda SH 150i",
-        "sh150i": "Honda SH 150i",
-        "honda future": "Honda Future",
-        "honda wave": "Honda Wave",
-        "yamaha freego": "Yamaha Freego",
-        "yamaha latte": "Yamaha Latte",
-        "yamaha grande": "Yamaha Grande",
-        "yamaha jupiter": "Yamaha Jupiter",
-        "yamaha sirius": "Yamaha Sirius",
-        "yamaha exciter": "Yamaha Exciter",
-        "piaggio zip 100": "Piaggio Zip 100",
-        "piaggio liberty 125": "Piaggio Liberty 125",
-        "piaggio medley 150": "Piaggio Medley 150",
-        "piaggio vespa lx": "Piaggio Vespa LX",
-        "suzuki address 110": "Suzuki Address 110",
-        "suzuki burgman 125": "Suzuki Burgman 125",
-        "suzuki impulse 125": "Suzuki Impulse 125",
-        "suzuki axelo 125": "Suzuki Axelo 125",
-        "sym shark mini": "SYM Shark Mini",
-        "sym attila venus": "SYM Attila Venus",
-        "sym elegant 110": "SYM Elegant 110",
+def _normalize_analysis_payload(analysis: Dict[str, Any] | None) -> Dict[str, Any]:
+    raw = analysis or {}
+
+    brand_preference = [
+        str(x).strip() for x in raw.get("brand_preference", []) if str(x).strip()
+    ]
+    negative_preference = [
+        str(x).strip() for x in raw.get("negative_preference", []) if str(x).strip()
+    ]
+
+    deduped_brand = list(dict.fromkeys(brand_preference))
+    deduped_negative = list(dict.fromkeys(negative_preference))
+    negative_set = {_normalize_text(x) for x in deduped_negative}
+
+    deduped_brand = [
+        x for x in deduped_brand if _normalize_text(x) not in negative_set
+    ]
+
+    budget_raw = raw.get("budget", {}) or {}
+    budget = {
+        "min": budget_raw.get("min"),
+        "max": budget_raw.get("max"),
+        "target": budget_raw.get("target"),
+        "currency": budget_raw.get("currency") or "VND",
     }
 
-    normalized_query = _normalize_text(query)
-    matched: List[str] = []
-    for alias, product in alias_to_product.items():
-        if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized_query):
-            matched.append(product)
+    return {
+        "intent": str(raw.get("intent") or "other").strip().lower(),
+        "need": str(raw.get("need") or "").strip(),
+        "brand_preference": deduped_brand,
+        "negative_preference": deduped_negative,
+        "budget": budget,
+    }
 
-    return list(dict.fromkeys(matched))
 
-
-def _build_query_variants(query: str) -> List[str]:
+def _build_semantic_query_variants(query: str, analysis: Dict[str, Any]) -> List[str]:
     variants = [query.strip()]
-    lower = _normalize_text(query)
 
-    if any(k in lower for k in ["tu van", "phu hop", "goi y", "nen mua"]):
-        variants.append(query + " điểm mạnh riêng từng mẫu xe, trường hợp nên chọn")
+    semantic_parts: List[str] = []
+    if analysis.get("intent"):
+        semantic_parts.append(f"intent: {analysis['intent']}")
+    if analysis.get("need"):
+        semantic_parts.append(f"nhu cầu: {analysis['need']}")
 
-    if any(k in lower for k in ["duoi m", "1m", "cm", "de chong chan", "nguoi thap", "nho con"]):
-        variants.append(query + " xe nào dễ chống chân, gọn, yên thấp")
+    brands = analysis.get("brand_preference", [])
+    if brands:
+        semantic_parts.append("ưu tiên hãng: " + ", ".join(brands))
 
-    if "cop rong" in lower:
-        variants.append(query + " mẫu nào cốp rộng, tiện mang đồ, thực dụng")
+    negatives = analysis.get("negative_preference", [])
+    if negatives:
+        semantic_parts.append("loại trừ: " + ", ".join(negatives))
 
-    if "di lam" in lower:
-        variants.append(query + " mẫu nào hợp đi làm hằng ngày, thực dụng, linh hoạt đi phố")
+    budget = analysis.get("budget", {})
+    if budget.get("min") is not None or budget.get("max") is not None or budget.get("target") is not None:
+        semantic_parts.append(
+            "ngân sách VND min={min} max={max} target={target}".format(
+                min=budget.get("min"),
+                max=budget.get("max"),
+                target=budget.get("target"),
+            )
+        )
 
-    if "sinh vien" in lower:
-        variants.append(query + " mẫu nào hợp sinh viên, giá hợp lý, dễ dùng, tiết kiệm")
+    if semantic_parts:
+        variants.append(" ; ".join(semantic_parts))
 
-    return list(dict.fromkeys(variants))
-
-
-def _extract_intent_tags(query: str) -> List[str]:
-    lower = _normalize_text(query)
-    tags: List[str] = []
-
-    if "sinh vien" in lower:
-        tags.append("student")
-    if "di hoc" in lower:
-        tags.append("school")
-    if "di lam" in lower:
-        tags.append("work")
-    if "cop rong" in lower:
-        tags.append("storage")
-    if any(k in lower for k in ["duoi m", "1m", "cm", "de chong chan", "nguoi thap", "nho con"]):
-        tags.append("low_seat")
-    if "nu" in lower:
-        tags.append("female")
-    if "nam" in lower:
-        tags.append("male")
-    if "xe ga" in lower or "tay ga" in lower:
-        tags.append("scooter")
-    if "xe so" in lower:
-        tags.append("underbone")
-    if "con tay" in lower:
-        tags.append("manual")
-    if "tiet kiem xang" in lower:
-        tags.append("fuel_saving")
-
-    return tags
+    return list(dict.fromkeys([v for v in variants if v]))
 
 
-def _score_doc_by_intent(doc: str, tags: List[str]) -> float:
-    lower = _normalize_text(doc)
+def _extract_brand_from_product_name(product_name: str) -> str:
+    name = (product_name or "").strip()
+    if not name:
+        return ""
+    return name.split()[0]
+
+
+def _doc_matches_negative_preference(doc: str, product_name: str, negatives: List[str]) -> bool:
+    if not negatives:
+        return False
+
+    normalized_doc = _normalize_text(f"{product_name} {doc}")
+    for item in negatives:
+        token = _normalize_text(item)
+        if not token:
+            continue
+        if re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", normalized_doc):
+            return True
+
+    return False
+
+
+def _score_doc_by_semantic_profile(section: str, product_name: str, analysis: Dict[str, Any]) -> float:
     bonus = 0.0
+    intent = analysis.get("intent", "")
 
-    if "student" in tags and any(k in lower for k in ["sinh vien", "di hoc", "hoc sinh"]):
-        bonus += 0.08
+    if intent in {"recommendation", "comparison"}:
+        if section == "comparison":
+            bonus += 0.12
+        elif section == "advisory":
+            bonus += 0.10
+        elif section == "general_advisory":
+            bonus += 0.05
 
-    if "school" in tags and "di hoc" in lower:
-        bonus += 0.06
-
-    if "work" in tags and "di lam" in lower:
-        bonus += 0.08
-
-    if "storage" in tags and any(k in lower for k in ["cop rong", "mang do", "tien ich"]):
-        bonus += 0.10
-
-    if "low_seat" in tags and any(k in lower for k in ["yen thap", "de chong chan", "nho gon", "nguoi thap", "nho con"]):
-        bonus += 0.12
-
-    if "female" in tags and any(k in lower for k in ["nu", "dang mem", "nu tinh"]):
-        bonus += 0.06
-
-    if "male" in tags and any(k in lower for k in ["nam", "manh me", "the thao"]):
-        bonus += 0.06
-
-    if "fuel_saving" in tags and any(k in lower for k in ["tiet kiem", "it hao", "chi phi"]):
-        bonus += 0.06
-
-    if "scooter" in tags and any(k in lower for k in ["tay ga", "xe ga"]):
-        bonus += 0.04
-
-    if "underbone" in tags and "xe so" in lower:
-        bonus += 0.04
-
-    if "manual" in tags and "con tay" in lower:
-        bonus += 0.04
+    preferred_brands = {_normalize_text(x) for x in analysis.get("brand_preference", [])}
+    product_brand = _normalize_text(_extract_brand_from_product_name(product_name))
+    if preferred_brands and product_brand and product_brand in preferred_brands:
+        bonus += 0.16
 
     return bonus
 
 
-def _score_doc_by_keyword_overlap(doc: str, keywords: List[str]) -> float:
-    if not keywords:
-        return 0.0
+def _score_doc_by_structured_metadata(meta: Dict[str, Any], query: str) -> float:
+    normalized_query = _normalize_text(query)
+    bonus = 0.0
 
-    normalized_doc = _normalize_text(doc)
-    matched = sum(1 for k in keywords if k in normalized_doc)
-    if matched == 0:
-        return 0.0
+    query_domain = _infer_domain(query)
+    query_slot = _infer_slot(query, query_domain)
+    query_brand = _infer_brand(query)
 
-    overlap = matched / max(1, len(keywords))
-    return min(0.18, overlap * 0.18)
+    doc_domain = str(meta.get("domain", "") or "")
+    doc_slot = str(meta.get("slot", "") or "")
+    doc_brand = str(meta.get("brand", "") or "")
+
+    if query_domain != "general" and doc_domain == query_domain:
+        bonus += 0.35
+
+    if query_slot != "general" and doc_slot == query_slot:
+        bonus += 0.30
+
+    if query_brand and doc_brand and _normalize_text(query_brand) == _normalize_text(doc_brand):
+        bonus += 0.25
+
+    if doc_domain and doc_domain in normalized_query:
+        bonus += 0.08
+
+    if doc_slot and doc_slot in normalized_query:
+        bonus += 0.08
+
+    return bonus
 
 
 # -------------------------------------------------------
 # SEARCH
 # -------------------------------------------------------
-def search(query: str, top_k: int = TOP_K):
+def search(query: str, top_k: int = TOP_K, analysis: Dict[str, Any] | None = None):
     collection = _get_collection()
     top_k = max(1, int(top_k))
+    semantic_analysis = _normalize_analysis_payload(analysis)
 
     if collection.count() == 0:
         build_index()
@@ -421,10 +564,8 @@ def search(query: str, top_k: int = TOP_K):
     if count == 0:
         return "(Không tìm thấy dữ liệu)"
 
-    variants = _build_query_variants(query)
-    product_names = _extract_product_names_from_query(query)
-    intent_tags = _extract_intent_tags(query)
-    query_keywords = _extract_query_keywords(query)
+    variants = _build_semantic_query_variants(query, semantic_analysis)
+    negatives = semantic_analysis.get("negative_preference", [])
 
     scored_docs: Dict[str, Dict[str, Any]] = {}
 
@@ -449,25 +590,11 @@ def search(query: str, top_k: int = TOP_K):
             section = meta.get("section", "")
             product_name = meta.get("product_name", "")
 
-            # Ưu tiên section tri thức so sánh / theo nhu cầu cho bài toán tư vấn
-            if section == "comparison":
-                score += 0.12
-            elif section == "advisory":
-                score += 0.10
-            elif section == "general_advisory":
-                score += 0.05
+            if _doc_matches_negative_preference(doc, product_name, negatives):
+                continue
 
-            # Ưu tiên block đúng tên xe trong query
-            if product_names and product_name in product_names:
-                score += 0.18
-
-            # Nếu query thiên về tư vấn, ưu tiên chunk có "Gợi ý tư vấn"
-            if "goi y tu van" in _normalize_text(doc):
-                score += 0.06
-
-            # Ưu tiên theo intent tags
-            score += _score_doc_by_intent(doc, intent_tags)
-            score += _score_doc_by_keyword_overlap(doc, query_keywords)
+            score += _score_doc_by_semantic_profile(section, product_name, semantic_analysis)
+            score += _score_doc_by_structured_metadata(meta, q)
 
             key = _normalize_text(doc.strip())
             if key not in scored_docs or score > scored_docs[key]["score"]:

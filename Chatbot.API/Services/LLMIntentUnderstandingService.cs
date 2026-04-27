@@ -112,6 +112,11 @@ namespace Chatbot.API.Services
             sb.AppendLine("- Nếu người dùng đổi ý rõ như: 'đổi ý', 'không phải ... nữa', 'giờ muốn ...', 'ý là muốn xem ...' => resetContext=true.");
             sb.AppendLine("- Nếu người dùng đang nói tiếp trên nhóm cũ như: 'còn honda thì sao', 'rẻ hơn chút', 'cốp rộng hơn', 'đừng xe số' => isFollowUp=true.");
             sb.AppendLine("- Nếu câu đang hỏi tiếp trên 2 mẫu đã so sánh trước đó như 'con nào cốp rộng hơn' => intentType=compare.");
+            sb.AppendLine("- Phải hiểu phủ định và loại trừ theo nghĩa, không theo keyword đơn lẻ.");
+            sb.AppendLine("- Các cụm như 'không thích', 'không muốn', 'đừng gợi ý', 'trừ', 'ngoại trừ', 'né', 'bỏ', 'không phải' phải đưa thực thể phía sau vào excludedBrands/excludedCategories hoặc loại khỏi target/brand/category.");
+            sb.AppendLine("- Nếu câu có cả khẳng định và phủ định, ví dụ 'muốn Yamaha nhưng không Honda' thì brand='Yamaha', excludedBrands=['Honda']; không được đưa Honda vào brand.");
+            sb.AppendLine("- Nếu câu đổi target, ví dụ 'không phải nữ nữa, giờ cho nam' thì target='nam', không giữ target='nữ'.");
+            sb.AppendLine("- Nếu người dùng liệt kê nhiều loại trừ sau một từ phủ định, ví dụ 'không Honda Yamaha' thì cả Honda và Yamaha đều là excludedBrands.");
             sb.AppendLine("- Nếu người dùng nói mơ hồ, thiếu dữ kiện quan trọng thì shouldAskClarification=true và clarificationQuestion phải ngắn, tự nhiên.");
             sb.AppendLine("- Nếu không chắc, đặt confidence thấp.");
             sb.AppendLine();

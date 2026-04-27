@@ -94,6 +94,45 @@ public class FlowDecisionServiceTests
     }
 
     [Fact]
+    public void ResolveFinalRouting_ShouldReturnUnknownFallback_WhenMessageIsStaticKnowledgeQuestion()
+    {
+        var intent = new ParsedIntent
+        {
+            IntentType = "followup",
+            IsFollowUp = true,
+            PriceMin = 30000000,
+            PriceMax = 35000000
+        };
+
+        var profile = new CustomerPreferenceProfile
+        {
+            HasActiveRecommendationContext = true,
+            BaseRecommendedProducts = new List<string> { "Honda Air Blade", "Yamaha Grande" }
+        };
+
+        var baseRouting = new FlowRoutingResult
+        {
+            FlowType = ChatFlowType.Recommendation,
+            ShouldUseDeterministicFlow = true,
+            ShouldUseAiFallback = false,
+            ShouldUseRag = false
+        };
+
+        var result = _service.ResolveFinalRouting(
+            "mình có 10 triệu, muốn mua xe 35 triệu có được trả góp 0% không",
+            intent,
+            profile,
+            RecommendationContextDecision.ExpandFromCurrentGoal,
+            baseRouting);
+
+        result.FlowType.Should().Be(ChatFlowType.Unknown);
+        result.ShouldUseDeterministicFlow.Should().BeFalse();
+        result.ShouldUseAiFallback.Should().BeTrue();
+        result.ShouldUseRag.Should().BeTrue();
+        result.Reason.Should().Be("Static knowledge question overrides conversation context");
+    }
+
+    [Fact]
     public void ResolveFinalRouting_ShouldReturnRecommendation_WhenContextDecisionIsStartFreshRecommendation()
     {
         var intent = new ParsedIntent

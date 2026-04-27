@@ -60,16 +60,32 @@ public class SanPhamController : Controller
 
     [HttpGet]
     [Route("SanPham/Details")]
-    public async Task<IActionResult> Details(string slug)
+    public async Task<IActionResult> Details(string? slug, int? id)
     {
-        if (string.IsNullOrEmpty(slug)) return NotFound();
+        if (string.IsNullOrWhiteSpace(slug) && !id.HasValue)
+        {
+            return NotFound();
+        }
 
-        var sanPham = await _db.SanPhams
+        var sanPhamQuery = _db.SanPhams
             .Include(sp => sp.ThuongHieu)
             .Include(sp => sp.Loai)
-            .FirstOrDefaultAsync(m => m.Slug == slug);
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(slug))
+        {
+            sanPhamQuery = sanPhamQuery.Where(m => m.Slug == slug);
+        }
+        else if (id.HasValue)
+        {
+            sanPhamQuery = sanPhamQuery.Where(m => m.MaSP == id.Value);
+        }
+
+        var sanPham = await sanPhamQuery.FirstOrDefaultAsync();
 
         if (sanPham == null) return NotFound();
+
+        slug ??= sanPham.Slug;
 
         // Đánh giá (m đã có)
         var productReviews = await _db.DanhGias

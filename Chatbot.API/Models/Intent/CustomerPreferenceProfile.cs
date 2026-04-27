@@ -15,6 +15,7 @@
 
         public HashSet<string> ExcludedCategories { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> ExcludedBrands { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> ExcludedProducts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
         public int? HeightCm { get; set; }
         public bool NeedsLowSeat { get; set; }
@@ -59,6 +60,10 @@
 
         public string? LastUserMessage { get; set; }
         public string? LastIntentType { get; set; }
+        public string? LastSemanticIntent { get; set; }
+        public string? LastSemanticFlowType { get; set; }
+        public string? LastSemanticMeaning { get; set; }
+        public SemanticResult? LastSemanticResult { get; set; }
         public bool HasPendingOrderLookup { get; set; }
         public int? PendingOrderId { get; set; }
         public string? PendingOrderPhone { get; set; }

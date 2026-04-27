@@ -1339,7 +1339,7 @@ IProductSearchFlowService productSearchFlowService)
                 {
                     try
                     {
-                        var ragResult = await _ragService.QueryAsync(normalizedMessage, topK: 4);
+                        var ragResult = await _ragService.QueryAsync(normalizedMessage, topK: 8);
 
                         _logger.LogInformation(
                             "RAG result - Success: {Success}, ContextLength: {Length}",
@@ -1656,7 +1656,7 @@ IProductSearchFlowService productSearchFlowService)
                         conversationProfile,
                         rankedItems);
 
-                    var ragResult = await _ragService.QueryAsync(ragQuery, topK: 4);
+                    var ragResult = await _ragService.QueryAsync(ragQuery, topK: 8);
 
                     if (ragResult != null && ragResult.Success && !string.IsNullOrWhiteSpace(ragResult.Context))
                     {

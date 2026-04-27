@@ -203,4 +203,28 @@ public class RecommendationConversationRulesTests
 
         result.Should().BeFalse();
     }
+
+    [Fact]
+    public void LooksLikeAlternativeRequestAfterRejection_ShouldReturnTrue_WhenUserRejectsCurrentSuggestionAndAsksAlternative()
+    {
+        var intent = new ParsedIntent
+        {
+            IsFollowUp = true,
+            FollowUpType = "refine",
+            HasExpandRecommendationSignal = true
+        };
+
+        var profile = new CustomerPreferenceProfile
+        {
+            HasActiveRecommendationContext = true,
+            LastRecommendedProducts = new List<string> { "Honda Vision", "Yamaha Latte" }
+        };
+
+        var result = RecommendationConversationRules.LooksLikeAlternativeRequestAfterRejection(
+            "không mua xe đó, gợi ý xe khác đi",
+            intent,
+            profile);
+
+        result.Should().BeTrue();
+    }
 }

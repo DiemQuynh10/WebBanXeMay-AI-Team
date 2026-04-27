@@ -42,6 +42,36 @@ namespace Chatbot.API.Services
                 return result;
             }
 
+            if (string.Equals(intent.IntentType, ChatFlowType.ServiceInfo, StringComparison.OrdinalIgnoreCase))
+            {
+                result.FlowType = ChatFlowType.ServiceInfo;
+                result.ShouldUseDeterministicFlow = true;
+                result.ShouldUseAiFallback = false;
+                result.ShouldUseRag = true;
+                result.Reason = "Service information detected";
+                return result;
+            }
+
+            if (string.Equals(intent.IntentType, ChatFlowType.PolicyInfo, StringComparison.OrdinalIgnoreCase))
+            {
+                result.FlowType = ChatFlowType.PolicyInfo;
+                result.ShouldUseDeterministicFlow = true;
+                result.ShouldUseAiFallback = false;
+                result.ShouldUseRag = true;
+                result.Reason = "Policy information detected";
+                return result;
+            }
+
+            if (FlowIntentHeuristics.IsStaticKnowledgeQuestion(text))
+            {
+                result.FlowType = ChatFlowType.Unknown;
+                result.ShouldUseDeterministicFlow = false;
+                result.ShouldUseRag = true;
+                result.ShouldUseAiFallback = true;
+                result.Reason = "Static knowledge question detected";
+                return result;
+            }
+
             if (intent.IsDirectCompare)
             {
                 result.FlowType = ChatFlowType.Compare;
@@ -50,7 +80,16 @@ namespace Chatbot.API.Services
                 result.Reason = "Direct compare detected";
                 return result;
             }
-
+            if (profile?.HasActiveCompareContext == true &&
+                profile.LastComparedProducts.Count >= 2 &&
+                string.Equals(intent.IntentType, "followup", StringComparison.OrdinalIgnoreCase))
+            {
+                result.FlowType = ChatFlowType.Compare;
+                result.ShouldUseDeterministicFlow = true;
+                result.ShouldUseAiFallback = false;
+                result.Reason = "Compare follow-up detected";
+                return result;
+            }
             if (intent.IsDirectProductLookup)
             {
                 result.FlowType = ChatFlowType.ProductLookup;
@@ -102,7 +141,22 @@ namespace Chatbot.API.Services
                 result.ShouldUseDeterministicFlow = true;
                 result.ShouldUseAiFallback = false;
                 result.ShouldUseRag = false;
-                result.Reason = "Recommendation follow-up routed to refinement";
+                result.Reason = intent.PriceMin.HasValue || intent.PriceMax.HasValue || intent.TargetPrice.HasValue || intent.FilterType != PriceFilterType.None
+                    ? "Recommendation context + filter fragment detected"
+                    : (string.Equals(intent.IntentType, "followup", StringComparison.OrdinalIgnoreCase)
+                        ? "Recommendation follow-up with hard refinement signals"
+                        : "Recommendation context + hard refinement signals");
+                return result;
+            }
+
+            if (hasActiveRecommendationContext &&
+                string.Equals(intent.IntentType, "followup", StringComparison.OrdinalIgnoreCase))
+            {
+                result.FlowType = ChatFlowType.RecommendationFollowUp;
+                result.ShouldUseDeterministicFlow = true;
+                result.ShouldUseAiFallback = false;
+                result.ShouldUseRag = true;
+                result.Reason = "Recommendation follow-up detected";
                 return result;
             }
 
@@ -152,9 +206,9 @@ namespace Chatbot.API.Services
                 result.ShouldUseDeterministicFlow = true;
                 result.ShouldUseAiFallback = false;
                 result.ShouldUseRag = false;
-                result.Reason = isHardFilterOnlySearch
-                    ? "Hard filter only search"
-                    : (intent.IsProductSearch ? "Product search detected" : "Price-only product search detected");
+                result.Reason = intent.IsProductSearch
+                    ? "Product search detected"
+                    : (isPriceOnlySearch ? "Price-only product search detected" : "Hard filter only search");
                 return result;
             }
 

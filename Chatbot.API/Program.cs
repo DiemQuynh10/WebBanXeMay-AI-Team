@@ -56,6 +56,15 @@ if (!string.IsNullOrWhiteSpace(telegramWebhookUrl))
 {
     builder.Configuration["Telegram:WebhookUrl"] = telegramWebhookUrl;
 }
+
+var telegramPublicWebBaseUrl = SharedEnvLoader.GetValue(
+    "TELEGRAM_PUBLIC_WEB_BASE_URL",
+    Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "Chatbot-dev", ".env")));
+
+if (!string.IsNullOrWhiteSpace(telegramPublicWebBaseUrl))
+{
+    builder.Configuration["Telegram:PublicWebBaseUrl"] = telegramPublicWebBaseUrl;
+}
 // Database
 builder.Services.AddDbContext<ChatbotDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("ChatbotConnection")));
@@ -111,9 +120,14 @@ builder.Services.AddScoped<IFlowDecisionService, FlowDecisionService>();
 builder.Services.AddScoped<IRecommendationClarificationService, RecommendationClarificationService>();
 builder.Services.AddScoped<IChatFlowOrchestrator, ChatFlowOrchestrator>();
 builder.Services.AddScoped<IRecommendationFlowService, RecommendationFlowService>();
+builder.Services.AddScoped<IServiceInfoFlowService, ServiceInfoFlowService>();
 // Main chatbot services
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<ILLMIntentUnderstandingService, LLMIntentUnderstandingService>();
+builder.Services.AddHttpClient<ISemanticParserService, SemanticParserService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(20);
+});
 builder.Services.AddHttpClient<IOpenAIService, OpenAIService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(45);

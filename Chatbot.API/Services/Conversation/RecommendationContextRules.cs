@@ -1,4 +1,5 @@
-﻿using Chatbot.API.Models.Intent;
+﻿using Chatbot.API.Helpers;
+using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.Responses;
 namespace Chatbot.API.Services.Conversation
 {
@@ -9,6 +10,11 @@ namespace Chatbot.API.Services.Conversation
             ParsedIntent parsedIntent,
             CustomerPreferenceProfile existingProfile)
         {
+            var normalizedMessage = message ?? string.Empty;
+
+            if (FlowIntentHeuristics.IsStaticKnowledgeQuestion(normalizedMessage))
+                return false;
+
             if (existingProfile == null)
                 return false;
 
@@ -25,13 +31,16 @@ namespace Chatbot.API.Services.Conversation
             if (!hasOldContext)
                 return false;
 
-            var text = (message ?? string.Empty).Trim().ToLowerInvariant();
+            var text = normalizedMessage.Trim().ToLowerInvariant();
 
-            if (RecommendationConversationRules.LooksLikeRecommendationFollowUp(message, parsedIntent, existingProfile))
+            if (RecommendationConversationRules.LooksLikeFreshRecommendationRestart(normalizedMessage, parsedIntent))
+                return true;
+
+            if (RecommendationConversationRules.LooksLikeRecommendationFollowUp(normalizedMessage, parsedIntent, existingProfile))
                 return false;
 
-            if (RecommendationConversationRules.LooksLikeFreshRecommendationRestart(message, parsedIntent))
-                return true;
+            if (RecommendationConversationRules.LooksLikeAlternativeRequestAfterRejection(normalizedMessage, parsedIntent, existingProfile))
+                return false;
 
             bool isBudgetOnlyFollowUp =
                 parsedIntent.FilterType != PriceFilterType.None &&
@@ -88,10 +97,15 @@ namespace Chatbot.API.Services.Conversation
             CustomerPreferenceProfile profile,
             string? previousActiveFlow = null)
         {
+            var normalizedMessage = message ?? string.Empty;
+
+            if (FlowIntentHeuristics.IsStaticKnowledgeQuestion(normalizedMessage))
+                return RecommendationContextDecision.None;
+
             if (parsedIntent == null || profile == null)
                 return RecommendationContextDecision.None;
 
-            var text = (message ?? string.Empty).Trim().ToLowerInvariant();
+            var text = normalizedMessage.Trim().ToLowerInvariant();
 
             bool hasActiveRecommendationContext =
                 profile.HasActiveRecommendationContext &&
@@ -125,7 +139,8 @@ namespace Chatbot.API.Services.Conversation
                 !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
                 !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
                 parsedIntent.ExcludedBrands.Any() ||
-                parsedIntent.ExcludedCategories.Any();
+                parsedIntent.ExcludedCategories.Any() ||
+                parsedIntent.ExcludedProducts.Any();
 
             bool hasStrongPreferenceSignal =
                 parsedIntent.WantsLargeStorage ||
@@ -135,10 +150,13 @@ namespace Chatbot.API.Services.Conversation
                 parsedIntent.RequestedStyles.Any();
 
             bool looksFreshRestart =
-                RecommendationConversationRules.LooksLikeFreshRecommendationRestart(message, parsedIntent);
+                RecommendationConversationRules.LooksLikeFreshRecommendationRestart(normalizedMessage, parsedIntent);
 
             bool looksRecommendationFollowUp =
-                RecommendationConversationRules.LooksLikeRecommendationFollowUp(message, parsedIntent, profile);
+                RecommendationConversationRules.LooksLikeRecommendationFollowUp(normalizedMessage, parsedIntent, profile);
+
+            bool looksRejectAndSwitch =
+                RecommendationConversationRules.LooksLikeAlternativeRequestAfterRejection(normalizedMessage, parsedIntent, profile);
 
             bool looksStrongFreshStandaloneRecommendation =
                 text.StartsWith("tư vấn ") ||
@@ -163,7 +181,7 @@ namespace Chatbot.API.Services.Conversation
                 hasHardConstraintSignal ||
                 hasStrongPreferenceSignal;
 
-            bool currentMessageIntroducesNewUseCase = CurrentMessageIntroducesNewUseCase(message);
+            bool currentMessageIntroducesNewUseCase = CurrentMessageIntroducesNewUseCase(normalizedMessage);
 
             bool currentMessageExplicitlyAddsPreference =
     text.Contains("cốp rộng") ||
@@ -184,7 +202,7 @@ namespace Chatbot.API.Services.Conversation
                 !hasHardConstraintSignal &&
                 !currentMessageExplicitlyAddsPreference &&
                 (
-                    RecommendationConversationRules.LooksLikeBudgetPivotFollowUp(message) ||
+                    RecommendationConversationRules.LooksLikeBudgetPivotFollowUp(normalizedMessage) ||
                     text.Contains("không phải") ||
                     text.Contains("khong phai") ||
                     text.Contains("giờ") ||
@@ -243,6 +261,11 @@ namespace Chatbot.API.Services.Conversation
                 return RecommendationContextDecision.ExpandFromCurrentGoal;
             }
 
+            if (looksRejectAndSwitch)
+            {
+                return RecommendationContextDecision.ExpandFromCurrentGoal;
+            }
+
             if (looksFreshRestart)
             {
                 return RecommendationContextDecision.StartFreshRecommendation;
@@ -274,7 +297,7 @@ namespace Chatbot.API.Services.Conversation
             {
                 bool looksBudgetPivot =
                     isBudgetPivotWithinCurrentGoal ||
-                    RecommendationConversationRules.LooksLikeBudgetPivotFollowUp(message);
+                    RecommendationConversationRules.LooksLikeBudgetPivotFollowUp(normalizedMessage);
 
                 if (looksBudgetPivot)
                 {

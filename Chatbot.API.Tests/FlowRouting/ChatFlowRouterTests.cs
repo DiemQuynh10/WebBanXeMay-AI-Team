@@ -392,6 +392,57 @@ public class ChatFlowRouterTests
     }
 
     [Fact]
+    public void Route_ShouldReturnUnknownFallback_WhenMessageIsFinancingKnowledgeQuestion()
+    {
+        var intent = new ParsedIntent
+        {
+            IsOpenRecommendation = true,
+            PriceMax = 35000000
+        };
+
+        var profile = new CustomerPreferenceProfile();
+
+        var result = _router.Route(
+            "tôi đang có 10 triệu muốn mua xe khoảng 35 triệu có được trả góp 0% không",
+            intent,
+            profile);
+
+        result.FlowType.Should().Be(ChatFlowType.Unknown);
+        result.ShouldUseDeterministicFlow.Should().BeFalse();
+        result.ShouldUseRag.Should().BeTrue();
+        result.ShouldUseAiFallback.Should().BeTrue();
+        result.Reason.Should().Be("Static knowledge question detected");
+    }
+
+    [Fact]
+    public void Route_ShouldReturnUnknownFallback_WhenRecommendationContextExistsButMessageIsStaticKnowledge()
+    {
+        var intent = new ParsedIntent
+        {
+            IntentType = "followup",
+            IsFollowUp = true,
+            PriceMax = 35000000
+        };
+
+        var profile = new CustomerPreferenceProfile
+        {
+            HasActiveRecommendationContext = true,
+            LastRecommendedProducts = new List<string> { "Honda Air Blade", "Yamaha Grande" }
+        };
+
+        var result = _router.Route(
+            "mình có 10 triệu muốn mua xe 35 triệu, thủ tục trả góp 0% như nào",
+            intent,
+            profile);
+
+        result.FlowType.Should().Be(ChatFlowType.Unknown);
+        result.ShouldUseDeterministicFlow.Should().BeFalse();
+        result.ShouldUseRag.Should().BeTrue();
+        result.ShouldUseAiFallback.Should().BeTrue();
+        result.Reason.Should().Be("Static knowledge question detected");
+    }
+
+    [Fact]
     public void Route_ShouldReturnUnknown_WhenNoRuleMatches()
     {
         var intent = new ParsedIntent
