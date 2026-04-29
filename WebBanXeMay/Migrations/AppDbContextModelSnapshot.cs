@@ -602,6 +602,9 @@ namespace WebBanXeMay.Migrations
                     b.Property<int>("SoLuong")
                         .HasColumnType("int");
 
+                    b.Property<string>("Tags")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("TenSP")
                         .IsRequired()
                         .HasMaxLength(150)

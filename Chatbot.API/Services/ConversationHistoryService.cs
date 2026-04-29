@@ -73,11 +73,10 @@ namespace Chatbot.API.Services
                 Content = userMessage,
                 CreatedAtUtc = DateTime.UtcNow
             });
-
             _db.ConversationMessages.Add(new ConversationMessageEntity
             {
                 ConversationSessionId = session.Id,
-                Role = "bot",
+                Role = "assistant",
                 Content = botReply,
                 CreatedAtUtc = DateTime.UtcNow
             });
@@ -124,7 +123,19 @@ namespace Chatbot.API.Services
         {
             return await _db.ConversationSessions.AnyAsync(x => x.ConversationId == conversationId && x.IsActive);
         }
+        public async Task<bool> IsConversationOwnerAsync(string conversationId, string userId)
+        {
+            if (string.IsNullOrWhiteSpace(conversationId) || string.IsNullOrWhiteSpace(userId))
+                return false;
 
+            var normalizedConversationId = conversationId.Trim();
+            var normalizedUserId = userId.Trim();
+
+            return await _db.ConversationSessions.AnyAsync(x =>
+                x.IsActive &&
+                x.ConversationId == normalizedConversationId &&
+                x.UserId == normalizedUserId);
+        }
         public async Task DeleteConversationAsync(string conversationId)
         {
             var session = await _db.ConversationSessions

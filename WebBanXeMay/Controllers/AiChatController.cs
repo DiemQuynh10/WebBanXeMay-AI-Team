@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Security.Claims;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using WebBanXeMay.Models.ViewModels;
@@ -54,11 +55,22 @@ namespace WebBanXeMay.Controllers
                 request.ConversationId = request.ConversationId.Trim();
             }
 
-            if (!string.IsNullOrWhiteSpace(request.UserId))
-            {
-                request.UserId = request.UserId.Trim();
-            }
+            var isAuthenticated = User?.Identity?.IsAuthenticated == true;
+            var realUserId = User?.FindFirstValue(ClaimTypes.NameIdentifier);
 
+            if (isAuthenticated && !string.IsNullOrWhiteSpace(realUserId))
+            {
+                request.UserId = realUserId.Trim();
+                request.IsAuthenticated = true;
+            }
+            else
+            {
+                request.UserId = string.IsNullOrWhiteSpace(request.UserId)
+                    ? null
+                    : request.UserId.Trim();
+
+                request.IsAuthenticated = false;
+            }
             var chatbotApiBaseUrl = _configuration["ChatbotApi:BaseUrl"];
             if (string.IsNullOrWhiteSpace(chatbotApiBaseUrl))
             {
@@ -76,7 +88,8 @@ namespace WebBanXeMay.Controllers
                 message = request.Message,
                 conversationId = request.ConversationId,
                 userId = request.UserId,
-                channel = string.IsNullOrWhiteSpace(request.Channel) ? "web" : request.Channel.Trim()
+                channel = string.IsNullOrWhiteSpace(request.Channel) ? "web" : request.Channel.Trim(),
+                isAuthenticated = request.IsAuthenticated
             };
 
             var json = JsonSerializer.Serialize(payload);
@@ -138,130 +151,56 @@ namespace WebBanXeMay.Controllers
         }
 
         [HttpGet("conversations")]
-        public async Task<IActionResult> GetConversations([FromQuery] string userId, [FromQuery] string channel = "web")
+        public async Task<IActionResult> GetConversations([FromQuery] string channel = "web")
         {
-            if (string.IsNullOrWhiteSpace(userId))
+            var isAuthenticated = User?.Identity?.IsAuthenticated == true;
+            var realUserId = User?.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            if (!isAuthenticated || string.IsNullOrWhiteSpace(realUserId))
             {
-                return BadRequest(new
+                return Unauthorized(new
                 {
                     success = false,
-                    errorMessage = "userId không được để trống."
+                    errorMessage = "Bạn cần đăng nhập để xem lịch sử chat."
                 });
             }
 
             var chatbotApiBaseUrl = _configuration["ChatbotApi:BaseUrl"];
-            if (string.IsNullOrWhiteSpace(chatbotApiBaseUrl))
-            {
-                return StatusCode(500, new
-                {
-                    success = false,
-                    errorMessage = "Chưa cấu hình ChatbotApi:BaseUrl."
-                });
-            }
-
             var client = _httpClientFactory.CreateClient();
 
-            try
-            {
-                var url = $"{chatbotApiBaseUrl}/api/chat/conversations?userId={Uri.EscapeDataString(userId.Trim())}&channel={Uri.EscapeDataString(channel)}";
+            var url = $"{chatbotApiBaseUrl}/api/chat/conversations?userId={Uri.EscapeDataString(realUserId)}&channel={Uri.EscapeDataString(channel)}";
 
-                _logger.LogInformation(
-                    "Forwarding get conversations request to Chatbot.API. UserId: {UserId}, Channel: {Channel}",
-                    userId,
-                    channel);
+            var response = await client.GetAsync(url);
+            var responseBody = await response.Content.ReadAsStringAsync();
 
-                var response = await client.GetAsync(url);
-                var responseBody = await response.Content.ReadAsStringAsync();
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogWarning(
-                        "Chatbot.API conversations returned error. StatusCode: {StatusCode}, Body: {Body}",
-                        response.StatusCode,
-                        responseBody);
-
-                    return StatusCode((int)response.StatusCode, new
-                    {
-                        success = false,
-                        errorMessage = $"Chatbot API conversations lỗi: {responseBody}"
-                    });
-                }
-
-                return Content(responseBody, "application/json");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error while calling Chatbot.API /api/chat/conversations");
-
-                return StatusCode(500, new
-                {
-                    success = false,
-                    errorMessage = "Lỗi khi tải danh sách hội thoại: " + ex.Message
-                });
-            }
+            return Content(responseBody, "application/json");
         }
 
         [HttpGet("conversations/{conversationId}/messages")]
         public async Task<IActionResult> GetMessages(string conversationId)
         {
-            if (string.IsNullOrWhiteSpace(conversationId))
+            var isAuthenticated = User?.Identity?.IsAuthenticated == true;
+            var realUserId = User?.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            if (!isAuthenticated || string.IsNullOrWhiteSpace(realUserId))
             {
-                return BadRequest(new
+                return Unauthorized(new
                 {
                     success = false,
-                    errorMessage = "conversationId không được để trống."
+                    errorMessage = "Bạn cần đăng nhập để xem nội dung chat."
                 });
             }
 
             var chatbotApiBaseUrl = _configuration["ChatbotApi:BaseUrl"];
-            if (string.IsNullOrWhiteSpace(chatbotApiBaseUrl))
-            {
-                return StatusCode(500, new
-                {
-                    success = false,
-                    errorMessage = "Chưa cấu hình ChatbotApi:BaseUrl."
-                });
-            }
-
             var client = _httpClientFactory.CreateClient();
 
-            try
-            {
-                _logger.LogInformation(
-                    "Forwarding get messages request to Chatbot.API. ConversationId: {ConversationId}",
-                    conversationId);
+            var url = $"{chatbotApiBaseUrl}/api/chat/conversations/{Uri.EscapeDataString(conversationId.Trim())}/messages?userId={Uri.EscapeDataString(realUserId)}";
 
-                var response = await client.GetAsync($"{chatbotApiBaseUrl}/api/chat/conversations/{Uri.EscapeDataString(conversationId.Trim())}/messages");
-                var responseBody = await response.Content.ReadAsStringAsync();
+            var response = await client.GetAsync(url);
+            var responseBody = await response.Content.ReadAsStringAsync();
 
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogWarning(
-                        "Chatbot.API messages returned error. StatusCode: {StatusCode}, Body: {Body}",
-                        response.StatusCode,
-                        responseBody);
-
-                    return StatusCode((int)response.StatusCode, new
-                    {
-                        success = false,
-                        errorMessage = $"Chatbot API messages lỗi: {responseBody}"
-                    });
-                }
-
-                return Content(responseBody, "application/json");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error while calling Chatbot.API /api/chat/conversations/{ConversationId}/messages", conversationId);
-
-                return StatusCode(500, new
-                {
-                    success = false,
-                    errorMessage = "Lỗi khi tải lịch sử hội thoại: " + ex.Message
-                });
-            }
+            return Content(responseBody, "application/json");
         }
-
         [HttpDelete("conversations/{conversationId}")]
         public async Task<IActionResult> DeleteConversation(string conversationId)
         {
@@ -274,6 +213,18 @@ namespace WebBanXeMay.Controllers
                 });
             }
 
+            var isAuthenticated = User?.Identity?.IsAuthenticated == true;
+            var realUserId = User?.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            if (!isAuthenticated || string.IsNullOrWhiteSpace(realUserId))
+            {
+                return Unauthorized(new
+                {
+                    success = false,
+                    errorMessage = "Bạn cần đăng nhập để xóa hội thoại."
+                });
+            }
+
             var chatbotApiBaseUrl = _configuration["ChatbotApi:BaseUrl"];
             if (string.IsNullOrWhiteSpace(chatbotApiBaseUrl))
             {
@@ -288,20 +239,15 @@ namespace WebBanXeMay.Controllers
 
             try
             {
-                _logger.LogInformation(
-                    "Forwarding delete conversation request to Chatbot.API. ConversationId: {ConversationId}",
-                    conversationId);
+                var url =
+                    $"{chatbotApiBaseUrl}/api/chat/conversations/{Uri.EscapeDataString(conversationId.Trim())}" +
+                    $"?userId={Uri.EscapeDataString(realUserId)}";
 
-                var response = await client.DeleteAsync($"{chatbotApiBaseUrl}/api/chat/conversations/{Uri.EscapeDataString(conversationId.Trim())}");
+                var response = await client.DeleteAsync(url);
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.LogWarning(
-                        "Chatbot.API delete conversation returned error. StatusCode: {StatusCode}, Body: {Body}",
-                        response.StatusCode,
-                        responseBody);
-
                     return StatusCode((int)response.StatusCode, new
                     {
                         success = false,
@@ -349,9 +295,22 @@ namespace WebBanXeMay.Controllers
 
             var client = _httpClientFactory.CreateClient();
 
+            var isAuthenticated = User?.Identity?.IsAuthenticated == true;
+            var realUserId = User?.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            if (!isAuthenticated || string.IsNullOrWhiteSpace(realUserId))
+            {
+                return Unauthorized(new
+                {
+                    success = false,
+                    errorMessage = "Bạn cần đăng nhập để reset hội thoại."
+                });
+            }
+
             var payload = new
             {
-                conversationId = request.ConversationId
+                conversationId = request.ConversationId,
+                userId = realUserId
             };
 
             var json = JsonSerializer.Serialize(payload);

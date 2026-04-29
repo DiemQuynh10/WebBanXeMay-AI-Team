@@ -47,7 +47,15 @@ namespace Chatbot.API.Services
                 return null;
             }
 
-            var effectiveBrand = intent.Brand ?? profile.PreferredBrand;
+            bool currentMessageHasCategory = MessageHasExplicitCategory(normalizedMessage);
+            bool currentMessageHasBrand = MessageHasExplicitBrand(normalizedMessage);
+
+            var effectiveBrand = !string.IsNullOrWhiteSpace(intent.Brand)
+                ? intent.Brand
+                : currentMessageHasCategory && !currentMessageHasBrand
+                    ? null
+                    : profile.PreferredBrand;
+
             var effectiveCategory = intent.Category ?? profile.PreferredCategory;
             var effectiveMinPrice = intent.PriceMin ?? profile.PriceMin;
             var effectiveMaxPrice = intent.PriceMax ?? profile.PriceMax;
@@ -285,43 +293,116 @@ namespace Chatbot.API.Services
         }
 
         private static string BuildShortReason(
-    ProductSummaryDto item,
-    ParsedIntent intent,
-    string? brand,
-    string? category,
-    IProductRecommendationService productRecommendationService)
+     ProductSummaryDto item,
+     ParsedIntent intent,
+     string? brand,
+     string? category,
+     IProductRecommendationService productRecommendationService)
         {
-            var reasons = new List<string>();
+            var name = item.Ten ?? string.Empty;
+            var normalizedCategory = NormalizeCategory(category);
 
-            if (!string.IsNullOrWhiteSpace(category) &&
-                (item.Loai ?? string.Empty).Contains(category, StringComparison.OrdinalIgnoreCase))
+            if (normalizedCategory == "con tay")
             {
-                reasons.Add($"đúng nhóm {item.Loai.ToLowerInvariant()}");
+                return PickReasonByName(name,
+                    "hợp nếu bạn thích xe côn tay thể thao và cảm giác lái chủ động",
+                    "kiểu dáng cá tính, phù hợp với nhu cầu đi xe mạnh hơn",
+                    "đáng cân nhắc nếu bạn muốn một mẫu côn tay trong tầm giá này");
             }
 
-            if (!string.IsNullOrWhiteSpace(brand) &&
-                (item.ThuongHieu ?? string.Empty).Equals(brand, StringComparison.OrdinalIgnoreCase))
+            if (normalizedCategory == "xe ga")
             {
-                reasons.Add($"đúng hãng {brand}");
+                return PickReasonByName(name,
+                    "tiện đi phố, dễ dùng và phù hợp đi lại hằng ngày",
+                    "thoải mái khi chạy trong đô thị, không cần thao tác nhiều",
+                    "gọn gàng, dễ sử dụng và hợp nhu cầu di chuyển thường xuyên");
             }
 
-            var mainReason = productRecommendationService.BuildMainReason(item, intent);
-            if (!string.IsNullOrWhiteSpace(mainReason) &&
-                mainReason != "là một phương án khá cân bằng trong nhóm đang lọc")
+            if (normalizedCategory == "xe so")
             {
-                reasons.Add(mainReason);
+                return PickReasonByName(name,
+                    "dễ đi, bền và chi phí sử dụng hợp lý",
+                    "thực dụng, dễ bảo dưỡng và hợp đi lại hằng ngày",
+                    "phù hợp nếu bạn muốn xe tiết kiệm, dễ dùng lâu dài");
             }
 
-            if (item.SoLuong > 0)
+            if (!string.IsNullOrWhiteSpace(brand))
             {
-                reasons.Add($"còn {item.SoLuong} chiếc");
-            }
-            else
-            {
-                reasons.Add("đang hết hàng");
+                return $"đáng cân nhắc nếu bạn đang ưu tiên hãng {brand}";
             }
 
-            return string.Join(", ", reasons.Distinct().Take(3));
+            return "là mẫu khá sát với bộ lọc hiện tại";
+        }
+        private static string NormalizeCategory(string? category)
+        {
+            var text = NormalizeText(category);
+
+            if (text.Contains("ga"))
+                return "xe ga";
+
+            if (text.Contains("so"))
+                return "xe so";
+
+            if (text.Contains("con"))
+                return "con tay";
+
+            return text;
+        }
+
+        private static string NormalizeText(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            var text = value.Trim().ToLowerInvariant();
+
+            text = text
+                .Replace('à', 'a').Replace('á', 'a').Replace('ạ', 'a').Replace('ả', 'a').Replace('ã', 'a')
+                .Replace('â', 'a').Replace('ầ', 'a').Replace('ấ', 'a').Replace('ậ', 'a').Replace('ẩ', 'a').Replace('ẫ', 'a')
+                .Replace('ă', 'a').Replace('ằ', 'a').Replace('ắ', 'a').Replace('ặ', 'a').Replace('ẳ', 'a').Replace('ẵ', 'a')
+                .Replace('è', 'e').Replace('é', 'e').Replace('ẹ', 'e').Replace('ẻ', 'e').Replace('ẽ', 'e')
+                .Replace('ê', 'e').Replace('ề', 'e').Replace('ế', 'e').Replace('ệ', 'e').Replace('ể', 'e').Replace('ễ', 'e')
+                .Replace('ì', 'i').Replace('í', 'i').Replace('ị', 'i').Replace('ỉ', 'i').Replace('ĩ', 'i')
+                .Replace('ò', 'o').Replace('ó', 'o').Replace('ọ', 'o').Replace('ỏ', 'o').Replace('õ', 'o')
+                .Replace('ô', 'o').Replace('ồ', 'o').Replace('ố', 'o').Replace('ộ', 'o').Replace('ổ', 'o').Replace('ỗ', 'o')
+                .Replace('ơ', 'o').Replace('ờ', 'o').Replace('ớ', 'o').Replace('ợ', 'o').Replace('ở', 'o').Replace('ỡ', 'o')
+                .Replace('ù', 'u').Replace('ú', 'u').Replace('ụ', 'u').Replace('ủ', 'u').Replace('ũ', 'u')
+                .Replace('ư', 'u').Replace('ừ', 'u').Replace('ứ', 'u').Replace('ự', 'u').Replace('ử', 'u').Replace('ữ', 'u')
+                .Replace('ỳ', 'y').Replace('ý', 'y').Replace('ỵ', 'y').Replace('ỷ', 'y').Replace('ỹ', 'y')
+                .Replace('đ', 'd');
+
+            return text;
+        }
+
+        private static string PickReasonByName(string? productName, params string[] reasons)
+        {
+            if (reasons == null || reasons.Length == 0)
+                return "là mẫu khá sát với bộ lọc hiện tại";
+
+            var name = productName ?? string.Empty;
+            var index = Math.Abs(name.GetHashCode()) % reasons.Length;
+
+            return reasons[index];
+        }
+        private static bool MessageHasExplicitCategory(string message)
+        {
+            var text = NormalizeText(message);
+
+            return text.Contains("xe so") ||
+                   text.Contains("xe ga") ||
+                   text.Contains("con tay") ||
+                   text.Contains("tay ga");
+        }
+
+        private static bool MessageHasExplicitBrand(string message)
+        {
+            var text = NormalizeText(message);
+
+            return text.Contains("honda") ||
+                   text.Contains("yamaha") ||
+                   text.Contains("suzuki") ||
+                   text.Contains("sym") ||
+                   text.Contains("piaggio");
         }
         private static ChatProductCard MapToCard(ProductSummaryDto product)
         {

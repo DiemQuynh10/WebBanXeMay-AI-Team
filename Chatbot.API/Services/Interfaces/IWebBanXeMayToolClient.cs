@@ -6,7 +6,7 @@ namespace Chatbot.API.Services.Interfaces
     {
         Task<ProductSearchResponseDto?> SearchProductsAsync(string keyword, int take = 5);
         Task<ProductDetailDto?> GetProductDetailAsync(int id);
-        Task<OrderStatusDto?> LookupOrderAsync(int maDH, string phone);
+        Task<OrderStatusDto?> LookupOrderAsync(int maDH, string phone, string userId);
         Task<ProductSearchResponseDto?> GetProductsByBrandAsync(string brand, int take = 10);
         Task<ProductSearchResponseDto?> GetProductsByPriceRangeAsync(decimal? minPrice, decimal? maxPrice, int take = 10);
         Task<ProductSearchResponseDto?> GetProductsByBrandAndPriceAsync(string brand, decimal maxPrice, string? category = null, int take = 10);

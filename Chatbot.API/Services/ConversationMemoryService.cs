@@ -38,7 +38,8 @@ namespace Chatbot.API.Services
 
             return messages;
         }
-
+        // Deprecated: không dùng để persist hội thoại nữa.
+        // Lưu exchange chuẩn hóa được thực hiện tại ConversationHistoryService.SaveExchangeAsync từ ChatController.
         public async Task AddMessageAsync(string conversationId, ChatMessage message, string? channel = null, string? userId = null)
         {
             var session = await _dbContext.ConversationSessions

@@ -13,6 +13,11 @@ namespace Chatbot.API.Services
         private readonly HttpClient _httpClient;
         private readonly TelegramSettings _settings;
 
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+
         public TelegramService(HttpClient httpClient, IOptions<TelegramSettings> settings)
         {
             _httpClient = httpClient;
@@ -38,8 +43,19 @@ namespace Chatbot.API.Services
 
             await PostTelegramAsync(url, payload, "Telegram sendMessage error");
         }
+
         public async Task SendPhotoAsync(long chatId, string photoUrl, string caption, object? replyMarkup = null, string? parseMode = null)
         {
+            if (string.IsNullOrWhiteSpace(photoUrl))
+            {
+                throw new ArgumentException("photoUrl is required.", nameof(photoUrl));
+            }
+
+            if (!IsSupportedPublicUrl(photoUrl))
+            {
+                throw new InvalidOperationException($"Telegram cannot access non-public image URL: {photoUrl}");
+            }
+
             var url = $"{_settings.BaseUrl}/bot{_settings.BotToken}/sendPhoto";
 
             var payload = new TelegramSendPhotoRequest
@@ -53,6 +69,7 @@ namespace Chatbot.API.Services
 
             await PostTelegramAsync(url, payload, "Telegram sendPhoto error");
         }
+
         public async Task SendTypingAsync(long chatId)
         {
             var url = $"{_settings.BaseUrl}/bot{_settings.BotToken}/sendChatAction";
@@ -63,16 +80,7 @@ namespace Chatbot.API.Services
                 action = "typing"
             };
 
-            var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var response = await _httpClient.PostAsync(url, content);
-            var responseBody = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new Exception($"Telegram sendChatAction error: {(int)response.StatusCode} - {responseBody}");
-            }
+            await PostTelegramAsync(url, payload, "Telegram sendChatAction error");
         }
 
         public async Task SetWebhookAsync(string webhookUrl, string secretToken)
@@ -85,17 +93,27 @@ namespace Chatbot.API.Services
                 secret_token = secretToken
             };
 
-            var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var response = await _httpClient.PostAsync(url, content);
-            var responseBody = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new Exception($"Telegram setWebhook error: {(int)response.StatusCode} - {responseBody}");
-            }
+            await PostTelegramAsync(url, payload, "Telegram setWebhook error");
         }
+
+        public bool IsSupportedPublicUrl(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return false;
+
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                return false;
+
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+                return false;
+
+            var host = uri.Host.ToLowerInvariant();
+            if (host == "localhost" || host == "127.0.0.1" || host == "::1")
+                return false;
+
+            return true;
+        }
+
         private static string? NormalizeParseMode(string? parseMode)
         {
             if (string.IsNullOrWhiteSpace(parseMode))
@@ -107,20 +125,16 @@ namespace Chatbot.API.Services
                 ? normalized
                 : null;
         }
+
         private async Task PostTelegramAsync(string url, object payload, string errorPrefix)
         {
-            var jsonOptions = new JsonSerializerOptions
-            {
-                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-            };
+            var json = JsonSerializer.Serialize(payload, JsonOptions);
 
-            var json = JsonSerializer.Serialize(payload, jsonOptions);
             Console.WriteLine("TELEGRAM OUTGOING PAYLOAD:");
             Console.WriteLine(json);
 
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var response = await _httpClient.PostAsync(url, content);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var response = await _httpClient.PostAsync(url, content);
             var responseBody = await response.Content.ReadAsStringAsync();
 
             Console.WriteLine($"TELEGRAM RESPONSE: {(int)response.StatusCode} - {responseBody}");
@@ -131,6 +145,7 @@ namespace Chatbot.API.Services
             }
         }
     }
+
     public class TelegramSendPhotoRequest
     {
         [JsonPropertyName("chat_id")]

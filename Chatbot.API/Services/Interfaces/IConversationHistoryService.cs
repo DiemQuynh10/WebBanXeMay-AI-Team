@@ -17,6 +17,7 @@ namespace Chatbot.API.Services.Interfaces
 
         Task<bool> ExistsAsync(string conversationId);
 
+        Task<bool> IsConversationOwnerAsync(string conversationId, string userId);
         Task DeleteConversationAsync(string conversationId);
     }
 }

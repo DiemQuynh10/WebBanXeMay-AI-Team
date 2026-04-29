@@ -43,5 +43,13 @@ namespace Chatbot.API.Services.Interfaces
             decimal? minPrice,
             decimal? maxPrice,
             List<ProductSummaryDto> nearMatches);
+        string BuildClusteredRecommendationReply(
+    IReadOnlyList<ProductSummaryDto> ranked,
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile,
+    ProductSummaryDto? anchor,
+    List<string> bucketNarratives,
+    string normalizedMessage,
+    Func<ProductSummaryDto, List<string>> getReasons);
     }
 }

@@ -8,12 +8,25 @@ namespace Chatbot.API.Services
     public class ChatFlowRouter : IChatFlowRouter
     {
         public FlowRoutingResult Route(
-            string normalizedMessage,
-            ParsedIntent intent,
-            CustomerPreferenceProfile? profile)
+     string normalizedMessage,
+     ParsedIntent intent,
+     CustomerPreferenceProfile? profile)
         {
             var result = new FlowRoutingResult();
-            var text = (normalizedMessage ?? string.Empty).Trim().ToLowerInvariant();
+
+            normalizedMessage ??= string.Empty;
+
+            if (intent == null)
+            {
+                result.FlowType = ChatFlowType.Unknown;
+                result.ShouldUseDeterministicFlow = false;
+                result.ShouldUseRag = false;
+                result.ShouldUseAiFallback = true;
+                result.Reason = "Intent is null";
+                return result;
+            }
+
+            var text = normalizedMessage.Trim().ToLowerInvariant();
 
             if (intent.IsGreeting)
             {
@@ -51,12 +64,15 @@ namespace Chatbot.API.Services
                 return result;
             }
 
-            if (intent.IsDirectProductLookup)
+            if ((intent.IsDirectProductLookup || !string.IsNullOrWhiteSpace(intent.LookupField)) &&
+     intent.MentionedProducts != null &&
+     intent.MentionedProducts.Count > 0)
             {
                 result.FlowType = ChatFlowType.ProductLookup;
                 result.ShouldUseDeterministicFlow = true;
                 result.ShouldUseAiFallback = false;
-                result.Reason = "Direct product lookup detected";
+                result.ShouldUseRag = false;
+                result.Reason = "Direct product lookup with explicit product";
                 return result;
             }
             if (!string.IsNullOrWhiteSpace(intent.LookupField) &&
@@ -69,45 +85,12 @@ namespace Chatbot.API.Services
                 return result;
             }
             bool hasActiveRecommendationContext = HasRecommendationContext(profile);
-
-            bool isExpandFollowUp =
-                hasActiveRecommendationContext &&
-                RecommendationConversationRules.LooksLikeExpandFromCurrentGoal(
-                    normalizedMessage,
-                    intent,
-                    profile);
-
-            if (isExpandFollowUp)
-            {
-                result.FlowType = ChatFlowType.Recommendation;
-                result.ShouldUseDeterministicFlow = true;
-                result.ShouldUseAiFallback = false;
-                result.ShouldUseRag = true;
-                result.Reason = "Recommendation follow-up routed to expand";
-                return result;
-            }
-            bool shouldForceExpandFollowUp =
-    ShouldForceExpandFromCurrentGoal(
-        normalizedMessage,
-        intent,
-        profile);
-
-            if (shouldForceExpandFollowUp)
-            {
-                result.FlowType = ChatFlowType.Recommendation;
-                result.ShouldUseDeterministicFlow = true;
-                result.ShouldUseAiFallback = false;
-                result.ShouldUseRag = true;
-                result.Reason = "Partial follow-up routed to expand from current goal";
-                return result;
-            }
-
             bool isRefineFollowUp =
-                hasActiveRecommendationContext &&
-                RecommendationConversationRules.LooksLikeRefineWithinCurrentRecommendation(
-                    normalizedMessage,
-                    intent,
-                    profile);
+    hasActiveRecommendationContext &&
+   RecommendationConversationRules.LooksLikeRefineWithinCurrentRecommendation(
+    text,
+    intent,
+    profile);
 
             if (isRefineFollowUp)
             {
@@ -118,10 +101,27 @@ namespace Chatbot.API.Services
                 result.Reason = "Recommendation follow-up routed to refinement";
                 return result;
             }
+            bool isExpandFollowUp =
+                hasActiveRecommendationContext &&
+                RecommendationConversationRules.LooksLikeExpandFromCurrentGoal(
+    text,
+    intent,
+    profile);
 
-            if (intent.IntentType == "refine")
+            if (isExpandFollowUp)
+            {
+                result.FlowType = ChatFlowType.Recommendation;
+                result.ShouldUseDeterministicFlow = true;
+                result.ShouldUseAiFallback = false;
+                result.ShouldUseRag = true;
+                result.Reason = "Recommendation follow-up routed to expand";
+                return result;
+            }
+            
+              if (intent.IntentType == "refine")
             {
                 if (profile?.HasActiveCompareContext == true &&
+                    profile.LastComparedProducts != null &&
                     profile.LastComparedProducts.Count >= 2 &&
                     !string.IsNullOrWhiteSpace(intent.ComparisonFeature))
                 {
@@ -142,11 +142,11 @@ namespace Chatbot.API.Services
 
             if (intent.IsBrandSwitch)
             {
-                result.FlowType = ChatFlowType.BrandSwitch;
+                result.FlowType = ChatFlowType.Refinement;
                 result.ShouldUseDeterministicFlow = true;
                 result.ShouldUseAiFallback = false;
                 result.ShouldUseRag = false;
-                result.Reason = "Brand switch detected";
+                result.Reason = "Brand switch routed as refinement";
                 return result;
             }
 
@@ -192,71 +192,6 @@ namespace Chatbot.API.Services
         {
             return profile?.HasActiveRecommendationContext == true &&
                    profile.LastRecommendedProducts.Count > 0;
-        }
-        private static bool IsPartialRecommendationFollowUp(
-    string normalizedMessage,
-    ParsedIntent intent)
-        {
-            var text = (normalizedMessage ?? string.Empty).Trim().ToLowerInvariant();
-
-            bool hasStructuredFilter =
-                !string.IsNullOrWhiteSpace(intent.Brand) ||
-                !string.IsNullOrWhiteSpace(intent.Category) ||
-                intent.PriceMin.HasValue ||
-                intent.PriceMax.HasValue ||
-                intent.TargetPrice.HasValue ||
-                intent.IsBrandSwitch ||
-                intent.IntentType == "brand_switch";
-
-            if (hasStructuredFilter)
-                return true;
-
-            if (text.Contains("xe ga") ||
-                text.Contains("xe số") ||
-                text.Contains("xe so") ||
-                text.Contains("honda") ||
-                text.Contains("yamaha") ||
-                text.Contains("suzuki") ||
-                text.Contains("sym") ||
-                text.Contains("piaggio") ||
-                text.Contains("tầm") ||
-                text.Contains("tam") ||
-                text.Contains("khoảng") ||
-                text.Contains("khoang") ||
-                text.Contains("trên") ||
-                text.Contains("duới") ||
-                text.Contains("dưới"))
-            {
-                return true;
-            }
-
-            return false;
-        }
-        private static bool ShouldForceExpandFromCurrentGoal(
-    string normalizedMessage,
-    ParsedIntent intent,
-    CustomerPreferenceProfile? profile)
-        {
-            if (!HasRecommendationContext(profile))
-                return false;
-
-            if (!IsPartialRecommendationFollowUp(normalizedMessage, intent))
-                return false;
-
-            var text = (normalizedMessage ?? string.Empty).Trim().ToLowerInvariant();
-
-            bool looksLikeComparison =
-                text.Contains("cái nào") ||
-                text.Contains("cai nao") ||
-                text.Contains("so sánh") ||
-                text.Contains("so sanh") ||
-                text.Contains("hợp hơn") ||
-                text.Contains("tot hon");
-
-            if (looksLikeComparison)
-                return false;
-
-            return true;
         }
     }
 }

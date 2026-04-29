@@ -40,16 +40,21 @@ namespace Chatbot.API.Services
                 return null;
             }
 
-            if (profile.BaseRecommendedProducts == null || profile.BaseRecommendedProducts.Count == 0)
+            var sourceNames =
+     (profile.CurrentRecommendedProducts != null && profile.CurrentRecommendedProducts.Count > 0)
+         ? profile.CurrentRecommendedProducts
+         : profile.BaseRecommendedProducts;
+
+            if (sourceNames == null || sourceNames.Count == 0)
             {
                 _logger.LogInformation(
-                    "Follow-up rerank skipped because no last recommended products. ConversationId: {ConversationId}",
+                    "Follow-up rerank skipped because no recommended products available. ConversationId: {ConversationId}",
                     conversationId);
 
                 return null;
             }
 
-            var allowedNames = profile.BaseRecommendedProducts
+            var allowedNames = sourceNames
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -138,7 +143,16 @@ namespace Chatbot.API.Services
                     Reply = BuildNoMatchReply(intent)
                 };
             }
-            products = ProductPriceFilterHelper.ApplyStrictPriceFilter(products, intent);
+            bool hasExplicitPriceRefinement =
+     intent.FilterType == PriceFilterType.MaxOnly ||
+     intent.FilterType == PriceFilterType.MinOnly ||
+     intent.FilterType == PriceFilterType.Range ||
+     intent.FilterType == PriceFilterType.Around;
+
+            if (hasExplicitPriceRefinement)
+            {
+                products = ProductPriceFilterHelper.ApplyStrictPriceFilter(products, intent);
+            }
 
             if (products.Count == 0)
             {
@@ -150,7 +164,29 @@ namespace Chatbot.API.Services
                     Reply = BuildNoMatchReply(intent)
                 };
             }
+            bool wantsAlternative =
+    normalizedMessage.Contains("mau khac") ||
+    normalizedMessage.Contains("xe khac") ||
+    normalizedMessage.Contains("khac di") ||
+    normalizedMessage.Contains("doi mau khac") ||
+    normalizedMessage.Contains("con mau nao khac");
 
+            if (wantsAlternative && profile.CurrentRecommendedProducts != null && profile.CurrentRecommendedProducts.Count > 0)
+            {
+                var currentTop = profile.CurrentRecommendedProducts.FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(currentTop))
+                {
+                    var filteredAlternatives = products
+                        .Where(x => !string.Equals(x.Ten, currentTop, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
+                    if (filteredAlternatives.Count > 0)
+                    {
+                        products = filteredAlternatives;
+                    }
+                }
+            }
+            products = ApplyFollowUpSemanticOrdering(products, intent, normalizedMessage);
             var reranked = _productRecommendationService.RankProducts(
                             products,
                 intent,
@@ -163,7 +199,7 @@ namespace Chatbot.API.Services
                 return null;
             }
 
-            var reply = BuildReply(reranked, intent, _productRecommendationService);
+            var reply = BuildReply(reranked, intent, normalizedMessage, _productRecommendationService);
             await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
     conversationId,
     reranked,
@@ -180,11 +216,20 @@ namespace Chatbot.API.Services
         private static string BuildReply(
      IReadOnlyList<ProductSummaryDto> items,
      ParsedIntent intent,
+     string normalizedMessage,
      IProductRecommendationService productRecommendationService)
         {
             var top = items[0];
             var backups = items.Skip(1).Take(2).ToList();
-
+            bool wantsAlternativeTone =
+    !string.IsNullOrWhiteSpace(normalizedMessage) &&
+    (
+        normalizedMessage.Contains("mau khac") ||
+        normalizedMessage.Contains("xe khac") ||
+        normalizedMessage.Contains("khac di") ||
+        normalizedMessage.Contains("doi mau khac") ||
+        normalizedMessage.Contains("con mau nao khac")
+    );
             var focusLabel = intent.ComparisonFeature switch
             {
                 "storage" => "cốp rộng",
@@ -196,7 +241,16 @@ namespace Chatbot.API.Services
                 "ride_comfort" => "đi êm",
                 _ => null
             };
-
+            if (focusLabel == null)
+            {
+                if (intent.WantsLargeStorage) focusLabel = "cốp rộng";
+                else if (intent.NeedsLowSeat || intent.WantsEasyControl) focusLabel = "dễ chống chân";
+                else if (intent.WantsFuelSaving) focusLabel = "tiết kiệm xăng";
+                else if (intent.PrefersFemaleStyle || (!string.IsNullOrWhiteSpace(intent.Target) && intent.Target.Contains("nữ")))
+                    focusLabel = "hợp nữ";
+                else if (intent.ForWork) focusLabel = "đi làm hằng ngày";
+                else if (intent.ForSchool) focusLabel = "đi học / sinh viên";
+            }
             var topReason = productRecommendationService.BuildMainReason(top, intent);
 
             string intro;
@@ -221,6 +275,24 @@ namespace Chatbot.API.Services
             }
             else
             {
+                if (wantsAlternativeTone)
+                {
+                    intro = $"Nếu đổi sang một phương án khác trong nhóm vừa rồi thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.";
+                }
+                else
+                {
+                    intro = focusLabel switch
+                    {
+                        "cốp rộng" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                        "dễ chống chân" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                        "tiết kiệm xăng" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                        "hợp nữ" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                        "thực dụng / đi làm hằng ngày" => $"Nếu chọn trong nhóm này theo hướng **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                        "đi học / sinh viên" => $"Nếu xét trong nhóm này theo hướng **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                        "đi êm" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
+                        _ => $"Trong các mẫu vừa rồi, mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}."
+                    };
+                }
                 intro = focusLabel switch
                 {
                     "cốp rộng" => $"Trong nhóm mình vừa gợi ý, nếu ưu tiên **{focusLabel}** thì mình nghiêng hơn về **{top.Ten}** ({top.Gia:N0} VNĐ), vì mẫu này {topReason}.",
@@ -276,6 +348,116 @@ namespace Chatbot.API.Services
             }
 
             return "Trong nhóm mình vừa gợi ý, hiện chưa còn mẫu nào thật sự phù hợp với tiêu chí này.";
+        }
+        private static List<ProductSummaryDto> ApplyFollowUpSemanticOrdering(
+    List<ProductSummaryDto> items,
+    ParsedIntent intent,
+    string normalizedMessage)
+        {
+            if (items == null || items.Count == 0)
+                return new List<ProductSummaryDto>();
+
+            var text = (normalizedMessage ?? string.Empty).Trim().ToLowerInvariant();
+            bool prefersFemale =
+    intent.PrefersFemaleStyle ||
+    (!string.IsNullOrWhiteSpace(intent.Target) &&
+     (intent.Target.Contains("nữ", StringComparison.OrdinalIgnoreCase) ||
+      intent.Target.Contains("nu", StringComparison.OrdinalIgnoreCase)));
+
+            if (prefersFemale || text.Contains("hop nu") || text.Contains("cho nu"))
+            {
+                return items
+                    .OrderByDescending(x => LooksLikeFemaleFriendly(x))
+                    .ThenBy(x => x.Gia)
+                    .ToList();
+            }
+
+            if (intent.ForWork || text.Contains("di lam"))
+            {
+                return items
+                    .OrderByDescending(x => LooksLikeWorkFriendly(x))
+                    .ThenBy(x => x.Gia)
+                    .ToList();
+            }
+
+            if (intent.ForSchool || text.Contains("di hoc"))
+            {
+                return items
+                    .OrderByDescending(x => LooksLikeSchoolFriendly(x))
+                    .ThenBy(x => x.Gia)
+                    .ToList();
+            }
+            if (intent.WantsLargeStorage || text.Contains("cop rong"))
+            {
+                return items
+                    .OrderByDescending(x => LooksLikeLargeStorage(x))
+                    .ThenBy(x => x.Gia)
+                    .ToList();
+            }
+
+            if (intent.WantsFuelSaving || text.Contains("tiet kiem xang"))
+            {
+                return items
+                    .OrderByDescending(x => LooksLikeFuelSaving(x))
+                    .ThenBy(x => x.Gia)
+                    .ToList();
+            }
+
+            if (intent.NeedsLowSeat || intent.WantsEasyControl || text.Contains("de chong chan"))
+            {
+                return items
+                    .OrderByDescending(x => LooksLikeLowSeat(x))
+                    .ThenBy(x => x.Gia)
+                    .ToList();
+            }
+
+            return items;
+        }
+        private static bool LooksLikeLargeStorage(ProductSummaryDto product)
+        {
+            var name = (product.Ten ?? string.Empty).ToLowerInvariant();
+            return name.Contains("latte") || name.Contains("lead") || name.Contains("freego") || name.Contains("air blade");
+        }
+
+        private static bool LooksLikeFuelSaving(ProductSummaryDto product)
+        {
+            var name = (product.Ten ?? string.Empty).ToLowerInvariant();
+            return name.Contains("vision") || name.Contains("wave") || name.Contains("future") || name.Contains("sirius");
+        }
+
+        private static bool LooksLikeLowSeat(ProductSummaryDto product)
+        {
+            var name = (product.Ten ?? string.Empty).ToLowerInvariant();
+            return name.Contains("vision") || name.Contains("janus") || name.Contains("zip") || name.Contains("latte");
+        }
+        private static bool LooksLikeFemaleFriendly(ProductSummaryDto product)
+        {
+            var name = (product.Ten ?? string.Empty).ToLowerInvariant();
+            return name.Contains("vision") ||
+                   name.Contains("latte") ||
+                   name.Contains("janus") ||
+                   name.Contains("zip") ||
+                   name.Contains("lead");
+        }
+
+        private static bool LooksLikeWorkFriendly(ProductSummaryDto product)
+        {
+            var name = (product.Ten ?? string.Empty).ToLowerInvariant();
+            return name.Contains("vision") ||
+                   name.Contains("future") ||
+                   name.Contains("wave") ||
+                   name.Contains("air blade") ||
+                   name.Contains("freego");
+        }
+
+        private static bool LooksLikeSchoolFriendly(ProductSummaryDto product)
+        {
+            var name = (product.Ten ?? string.Empty).ToLowerInvariant();
+            return name.Contains("vision") ||
+                   name.Contains("janus") ||
+                   name.Contains("zip") ||
+                   name.Contains("sirius") ||
+                   name.Contains("wave");
         }
     }
 

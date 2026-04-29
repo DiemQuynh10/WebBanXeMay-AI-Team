@@ -79,11 +79,17 @@ namespace Chatbot.API.Services.Conversation
         }
 
         public static bool LooksLikeRefineWithinCurrentRecommendation(
-            string message,
-            ParsedIntent parsedIntent,
-            CustomerPreferenceProfile? profile)
+     string message,
+     ParsedIntent parsedIntent,
+     CustomerPreferenceProfile? profile)
         {
-            if (string.IsNullOrWhiteSpace(message) || parsedIntent == null || !HasActiveRecommendationContext(profile))
+            if (parsedIntent == null)
+                return false;
+
+            if (parsedIntent.IsOutOfScope || parsedIntent.IsNoise || parsedIntent.IsGreeting || parsedIntent.IsAck)
+                return false;
+
+            if (string.IsNullOrWhiteSpace(message) || !HasActiveRecommendationContext(profile))
                 return false;
 
             var text = message.Trim().ToLowerInvariant();
@@ -93,18 +99,12 @@ namespace Chatbot.API.Services.Conversation
                 parsedIntent.PriceMax.HasValue ||
                 parsedIntent.TargetPrice.HasValue ||
                 parsedIntent.FilterType != PriceFilterType.None ||
-                text.Contains("dưới") ||
-                text.Contains("duoi") ||
-                text.Contains("trên") ||
-                text.Contains("tren") ||
-                text.Contains("rẻ hơn") ||
-                text.Contains("re hon") ||
-                text.Contains("đắt hơn") ||
-                text.Contains("dat hon") ||
-                text.Contains("tầm") ||
-                text.Contains("tam") ||
-                text.Contains("khoảng") ||
-                text.Contains("khoang");
+                text.Contains("dưới") || text.Contains("duoi") ||
+                text.Contains("trên") || text.Contains("tren") ||
+                text.Contains("rẻ hơn") || text.Contains("re hon") ||
+                text.Contains("đắt hơn") || text.Contains("dat hon") ||
+                text.Contains("tầm") || text.Contains("tam") ||
+                text.Contains("khoảng") || text.Contains("khoang");
 
             bool hasConstraintSignal =
                 !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
@@ -117,10 +117,25 @@ namespace Chatbot.API.Services.Conversation
                 parsedIntent.ExcludedCategories.Any() ||
                 parsedIntent.RequestedStyles.Any();
 
+            bool hasReferenceSignal =
+                text.Contains("còn ") || text.Contains("con ") ||
+                text.Contains("thì sao") || text.Contains("thi sao") ||
+                text.Contains("thế còn") || text.Contains("the con") ||
+                text.Contains("vậy còn") || text.Contains("vay con") ||
+                text.Contains("mẫu đó") || text.Contains("mau do") ||
+                text.Contains("xe đó") || text.Contains("xe do") ||
+                text.Contains("con đó") || text.Contains("con do") ||
+                text.Contains("mẫu kia") || text.Contains("mau kia") ||
+                text.Contains("xe kia") ||
+                text.Contains("con kia");
+
             bool looksLikeShortFollowUp =
-                text.Length <= 80 ||
-                parsedIntent.IsFollowUp ||
-                string.Equals(parsedIntent.FollowUpType, "refine", StringComparison.OrdinalIgnoreCase);
+                hasReferenceSignal ||
+                parsedIntent.IsFollowUp;
+
+            bool hasExplicitCompareWords = HasExplicitCompareWords(text);
+
+            bool hasFeatureRefinementSignal = HasFeatureRefinementSignal(text, parsedIntent);
 
             bool looksLikeFreshStandaloneRecommendation =
                 text.StartsWith("tư vấn ") ||
@@ -133,9 +148,14 @@ namespace Chatbot.API.Services.Conversation
             if (looksLikeFreshStandaloneRecommendation && !string.IsNullOrWhiteSpace(parsedIntent.Target))
                 return false;
 
+            if (hasFeatureRefinementSignal && !hasExplicitCompareWords)
+                return true;
+
+            if (hasExplicitCompareWords)
+                return false;
+
             return looksLikeShortFollowUp && (hasBudgetSignal || hasConstraintSignal);
         }
-
         public static bool LooksLikeRecommendationFollowUp(
             string message,
             ParsedIntent parsedIntent,
@@ -206,6 +226,39 @@ namespace Chatbot.API.Services.Conversation
                 return false;
 
             return hasRestartPhrase && hasFreshConsultationSignal;
+        }
+        private static bool HasExplicitCompareWords(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            return text.Contains("so sánh") ||
+                   text.Contains("so sanh") ||
+                   text.Contains("so với") ||
+                   text.Contains("so voi") ||
+                   text.Contains("khác nhau") ||
+                   text.Contains("khac nhau") ||
+                   text.Contains("cái nào hơn") ||
+                   text.Contains("cai nao hon");
+        }
+
+        private static bool HasFeatureRefinementSignal(string text, ParsedIntent parsedIntent)
+        {
+            if (string.IsNullOrWhiteSpace(text) || parsedIntent == null)
+                return false;
+
+            return text.Contains("nếu ") || text.Contains("neu ") ||
+       text.Contains("cốp rộng") || text.Contains("cop rong") ||
+       text.Contains("tiết kiệm xăng") || text.Contains("tiet kiem xang") ||
+       text.Contains("dễ chống chân") || text.Contains("de chong chan") ||
+       text.Contains("đi làm") || text.Contains("di lam") ||
+       text.Contains("đi học") || text.Contains("di hoc") ||
+       parsedIntent.WantsLargeStorage ||
+       parsedIntent.WantsFuelSaving ||
+       parsedIntent.WantsEasyControl ||
+       parsedIntent.NeedsLowSeat ||
+       parsedIntent.ForWork ||
+       parsedIntent.ForSchool;
         }
     }
 }

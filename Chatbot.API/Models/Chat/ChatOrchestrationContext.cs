@@ -12,6 +12,8 @@ namespace Chatbot.API.Models.Chat
         public string NormalizedMessage { get; set; } = string.Empty;
 
         public CustomerPreferenceProfile ExistingProfile { get; set; } = new();
+        public ConversationState State { get; set; } = new();
+
         public ParsedIntent ParsedIntent { get; set; } = new();
         public ParsedIntent EffectiveIntent { get; set; } = new();
 

@@ -47,6 +47,7 @@
         public string? ActiveFlow { get; set; } 
 
         public string? LastLookupProductName { get; set; }
+        public string? LastLookupField { get; set; }
         public int? LastLookupProductId { get; set; }
 
         public List<string> LastSearchProductNames { get; set; } = new();
@@ -60,10 +61,17 @@
         public string? LastUserMessage { get; set; }
         public string? LastIntentType { get; set; }
         public bool HasPendingOrderLookup { get; set; }
+        public int? LastResolvedProductId { get; set; }
+        public string? LastResolvedProductName { get; set; }
+        public List<string> LastLookupCandidateNames { get; set; } = new();
+
+        public int? LastResolvedOrderId { get; set; }
+        public string? LastResolvedOrderPhone { get; set; }
         public int? PendingOrderId { get; set; }
         public string? PendingOrderPhone { get; set; }
         public List<string> BaseRecommendedProducts { get; set; } = new();
         public List<int> BaseRecommendedProductIds { get; set; } = new();
+        public List<string>? CurrentRecommendedProducts { get; set; }
 
         public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
     }

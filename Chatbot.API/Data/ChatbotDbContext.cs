@@ -12,6 +12,7 @@ namespace Chatbot.API.Data
 
         public DbSet<ConversationSession> ConversationSessions { get; set; } = null!;
         public DbSet<ConversationMessageEntity> ConversationMessages { get; set; } = null!;
+        public DbSet<ConversationStateEntity> ConversationStates { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -37,6 +38,43 @@ namespace Chatbot.API.Data
                 .WithOne(x => x.ConversationSession)
                 .HasForeignKey(x => x.ConversationSessionId)
                 .OnDelete(DeleteBehavior.Cascade);
+            modelBuilder.Entity<ConversationSession>()
+    .HasOne(x => x.State)
+    .WithOne(x => x.ConversationSession)
+    .HasForeignKey<ConversationStateEntity>(x => x.ConversationSessionId)
+    .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<ConversationStateEntity>()
+                .HasIndex(x => x.ConversationSessionId)
+                .IsUnique();
+
+            modelBuilder.Entity<ConversationStateEntity>()
+                .Property(x => x.CurrentDomain)
+                .HasMaxLength(50);
+
+            modelBuilder.Entity<ConversationStateEntity>()
+                .Property(x => x.CurrentGoalType)
+                .HasMaxLength(50);
+
+            modelBuilder.Entity<ConversationStateEntity>()
+                .Property(x => x.CurrentGoalStatus)
+                .HasMaxLength(50);
+
+            modelBuilder.Entity<ConversationStateEntity>()
+                .Property(x => x.LastIntentType)
+                .HasMaxLength(100);
+
+            modelBuilder.Entity<ConversationStateEntity>()
+                .Property(x => x.LastQuestionType)
+                .HasMaxLength(100);
+
+            modelBuilder.Entity<ConversationStateEntity>()
+                .Property(x => x.LastBotQuestionType)
+                .HasMaxLength(100);
+
+            modelBuilder.Entity<ConversationStateEntity>()
+                .Property(x => x.LastResolvedReference)
+                .HasMaxLength(500);
 
             modelBuilder.Entity<ConversationMessageEntity>()
                 .HasIndex(x => new { x.ConversationSessionId, x.CreatedAtUtc });

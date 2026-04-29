@@ -99,6 +99,7 @@ namespace Chatbot.API.Services
         {
             var orderId = GetInt(root, "orderId");
             var phone = GetString(root, "phone");
+            var userId = GetString(root, "userId");
 
             if (orderId <= 0)
             {
@@ -110,7 +111,12 @@ namespace Chatbot.API.Services
                 return BuildError(functionName, "Thiếu số điện thoại để tra cứu đơn hàng.");
             }
 
-            var result = await _toolClient.LookupOrderAsync(orderId, phone);
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                return BuildError(functionName, "Để bảo mật thông tin đơn hàng, bạn vui lòng đăng nhập trước khi tra cứu đơn nhé.");
+            }
+
+            var result = await _toolClient.LookupOrderAsync(orderId, phone, userId);
             var hasData = result != null;
 
             return BuildSuccess(
@@ -121,7 +127,6 @@ namespace Chatbot.API.Services
                     ? "Tra cứu đơn hàng thành công."
                     : "Không tìm thấy đơn hàng phù hợp.");
         }
-
         private async Task<string> HandleGetProductDetailAsync(JsonElement root, string functionName)
         {
             var productId = GetInt(root, "productId");

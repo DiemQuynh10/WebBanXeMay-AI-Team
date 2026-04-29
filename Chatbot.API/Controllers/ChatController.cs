@@ -16,6 +16,7 @@ namespace Chatbot.API.Controllers
         private readonly ILogger<ChatController> _logger;
         private readonly IConversationPreferenceService _conversationPreferenceService;
         private readonly IInputTextSanitizer _inputTextSanitizer;
+        private readonly IConversationStateService _conversationStateService;
         public ChatController(
     IChatService chatService,
     IConversationMemoryService memoryService,
@@ -23,6 +24,7 @@ namespace Chatbot.API.Controllers
     IConversationHistoryService historyService,
     IConversationPreferenceService conversationPreferenceService,
     IInputTextSanitizer inputTextSanitizer,
+    IConversationStateService conversationStateService,
     ILogger<ChatController> logger)
         {
             _chatService = chatService;
@@ -31,6 +33,7 @@ namespace Chatbot.API.Controllers
             _historyService = historyService;
             _conversationPreferenceService = conversationPreferenceService;
             _inputTextSanitizer = inputTextSanitizer;
+            _conversationStateService = conversationStateService;
             _logger = logger;
         }
         [HttpPost]
@@ -119,7 +122,7 @@ namespace Chatbot.API.Controllers
         }
 
         [HttpGet("conversations/{conversationId}/messages")]
-        public async Task<IActionResult> GetMessages(string conversationId)
+        public async Task<IActionResult> GetMessages(string conversationId, [FromQuery] string userId)
         {
             try
             {
@@ -130,6 +133,21 @@ namespace Chatbot.API.Controllers
                         success = false,
                         errorMessage = "conversationId không được để trống."
                     });
+                }
+                if (string.IsNullOrWhiteSpace(userId))
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        errorMessage = "userId không được để trống."
+                    });
+                }
+
+                var isOwner = await _historyService.IsConversationOwnerAsync(conversationId.Trim(), userId.Trim());
+
+                if (!isOwner)
+                {
+                    return Forbid();
                 }
 
                 var items = await _historyService.GetMessagesAsync(conversationId.Trim());
@@ -153,7 +171,9 @@ namespace Chatbot.API.Controllers
         }
 
         [HttpDelete("conversations/{conversationId}")]
-        public async Task<IActionResult> DeleteConversation(string conversationId)
+        public async Task<IActionResult> DeleteConversation(
+     string conversationId,
+     [FromQuery] string userId)
         {
             try
             {
@@ -165,10 +185,31 @@ namespace Chatbot.API.Controllers
                         errorMessage = "conversationId không được để trống."
                     });
                 }
+
+                if (string.IsNullOrWhiteSpace(userId))
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        errorMessage = "userId không được để trống."
+                    });
+                }
+
                 var normalizedId = conversationId.Trim();
-                await _historyService.DeleteConversationAsync(conversationId.Trim());
-                _clarificationStateService.Clear(conversationId.Trim());
+                var normalizedUserId = userId.Trim();
+
+                var isOwner = await _historyService.IsConversationOwnerAsync(normalizedId, normalizedUserId);
+
+                if (!isOwner)
+                {
+                    return Forbid();
+                }
+
+                await _historyService.DeleteConversationAsync(normalizedId);
+                _clarificationStateService.Clear(normalizedId);
                 await _conversationPreferenceService.ClearAsync(normalizedId);
+                await _conversationStateService.ClearAsync(normalizedId);
+
                 return Ok(new
                 {
                     success = true
@@ -201,13 +242,29 @@ namespace Chatbot.API.Controllers
                 }
 
                 var conversationId = request.ConversationId.Trim();
+                if (string.IsNullOrWhiteSpace(request.UserId))
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        errorMessage = "userId không được để trống."
+                    });
+                }
 
+                var userId = request.UserId.Trim();
+
+                var isOwner = await _historyService.IsConversationOwnerAsync(conversationId, userId);
+
+                if (!isOwner)
+                {
+                    return Forbid();
+                }
                 await _memoryService.ClearAsync(conversationId);
                 _clarificationStateService.Clear(conversationId);
 
                 await _conversationPreferenceService.ClearAsync(conversationId);
                 _logger.LogInformation("Conversation reset. ConversationId: {ConversationId}", conversationId);
-
+                await _conversationStateService.ClearAsync(conversationId);
                 return Ok(new
                 {
                     success = true,

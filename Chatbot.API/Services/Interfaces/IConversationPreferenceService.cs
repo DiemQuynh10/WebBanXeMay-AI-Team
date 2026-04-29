@@ -22,6 +22,18 @@ namespace Chatbot.API.Services.Interfaces
         Task SetBaseRecommendedProductsAsync(
     string conversationId,
     IEnumerable<ProductSummaryDto> products);
+        Task SaveProductLookupContextAsync(
+    string conversationId,
+    int? productId,
+    string? productName,
+    IEnumerable<string>? candidateNames = null);
+
+        Task SaveResolvedOrderContextAsync(
+            string conversationId,
+            int? orderId,
+            string? phone);
+
+        Task ClearOrderLookupPendingAsync(string conversationId);
 
         Task UpdateCurrentRecommendedProductsAsync(
             string conversationId,

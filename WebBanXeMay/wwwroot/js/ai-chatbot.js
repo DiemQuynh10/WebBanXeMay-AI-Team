@@ -16,22 +16,63 @@
     const USER_STORAGE_KEY = "ai_chat_user_id";
     const CURRENT_CONVERSATION_KEY = "ai_chat_current_conversation_id";
     const CHANNEL = "web";
+    const AUTH_STATE_KEY = "ai_chat_auth_state";
+    const AUTH_USER_KEY = "ai_chat_auth_user_id";
 
     const state = {
         isSending: false,
         currentConversationId: sessionStorage.getItem(CURRENT_CONVERSATION_KEY) || null,
         conversations: []
     };
+    function isAuthenticatedUser() {
+        return document.getElementById("__isAuth")?.value === "1";
+    }
+
+    function getRealUserId() {
+        return document.getElementById("__currentUserId")?.value || "";
+    }
 
     function getUserId() {
+        if (isAuthenticatedUser()) {
+            return getRealUserId();
+        }
+
         let userId = localStorage.getItem(USER_STORAGE_KEY);
         if (!userId) {
             userId = "web_" + crypto.randomUUID();
             localStorage.setItem(USER_STORAGE_KEY, userId);
         }
+
         return userId;
     }
+    function getAuthState() {
+        return isAuthenticatedUser() ? "1" : "0";
+    }
 
+    function clearLocalChatSession() {
+        sessionStorage.removeItem(CURRENT_CONVERSATION_KEY);
+        state.currentConversationId = null;
+    }
+
+    function syncAuthSessionState() {
+        const currentAuthState = getAuthState();
+        const currentAuthUserId = getRealUserId();
+
+        const previousAuthState = sessionStorage.getItem(AUTH_STATE_KEY);
+        const previousAuthUserId = sessionStorage.getItem(AUTH_USER_KEY);
+
+        if (
+            previousAuthState !== null &&
+            (previousAuthState !== currentAuthState || previousAuthUserId !== currentAuthUserId)
+        ) {
+            clearLocalChatSession();
+        }
+
+        sessionStorage.setItem(AUTH_STATE_KEY, currentAuthState);
+        sessionStorage.setItem(AUTH_USER_KEY, currentAuthUserId || "");
+    }
+
+    syncAuthSessionState();
     function setCurrentConversationId(id) {
         state.currentConversationId = id || null;
 
@@ -255,6 +296,12 @@ function addMessage(role, content, products = []) {
 
         conversationList.querySelectorAll(".ai-chat-conversation-item").forEach(btn => {
             btn.addEventListener("click", async () => {
+                if (!isAuthenticatedUser()) {
+                    clearLocalChatSession();
+                    renderWelcomeMessage();
+                    return;
+                }
+
                 const id = btn.dataset.conversationId;
                 if (!id) return;
 
@@ -362,7 +409,8 @@ function addMessage(role, content, products = []) {
                 message: message,
                 conversationId: state.currentConversationId,
                 userId: getUserId(),
-                channel: CHANNEL
+                channel: CHANNEL,
+                isAuthenticated: isAuthenticatedUser()
             });
 
             removeTyping();
@@ -377,7 +425,10 @@ function addMessage(role, content, products = []) {
             const products = Array.isArray(result?.products) ? result.products : [];
 
             addMessage("bot", replyText, products);
-            await loadConversations();
+
+            if (isAuthenticatedUser()) {
+                await loadConversations();
+            }
         } catch (error) {
             removeTyping();
             console.error("Send message error:", error);
@@ -442,6 +493,15 @@ function addMessage(role, content, products = []) {
     toggleBtn.addEventListener("click", async () => {
         if (panel.classList.contains("d-none")) {
             openPanel();
+
+            if (!isAuthenticatedUser()) {
+                clearLocalChatSession();
+                state.conversations = [];
+                renderConversationList();
+                renderWelcomeMessage();
+                return;
+            }
+
             await loadConversations();
 
             if (state.currentConversationId) {

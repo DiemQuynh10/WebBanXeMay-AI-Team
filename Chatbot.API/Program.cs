@@ -44,6 +44,7 @@ builder.Services.AddOptions<RagApiOptions>()
 // Memory
 builder.Services.AddScoped<IConversationMemoryService, ConversationMemoryService>();
 builder.Services.AddScoped<IConversationHistoryService, ConversationHistoryService>();
+builder.Services.AddScoped<IConversationStateService, ConversationStateService>();
 builder.Services.AddScoped<IQueryNormalizationService, QueryNormalizationService>();
 builder.Services.AddSingleton<IClarificationStateService, ClarificationStateService>();
 builder.Services.AddSingleton<IConversationPreferenceService, ConversationPreferenceService>();
@@ -61,13 +62,19 @@ builder.Services.AddScoped<IProductLookupFlowService, ProductLookupFlowService>(
 builder.Services.AddScoped<IProductSearchFlowService, ProductSearchFlowService>();
 builder.Services.AddScoped<IInputTextSanitizer, InputTextSanitizer>();
 builder.Services.AddScoped<IConversationContextResolver, ConversationContextResolver>();
+builder.Services.AddScoped<IConversationPolicyService, ConversationPolicyService>();
 builder.Services.AddScoped<IFlowDecisionService, FlowDecisionService>();
+builder.Services.AddScoped<ITurnContextBuilder, TurnContextBuilder>();
+builder.Services.AddScoped<IUtteranceGuardService, UtteranceGuardService>();
+builder.Services.AddScoped<IContextualIntentClassifierService, ContextualIntentClassifierService>();
 builder.Services.AddScoped<IRecommendationClarificationService, RecommendationClarificationService>();
 builder.Services.AddScoped<IChatFlowOrchestrator, ChatFlowOrchestrator>();
+builder.Services.AddScoped<IOrderLookupFlowService, OrderLookupFlowService>();
 builder.Services.AddScoped<IRecommendationFlowService, RecommendationFlowService>();
 builder.Services.AddScoped<IRecommendationLLMService, RecommendationLLMService>();
 builder.Services.AddScoped<IReplyStyleService, ReplyStyleService>();
 builder.Services.AddScoped<IReplyRewriteService, ReplyRewriteService>();
+builder.Services.AddScoped<IRecommendationScoringService, RecommendationScoringService>();
 builder.Services.Configure<ReplyRewriteOptions>(
     builder.Configuration.GetSection("ReplyRewrite"));
 // Main chatbot services

@@ -31,22 +31,30 @@ namespace WebBanXeMay.Controllers.Api.Tools
             return true;
         }
 
-        // GET: /api/tools/orders/lookup?maDH=12&phone=0987xxxxxx
+        // GET: /api/tools/orders/lookup?maDH=12&phone=0987xxxxxx&userId=...
         [HttpGet("lookup")]
-        public async Task<IActionResult> Lookup([FromQuery] int maDH, [FromQuery] string phone)
+        public async Task<IActionResult> Lookup(
+    [FromQuery] int maDH,
+    [FromQuery] string phone,
+    [FromQuery] string userId)
         {
             if (!CheckKey(out var err)) return err!;
             if (maDH <= 0) return BadRequest(new { error = "maDH invalid" });
+
+            if (string.IsNullOrWhiteSpace(userId))
+                return Unauthorized(new { error = "Login required" });
+
+            userId = userId.Trim();
 
             var phoneNorm = PhoneHelper.Normalize(phone);
             if (string.IsNullOrWhiteSpace(phoneNorm))
                 return BadRequest(new { error = "phone required" });
 
             var order = await _db.DonHangs
-                .Include(x => x.ChiTietDHs)
-                    .ThenInclude(ct => ct.SanPham) // nếu ChiTietDH có navigation SanPham
-                .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.MaDH == maDH);
+    .Include(x => x.ChiTietDHs)
+        .ThenInclude(ct => ct.SanPham)
+    .AsNoTracking()
+    .FirstOrDefaultAsync(x => x.MaDH == maDH && x.UserId == userId);
 
             if (order == null)
                 return NotFound(new { error = "Order not found" });

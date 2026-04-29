@@ -1,6 +1,9 @@
-﻿@{
+﻿@using System.Security.Claims
+
+@{
     var title = ViewData["Title"] as string ?? "Web Bán Xe Máy";
 }
+
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -163,6 +166,7 @@
     </footer>
 
     <input id="__isAuth" type="hidden" value="@(User?.Identity?.IsAuthenticated == true ? "1" : "0")" />
+    <input id="__currentUserId" type="hidden" value="@(User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? "")" />
     <form id="__af" method="post" class="hidden">@Html.AntiForgeryToken()</form>
 
     <div id="auth-modal" class="fixed inset-0 hidden items-center justify-center z-50">

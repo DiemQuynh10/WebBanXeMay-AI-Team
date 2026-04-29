@@ -69,6 +69,8 @@
         /// Cho phép ChatService biết đây là câu phải ưu tiên deterministic trước AI.
         /// </summary>
         public bool HasDeterministicProductIntent { get; set; }
+        public bool IsNoise { get; set; }
+        public bool IsAck { get; set; }
         public ParsedIntent Clone()
         {
             return new ParsedIntent
@@ -93,6 +95,9 @@
                 ForWork = ForWork,
                 ForCity = ForCity,
                 ForTour = ForTour,
+
+                IsNoise = IsNoise,
+                IsAck = IsAck,
 
                 WantsEasyControl = WantsEasyControl,
                 WantsFuelSaving = WantsFuelSaving,

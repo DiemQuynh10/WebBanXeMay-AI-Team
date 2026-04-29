@@ -468,6 +468,15 @@ namespace Chatbot.API.Services
             {
                 return true;
             }
+            // Nữ + chưa nói thích xe số thì không nên ưu tiên xe số trong tư vấn mở
+            if (profile.PrefersFemaleStyle &&
+                product.VehicleType == VehicleType.Underbone &&
+                !profile.WantsUnderbone &&
+                !profile.IsStudent &&
+                !profile.ForSchool)
+            {
+                return true;
+            }
             // Nam + đi làm + không yêu cầu nữ tính/thanh lịch thì loại bớt các mẫu quá thiên nữ
             if (profile.PrefersMaleStyle &&
                 profile.ForWork &&
@@ -1009,11 +1018,11 @@ namespace Chatbot.API.Services
                 {
                     score -= 10;
                 }
-                if (ContainsAny(product.Tags, "ca tinh", "the thao") &&
+                if (ContainsAny(product.Tags, "ca tinh", "the thao", "nam tinh", "ham ho", "manh me") &&
     !profile.RequestedStyles.Contains(StyleTag.Sporty) &&
     !profile.RequestedStyles.Contains(StyleTag.Aggressive))
                 {
-                    score -= 4;
+                    score -= 18;
                 }
             }
 
@@ -1073,6 +1082,18 @@ namespace Chatbot.API.Services
                     !profile.WantsUnderbone)
                 {
                     score -= 4;
+                }
+                // Nam: ưu tiên các mẫu trung tính / thể thao / thực dụng hơn xe số phổ thông
+                if (ContainsAny(product.Name, "air blade", "winner", "future", "pcx"))
+                {
+                    score += 20;
+                }
+
+                // Wave vẫn có thể phù hợp vì bền và tiết kiệm,
+                // nhưng không nên đứng đầu khi user chỉ nói "cho nam" hoặc "honda đi"
+                if (ContainsAny(product.Name, "wave"))
+                {
+                    score -= 10;
                 }
             }
     
@@ -1156,6 +1177,20 @@ namespace Chatbot.API.Services
                 {
                     score -= 4;
                 }
+            }
+            if (profile.PrefersFemaleStyle)
+            {
+                if (ContainsAny(product.Name, "vision", "latte", "grande", "zip", "janus"))
+                    score += 18;
+
+                if (ContainsAny(product.Name, "future", "wave") && !profile.WantsUnderbone)
+                    score -= 12;
+
+                if (ContainsAny(product.Name, "pcx", "sh", "rebel", "cbr"))
+                    score -= 18;
+
+                if (ContainsAny(product.Name, "air blade"))
+                    score += 4;
             }
             return score;
         }
@@ -1246,7 +1281,21 @@ namespace Chatbot.API.Services
                     score -= 6;
                 }
             }
+            if (profile.PrefersFemaleStyle &&
+    string.Equals(product.Brand, "honda", StringComparison.OrdinalIgnoreCase))
+            {
+                if (ContainsAny(product.Name, "vision"))
+                    score += 24;
 
+                if (ContainsAny(product.Name, "air blade"))
+                    score += 10;
+
+                if (ContainsAny(product.Name, "future", "wave") && !profile.WantsUnderbone)
+                    score -= 18;
+
+                if (ContainsAny(product.Name, "pcx", "sh") && !profile.RequestedStyles.Contains(StyleTag.Elegant))
+                    score -= 14;
+            }
             return score;
         }
         private static bool ShouldUseOpenConsultationMode(

@@ -398,7 +398,7 @@ Mô tả: Yamaha MT15 là naked bike 155cc, thiết kế hầm hố, tư thế n
 [Honda Air Blade]
 Thương hiệu: Honda
 Giá: 45.000.000 đ
-Tình trạng: Còn hàng (7 xe)
+Tình trạng: Còn hàng (8 xe)
 Mô tả: Honda Air Blade là mẫu xe ga thể thao, thiết kế sắc cạnh, phù hợp đi làm và đi học hằng ngày, nổi bật với khả năng tăng tốc mượt và tiết kiệm nhiên liệu tốt.
 Đánh giá: 2.0/5 (1 lượt đánh giá)
 
@@ -417,7 +417,7 @@ Mô tả: Honda SH 150i là dòng xe ga cao cấp, thiết kế sang trọng, đ
 [Honda Vision]
 Thương hiệu: Honda
 Giá: 31.000.000 đ
-Tình trạng: Còn hàng (8 xe)
+Tình trạng: Còn hàng (7 xe)
 Mô tả: Honda Vision là xe ga đô thị nhỏ gọn, dễ điều khiển, tiết kiệm xăng, cốp rộng, rất được ưa chuộng bởi học sinh, sinh viên và nhân viên văn phòng.
 
 [Piaggio Beverly 300]

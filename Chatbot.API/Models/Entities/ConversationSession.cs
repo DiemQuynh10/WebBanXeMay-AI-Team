@@ -29,5 +29,7 @@ namespace Chatbot.API.Models.Entities
         public bool IsActive { get; set; } = true;
 
         public ICollection<ConversationMessageEntity> Messages { get; set; } = new List<ConversationMessageEntity>();
+
+        public ConversationStateEntity? State { get; set; }
     }
 }

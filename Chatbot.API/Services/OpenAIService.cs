@@ -147,26 +147,6 @@ namespace Chatbot.API.Services
                         : "Mình chưa có câu trả lời phù hợp.";
                 }
 
-                await _memoryService.AddMessageAsync(
-                    conversationId,
-                    new ChatMessage
-                    {
-                        Role = "user",
-                        Content = originalUserMessage
-                    },
-                    channel,
-                    userId);
-
-                await _memoryService.AddMessageAsync(
-                    conversationId,
-                    new ChatMessage
-                    {
-                        Role = "assistant",
-                        Content = finalReply
-                    },
-                    channel,
-                    userId);
-
                 return new ChatResponse
                 {
                     Success = true,
@@ -290,7 +270,6 @@ namespace Chatbot.API.Services
                     });
                 }
             }
-
             messages.Add(new JsonObject
             {
                 ["role"] = "user",
@@ -331,11 +310,13 @@ namespace Chatbot.API.Services
 
             foreach (var msg in history)
             {
-                if (msg.Role == "user" || msg.Role == "assistant")
+                var safeRole = NormalizeOpenAIRole(msg.Role);
+
+                if (safeRole == "user" || safeRole == "assistant")
                 {
                     secondMessages.Add(new JsonObject
                     {
-                        ["role"] = msg.Role,
+                        ["role"] = safeRole,
                         ["content"] = msg.Content
                     });
                 }

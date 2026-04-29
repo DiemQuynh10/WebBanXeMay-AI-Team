@@ -46,11 +46,23 @@ namespace Chatbot.API.Clients
             return await GetAsync<ProductDetailDto>(url, nameof(GetProductDetailAsync));
         }
 
-        public async Task<OrderStatusDto?> LookupOrderAsync(int maDH, string phone)
+        public async Task<OrderStatusDto?> LookupOrderAsync(int maDH, string phone, string userId)
         {
             phone = phone?.Trim() ?? string.Empty;
+            userId = userId?.Trim() ?? string.Empty;
 
-            var url = $"{_options.BaseUrl}/api/tools/orders/lookup?maDH={maDH}&phone={Uri.EscapeDataString(phone)}";
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                _logger.LogWarning("LookupOrderAsync blocked because userId is empty.");
+                return null;
+            }
+
+            var url =
+                $"{_options.BaseUrl}/api/tools/orders/lookup" +
+                $"?maDH={maDH}" +
+                $"&phone={Uri.EscapeDataString(phone)}" +
+                $"&userId={Uri.EscapeDataString(userId)}";
+
             return await GetAsync<OrderStatusDto>(url, nameof(LookupOrderAsync));
         }
 
@@ -118,7 +130,16 @@ namespace Chatbot.API.Clients
                 }
 
                 var result = JsonSerializer.Deserialize<T>(responseBody, _jsonOptions);
-
+                if (result is ProductSearchResponseDto searchResult)
+                {
+                    _logger.LogInformation(
+                        "Tool API parsed search result. Operation: {OperationName}, Count: {Count}, FirstItems: {FirstItems}",
+                        operationName,
+                        searchResult.Items?.Count ?? 0,
+                        searchResult.Items == null
+                            ? "(null)"
+                            : string.Join(", ", searchResult.Items.Take(5).Select(x => x.Ten)));
+                }
                 if (result == null)
                 {
                     _logger.LogWarning(
