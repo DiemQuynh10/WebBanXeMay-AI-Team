@@ -200,11 +200,6 @@
             </div>
         </div>
     </div>
-    <a href="/Chat/Index" id="globalChatBubble" class="my-chat-bubble" title="Chat với Shop">
-        <span class="chat-tooltip">Chat ngay với Shop</span>
-        <i class="fas fa-comment-dots"></i>
-        <span id="globalChatBadge" class="my-chat-badge">0</span>
-    </a>
 
     <audio id="chatSound" src="https://www.soundjay.com/button/beep-07.mp3" preload="auto"></audio>
 
@@ -228,7 +223,15 @@
             __modal.classList.remove('hidden'); __modal.classList.add('flex');
         }
         function closeAuthModal() { __modal.classList.add('hidden'); __modal.classList.remove('flex'); }
+                document.getElementById('auth-cancel')?.addEventListener('click', closeAuthModal);
 
+        __modal?.addEventListener('click', function (e) {
+            if (e.target === __modal) closeAuthModal();
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeAuthModal();
+        });
         // 2. API Fetch
         window.fetchAuth = async function (url, init) {
             const headers = new Headers(init?.headers || {});
@@ -392,7 +395,14 @@
     <noscript>
         <div class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded-lg shadow">Vui lòng bật JavaScript.</div>
     </noscript>
-    @await Html.PartialAsync("_AiChatbot")
-    <script src="~/js/ai-chatbot.js" asp-append-version="true"></script>
+    @{
+        var isHumanChatPage = Context.Request.Path.StartsWithSegments("/Chat");
+    }
+
+    @if (!isHumanChatPage)
+    {
+        @await Html.PartialAsync("_AiChatbot")
+        <script src="~/js/ai-chatbot.js" asp-append-version="true"></script>
+    }
 </body>
 </html>

@@ -1,17 +1,20 @@
 ﻿<div id="aiChatbotWidget" class="ai-chatbot-widget">
     <button id="aiChatToggle" type="button" class="ai-chat-toggle">
         <span class="ai-chat-toggle-icon">💬</span>
-        <span>Tư vấn AI</span>
+        <span>Tư vấn & hỗ trợ</span>
     </button>
 
     <div id="aiChatPanel" class="ai-chat-panel d-none">
         <div class="ai-chat-header">
             <div class="ai-chat-header-left">
-                <div class="ai-chat-title">Chatbot tư vấn xe máy</div>
-                <div class="ai-chat-subtitle">Hỗ trợ giá xe, tồn kho, tư vấn mẫu phù hợp</div>
+                <div class="ai-chat-title">Trợ lý tư vấn & hỗ trợ</div>
+                <div class="ai-chat-subtitle">AI hỗ trợ trước, cần thiết có thể gặp nhân viên</div>
             </div>
 
             <div class="ai-chat-header-actions">
+                <button id="aiChatHumanSupport" type="button" class="ai-chat-action-btn human">
+                    Gặp nhân viên
+                </button>
                 <button id="aiChatNewConversation" type="button" class="ai-chat-action-btn">
                     + Chat mới
                 </button>
@@ -624,4 +627,14 @@
             font-size: 11px;
         }
     }
+
+    .ai-chat-action-btn.human {
+        background: linear-gradient(135deg, #22c55e, #16a34a);
+        color: #fff;
+        border-color: rgba(34, 197, 94, 0.45);
+    }
+
+        .ai-chat-action-btn.human:hover {
+            background: linear-gradient(135deg, #16a34a, #15803d);
+        }
 </style>

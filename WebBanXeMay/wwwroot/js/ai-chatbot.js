@@ -10,6 +10,7 @@
     const newChatBtn = document.getElementById("aiChatNewConversation");
     const deleteBtn = document.getElementById("aiChatDeleteConversation");
     const emptyState = document.getElementById("aiChatEmptyState");
+    const humanSupportBtn = document.getElementById("aiChatHumanSupport");
 
     if (!widget || !toggleBtn || !panel || !sendBtn || !input || !messages || !conversationList) return;
 
@@ -106,7 +107,25 @@
     function focusInput() {
         setTimeout(() => input.focus(), 60);
     }
+    function openHumanSupport() {
+        const targetUrl = "/Chat/Index";
 
+        closePanel();
+
+        setTimeout(() => {
+            if (!isAuthenticatedUser()) {
+                if (typeof window.openAuthModal === "function") {
+                    window.openAuthModal(targetUrl);
+                    return;
+                }
+
+                window.location.href = `/Identity/Account/Login?returnUrl=${encodeURIComponent(targetUrl)}`;
+                return;
+            }
+
+            window.location.href = targetUrl;
+        }, 120);
+    }
     function setSendingState(sending) {
         state.isSending = sending;
         input.disabled = sending;
@@ -678,6 +697,9 @@
 
     if (deleteBtn) {
         deleteBtn.addEventListener("click", deleteCurrentConversation);
+    }
+    if (humanSupportBtn) {
+        humanSupportBtn.addEventListener("click", openHumanSupport);
     }
 
     sendBtn.addEventListener("click", () => sendMessage());
