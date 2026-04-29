@@ -460,7 +460,16 @@ namespace Chatbot.API.Services
                 };
             }
 
-
+            if (LooksLikeHumanSupportOrAfterSalesRequest(context.NormalizedMessage))
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    UsedAI = false,
+                    ConversationId = context.ConversationId,
+                    Reply = BuildHumanSupportReply(context.NormalizedMessage)
+                };
+            }
             if (string.Equals(flowType, ChatFlowType.OutOfScope, StringComparison.OrdinalIgnoreCase))
             {
                 return new ChatResponse
@@ -629,9 +638,16 @@ Hãy trả lời ngắn gọn, đúng trọng tâm, tự nhiên và chỉ trong 
 - tư vấn chọn xe
 - so sánh xe
 - tra cứu đơn hàng
+- hướng dẫn gặp nhân viên khi người dùng hỏi về bảo hành, lỗi xe, đổi trả, giao hàng, thanh toán hoặc khiếu nại
 
-Nếu tin nhắn ngoài phạm vi xe máy, sản phẩm, tồn kho, so sánh xe hoặc đơn hàng:
-- hãy nói rõ bạn không hỗ trợ nội dung đó.
+Nếu người dùng hỏi về bảo hành, lỗi xe, đổi trả, giao hàng, thanh toán hoặc khiếu nại:
+- không được nói “mình không hỗ trợ”
+- hãy trả lời đồng cảm, ngắn gọn
+- hướng người dùng bấm “Gặp nhân viên” để được kiểm tra chi tiết
+- không tự cam kết bảo hành, hoàn tiền hoặc xử lý đơn nếu không có dữ liệu
+
+Nếu tin nhắn thật sự ngoài phạm vi xe máy, sản phẩm, tồn kho, so sánh xe, đơn hàng hoặc hỗ trợ sau bán:
+- hãy nói lịch sự rằng bạn chỉ hỗ trợ trong phạm vi website bán xe máy.
 
 Nếu tin nhắn vô nghĩa, quá mơ hồ hoặc không đủ để hiểu:
 - không được tự suy diễn theo ngữ cảnh cũ
@@ -2460,6 +2476,55 @@ turnContext.Reason,
             var text = NormalizeText(message);
             return text.Contains("de di") || text.Contains("de lai") || text.Contains("de chay") ||
                    text.Contains("chong chan") || text.Contains("yen thap");
+        }
+        private static bool LooksLikeHumanSupportOrAfterSalesRequest(string message)
+        {
+            var text = NormalizeText(message);
+
+            string[] keywords =
+            {
+        "bao hanh",
+        "loi xe",
+        "xe bi loi",
+        "hong xe",
+        "doi tra",
+        "hoan tien",
+        "khieu nai",
+        "giao hang",
+        "van chuyen",
+        "thanh toan",
+        "chuyen khoan",
+        "don hang",
+        "ma don",
+        "gap nhan vien",
+        "nhan vien tu van",
+        "admin",
+        "ho tro truc tiep"
+    };
+
+            return keywords.Any(k => text.Contains(k));
+        }
+
+        private static string BuildHumanSupportReply(string message)
+        {
+            var text = NormalizeText(message);
+
+            if (text.Contains("bao hanh") || text.Contains("loi xe") || text.Contains("xe bi loi") || text.Contains("hong xe"))
+            {
+                return "Rất tiếc vì xe của bạn đang gặp vấn đề. Với trường hợp bảo hành hoặc lỗi xe, nhân viên cần kiểm tra tình trạng xe, thời gian mua và chính sách áp dụng. Bạn có thể bấm **Gặp nhân viên** để được hỗ trợ trực tiếp nhé.";
+            }
+
+            if (text.Contains("don hang") || text.Contains("ma don") || text.Contains("giao hang") || text.Contains("van chuyen"))
+            {
+                return "Để kiểm tra thông tin đơn hàng hoặc giao hàng, bạn cần đăng nhập để hệ thống bảo vệ thông tin cá nhân. Sau đó bạn có thể bấm **Gặp nhân viên** để được hỗ trợ chi tiết nhé.";
+            }
+
+            if (text.Contains("thanh toan") || text.Contains("chuyen khoan") || text.Contains("hoan tien"))
+            {
+                return "Với vấn đề thanh toán hoặc hoàn tiền, nhân viên cần kiểm tra giao dịch cụ thể. Bạn có thể bấm **Gặp nhân viên** để được hỗ trợ an toàn và chính xác hơn nhé.";
+            }
+
+            return "Vấn đề này có thể cần nhân viên kiểm tra trực tiếp. Bạn có thể bấm **Gặp nhân viên** để được hỗ trợ chi tiết hơn nhé.";
         }
     }
 }

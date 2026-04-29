@@ -126,6 +126,58 @@
             window.location.href = targetUrl;
         }, 120);
     }
+    function shouldSuggestHumanSupport(message, replyText) {
+        const text = `${message || ""} ${replyText || ""}`.toLowerCase();
+
+        const keywords = [
+            "đơn hàng",
+            "don hang",
+            "mã đơn",
+            "ma don",
+            "giao hàng",
+            "giao hang",
+            "vận chuyển",
+            "van chuyen",
+            "bảo hành",
+            "bao hanh",
+            "đổi trả",
+            "doi tra",
+            "hoàn tiền",
+            "hoan tien",
+            "khiếu nại",
+            "khieu nai",
+            "lỗi xe",
+            "loi xe",
+            "thanh toán",
+            "thanh toan",
+            "nhân viên",
+            "admin",
+            "tư vấn viên",
+            "tu van vien"
+        ];
+
+        return keywords.some(k => text.includes(k));
+    }
+
+    function addHumanSupportSuggestion() {
+        const div = document.createElement("div");
+        div.className = "ai-msg bot ai-msg-human-suggest";
+        div.innerHTML = `
+        <div class="ai-human-support-card">
+            <div class="ai-human-support-title">Cần nhân viên hỗ trợ?</div>
+            <div class="ai-human-support-text">
+                Nhân viên sẽ kiểm tra chi tiết hơn về đơn hàng, bảo hành hoặc thanh toán.
+            </div>
+            <button type="button" class="ai-human-support-btn" data-human-support="true">
+                Gặp nhân viên
+            </button>
+        </div>
+    `;
+
+        messages.appendChild(div);
+        toggleEmptyState(false);
+        scrollBottom();
+    }
     function setSendingState(sending) {
         state.isSending = sending;
         input.disabled = sending;
@@ -594,6 +646,10 @@
 
             addMessage("bot", replyText, products);
 
+            if (shouldSuggestHumanSupport(message, replyText)) {
+                addHumanSupportSuggestion();
+            }
+
             if (isAuthenticatedUser()) {
                 await loadConversations();
             }
@@ -701,6 +757,12 @@
     if (humanSupportBtn) {
         humanSupportBtn.addEventListener("click", openHumanSupport);
     }
+    messages.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-human-support='true']");
+        if (btn) {
+            openHumanSupport();
+        }
+    });
 
     sendBtn.addEventListener("click", () => sendMessage());
 
