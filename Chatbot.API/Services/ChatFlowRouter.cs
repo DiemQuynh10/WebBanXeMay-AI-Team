@@ -55,6 +55,21 @@ namespace Chatbot.API.Services
                 return result;
             }
 
+            if (string.Equals(intent.IntentType, ChatFlowType.ServiceInfo, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(intent.IntentType, ChatFlowType.PolicyInfo, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(intent.RouteFlow, ChatFlowType.ServiceInfo, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(intent.RouteFlow, ChatFlowType.PolicyInfo, StringComparison.OrdinalIgnoreCase))
+            {
+                result.FlowType = string.Equals(intent.RouteFlow, ChatFlowType.PolicyInfo, StringComparison.OrdinalIgnoreCase)
+                    ? ChatFlowType.PolicyInfo
+                    : ChatFlowType.ServiceInfo;
+                result.ShouldUseDeterministicFlow = true;
+                result.ShouldUseAiFallback = false;
+                result.ShouldUseRag = true;
+                result.Reason = "Service/policy knowledge detected";
+                return result;
+            }
+
             if (intent.IsDirectCompare)
             {
                 result.FlowType = ChatFlowType.Compare;

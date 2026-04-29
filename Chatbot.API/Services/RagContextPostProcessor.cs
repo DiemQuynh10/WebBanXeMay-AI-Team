@@ -59,7 +59,7 @@ namespace Chatbot.API.Services
 
             var question = JoinParts(normalizedMessage, semanticQuery, profile?.LastSemanticMeaning);
             var requestedDomains = InferDomains(question, intent);
-            var requestedSlots = InferSlots(question);
+            var requestedSlots = InferSlots(question, intent);
             var preferredSlots = ExpandPreferredSlots(requestedSlots);
             var requestedBrands = InferBrands(question, intent, profile);
             var queryTokens = Tokenize(question);
@@ -253,13 +253,18 @@ namespace Chatbot.API.Services
             return result;
         }
 
-        private static IReadOnlySet<string> InferSlots(string question)
+        private static IReadOnlySet<string> InferSlots(string question, ParsedIntent? intent)
         {
             var normalized = Normalize(question);
-            return SlotKeywords
+            var slots = SlotKeywords
                 .Where(kvp => kvp.Value.Any(k => normalized.Contains(k, StringComparison.OrdinalIgnoreCase)))
                 .Select(kvp => kvp.Key)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrWhiteSpace(intent?.PolicySlot))
+                slots.Add(intent.PolicySlot);
+
+            return slots;
         }
 
         private static IReadOnlySet<string> InferBrands(string question, ParsedIntent? intent, CustomerPreferenceProfile? profile)

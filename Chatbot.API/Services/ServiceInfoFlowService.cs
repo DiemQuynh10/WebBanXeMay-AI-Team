@@ -98,6 +98,10 @@ namespace Chatbot.API.Services
             sb.AppendLine($"Original question: {normalizedMessage}");
             sb.AppendLine($"RAG semantic query: {semanticQuery}");
             sb.AppendLine($"Intent group: {intent.IntentType}");
+            if (!string.IsNullOrWhiteSpace(intent.PolicySlot))
+            {
+                sb.AppendLine($"Requested policy slot: {intent.PolicySlot}");
+            }
 
             if (!string.IsNullOrWhiteSpace(profile.LastSemanticMeaning))
             {

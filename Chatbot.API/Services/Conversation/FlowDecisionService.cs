@@ -32,6 +32,18 @@ namespace Chatbot.API.Services.Conversation
                 return routing;
             }
 
+            if (ShouldForceServiceOrPolicy(effectiveIntent, text))
+            {
+                routing.FlowType = string.Equals(effectiveIntent.RouteFlow, ChatFlowType.PolicyInfo, StringComparison.OrdinalIgnoreCase)
+                    ? ChatFlowType.PolicyInfo
+                    : ChatFlowType.ServiceInfo;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = true;
+                routing.Reason = "Forced by explicit service/policy knowledge intent";
+                return routing;
+            }
+
             if (ShouldForceDirectCompare(effectiveIntent))
             {
                 routing.FlowType = ChatFlowType.Compare;
@@ -229,6 +241,18 @@ namespace Chatbot.API.Services.Conversation
             return (intent.IsDirectCompare && namesTwoProducts) ||
                    string.Equals(intent.IntentType, "compare", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(intent.RouteFlow, ChatFlowType.Compare, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool ShouldForceServiceOrPolicy(ParsedIntent? intent, string message)
+        {
+            if (intent == null)
+                return FlowIntentHeuristics.IsStaticKnowledgeQuestion(message);
+
+            return string.Equals(intent.IntentType, ChatFlowType.ServiceInfo, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(intent.IntentType, ChatFlowType.PolicyInfo, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(intent.RouteFlow, ChatFlowType.ServiceInfo, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(intent.RouteFlow, ChatFlowType.PolicyInfo, StringComparison.OrdinalIgnoreCase) ||
+                   FlowIntentHeuristics.IsStaticKnowledgeQuestion(message);
         }
 
         private static bool ShouldForceDirectProductLookup(ParsedIntent? intent)

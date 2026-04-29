@@ -28,6 +28,7 @@ namespace Chatbot.API.Services
         private readonly ICompareService _compareService;
         private readonly IOpenAIService _openAIService;
         private readonly IRecommendationFlowService _recommendationFlowService;
+        private readonly IServiceInfoFlowService _serviceInfoFlowService;
         private readonly IOrderLookupFlowService _orderLookupFlowService;
         private readonly IConversationPolicyService _conversationPolicyService;
         private readonly IConversationStateService _conversationStateService;
@@ -48,6 +49,7 @@ namespace Chatbot.API.Services
     IRefinementService refinementService,
     ICompareService compareService,
     IRecommendationFlowService recommendationFlowService,
+    IServiceInfoFlowService serviceInfoFlowService,
     IOrderLookupFlowService orderLookupFlowService,
     IOpenAIService openAIService,
     IConversationStateService conversationStateService,
@@ -69,6 +71,7 @@ namespace Chatbot.API.Services
             _refinementService = refinementService;
             _compareService = compareService;
             _recommendationFlowService = recommendationFlowService;
+            _serviceInfoFlowService = serviceInfoFlowService;
             _orderLookupFlowService = orderLookupFlowService;
             _openAIService = openAIService;
             _conversationStateService = conversationStateService;
@@ -368,6 +371,7 @@ namespace Chatbot.API.Services
                 ConversationId = conversationId,
                 OriginalMessage = originalMessage,
                 NormalizedMessage = normalizedMessage,
+                SemanticQuery = BuildRagSemanticQuery(normalizedMessage, effectiveIntent, existingProfile),
                 ExistingProfile = mergedProfile,
                 State = state,
                 ParsedIntent = parsedIntent,
@@ -458,6 +462,19 @@ namespace Chatbot.API.Services
                     ConversationId = context.ConversationId,
                     Reply = "Xin chào 👋 Mình có thể hỗ trợ bạn tra cứu giá xe, kiểm tra tồn kho, tư vấn mẫu xe phù hợp hoặc tra cứu đơn hàng."
                 };
+            }
+
+            if (string.Equals(flowType, ChatFlowType.ServiceInfo, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(flowType, ChatFlowType.PolicyInfo, StringComparison.OrdinalIgnoreCase))
+            {
+                return await _serviceInfoFlowService.HandleAsync(
+                    context.Request,
+                    context.ConversationId,
+                    context.NormalizedMessage,
+                    context.SemanticQuery,
+                    context.OriginalMessage,
+                    context.EffectiveIntent,
+                    context.ExistingProfile);
             }
 
             if (LooksLikeHumanSupportOrAfterSalesRequest(context.NormalizedMessage))
@@ -660,6 +677,57 @@ Không bịa thông tin tồn kho, giá hay đơn hàng nếu không chắc.
 {profileSummary}
 
 Tin nhắn người dùng: {normalizedMessage}";
+        }
+
+        private static string BuildRagSemanticQuery(
+            string normalizedMessage,
+            ParsedIntent? intent,
+            CustomerPreferenceProfile? profile)
+        {
+            var parts = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(intent?.PolicySlot))
+                parts.Add(intent.PolicySlot);
+
+            if (!string.IsNullOrWhiteSpace(intent?.Brand))
+                parts.Add(intent.Brand);
+
+            if (!string.IsNullOrWhiteSpace(intent?.LookupField))
+                parts.Add(intent.LookupField);
+
+            if (!string.IsNullOrWhiteSpace(normalizedMessage))
+                parts.Add(normalizedMessage);
+
+            var previousMeaning = profile?.LastSemanticMeaning;
+            if (!string.IsNullOrWhiteSpace(previousMeaning) &&
+                LooksLikeShortPolicyFollowUp(normalizedMessage))
+            {
+                parts.Add(previousMeaning);
+            }
+
+            return string.Join(' ', parts)
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Aggregate(new List<string>(), (acc, term) =>
+                {
+                    if (!acc.Contains(term, StringComparer.OrdinalIgnoreCase))
+                        acc.Add(term);
+                    return acc;
+                })
+                .DefaultIfEmpty(normalizedMessage ?? string.Empty)
+                .Aggregate((left, right) => $"{left} {right}")
+                .Trim();
+        }
+
+        private static bool LooksLikeShortPolicyFollowUp(string? normalizedMessage)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedMessage))
+                return false;
+
+            var words = normalizedMessage
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Length;
+
+            return words <= 5;
         }
     
         private static ClarificationResolution ResolveClarificationReply(

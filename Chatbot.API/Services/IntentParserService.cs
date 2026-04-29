@@ -114,6 +114,7 @@ namespace Chatbot.API.Services
 
             ParseOrderLookup(text, result);
             ParseLookupSignals(text, result);
+            ParsePolicyServiceSignals(text, result);
             ParseIntentType(text, result);
             ParseFollowUp(text, result);
             ParseRouteFlow(text, result);
@@ -439,6 +440,12 @@ namespace Chatbot.API.Services
                 return;
             }
 
+            if (string.Equals(result.IntentType, ChatFlowType.ServiceInfo, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(result.IntentType, ChatFlowType.PolicyInfo, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
             if (IsExplicitCompareIntent(text, result.MentionedProducts.Count, result.ComparisonFeature))
             {
                 result.IntentType = "compare";
@@ -525,6 +532,114 @@ namespace Chatbot.API.Services
             result.IntentType = "unknown";
         }
 
+        private static void ParsePolicyServiceSignals(string text, ParsedIntent result)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            if (LooksLikeProductRecommendationOrSearch(text, result))
+                return;
+
+            var slot = InferPolicySlot(text);
+            var hasKnowledgeQuestion =
+                !string.IsNullOrWhiteSpace(slot) ||
+                ContainsAny(text,
+                    "tra gop", "lai suat", "tra truoc", "vay", "ngan hang", "tin dung",
+                    "bao hanh", "bao duong", "sua chua", "cuu ho",
+                    "giay to", "bien so", "ca vet", "dang ky", "truoc ba",
+                    "giao hang", "van chuyen", "bao hiem", "khuyen mai",
+                    "dat coc", "hoan coc", "doi tra", "thu cu", "doi moi",
+                    "thanh toan", "quet the", "lai thu", "test ride");
+
+            if (!hasKnowledgeQuestion)
+                return;
+
+            result.IntentType = IsOperationalService(text)
+                ? ChatFlowType.ServiceInfo
+                : ChatFlowType.PolicyInfo;
+            result.RouteFlow = result.IntentType;
+            result.PolicySlot = slot;
+            result.IsProductSearch = false;
+            result.IsOpenRecommendation = false;
+            result.IsFollowUp = false;
+            result.HasDeterministicProductIntent = false;
+        }
+
+        private static string? InferPolicySlot(string text)
+        {
+            if (ContainsAny(text, "ho so", "giay to can chuan bi", "can chuan bi", "cmnd", "cccd", "ho khau", "kt3", "sao ke", "hop dong lao dong"))
+                return "documents";
+
+            if (ContainsAny(text, "dieu kien", "thu nhap", "do tuoi", "no xau", "cic", "bao lanh"))
+                return "conditions";
+
+            if (ContainsAny(text, "quy trinh", "thu tuc", "cac buoc", "lam sao", "dang ky the nao"))
+                return "process";
+
+            if (ContainsAny(text, "lai suat", "0%", "uu dai"))
+                return "interest";
+
+            if (ContainsAny(text, "ky han", "ki han", "bao lau", "thoi gian vay", "may thang"))
+                return "loan_term";
+
+            if (ContainsAny(text, "tra truoc", "down payment"))
+                return "down_payment";
+
+            if (ContainsAny(text, "hang thang", "moi thang", "tra moi thang"))
+                return "monthly_payment";
+
+            if (ContainsAny(text, "tat toan", "tra som", "phi phat"))
+                return "early_settlement";
+
+            if (ContainsAny(text, "bao hanh", "bao hanh bao lau", "may nam", "km"))
+                return "warranty_period";
+
+            if (ContainsAny(text, "khong bao hanh", "hao mon", "lop xe", "ma phanh", "bugi", "bong den", "dau nhot"))
+                return "warranty_exclusion";
+
+            if (ContainsAny(text, "goi bao duong", "bao duong co ban", "bao duong nang cao", "bao duong cao cap"))
+                return "service_package";
+
+            if (ContainsAny(text, "lich bao duong", "dinh ky", "bao duong khi nao", "500km", "3000km", "6000km"))
+                return "maintenance_schedule";
+
+            if (ContainsAny(text, "phi", "bao nhieu tien", "gia dich vu", "phi giao", "phi bien so"))
+                return "fee";
+
+            if (ContainsAny(text, "bam bien", "ca vet", "bao lau co bien", "bao lau co ca vet"))
+                return "registration_time";
+
+            if (ContainsAny(text, "dat coc", "giu xe"))
+                return "deposit";
+
+            if (ContainsAny(text, "hoan", "hoan coc", "doi tra", "tra xe"))
+                return "refund";
+
+            return null;
+        }
+
+        private static bool IsOperationalService(string text)
+        {
+            return ContainsAny(text,
+                "bao duong", "sua chua", "cuu ho", "giao hang", "van chuyen",
+                "lai thu", "test ride", "bao hiem", "thanh toan");
+        }
+
+        private static bool LooksLikeProductRecommendationOrSearch(string text, ParsedIntent result)
+        {
+            bool hasRecommendationCue = ContainsAny(text,
+                "tu van xe", "goi y xe", "nen mua xe", "tim xe", "mau xe nao", "xe nao");
+
+            bool hasProductSearchCue =
+                result.IsProductSearch ||
+                result.IsOpenRecommendation ||
+                result.PriceMin.HasValue ||
+                result.PriceMax.HasValue ||
+                result.TargetPrice.HasValue;
+
+            return hasRecommendationCue || hasProductSearchCue;
+        }
+
         private static void ParseFollowUp(string text, ParsedIntent result)
         {
             if (result.IntentType == "compare")
@@ -564,6 +679,13 @@ namespace Chatbot.API.Services
             if (result.IsOrderLookup)
             {
                 result.RouteFlow = ChatFlowType.OrderLookup;
+                return;
+            }
+
+            if (string.Equals(result.IntentType, ChatFlowType.ServiceInfo, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(result.IntentType, ChatFlowType.PolicyInfo, StringComparison.OrdinalIgnoreCase))
+            {
+                result.RouteFlow = result.IntentType;
                 return;
             }
 
