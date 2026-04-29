@@ -71,13 +71,26 @@ namespace Chatbot.API.Services
                 phone ??= profile.LastResolvedOrderPhone ?? profile.PendingOrderPhone;
             }
 
-            // Nếu user nhập mã đơn mới nhưng thiếu SĐT, có thể dùng lại SĐT cũ để tiện hơn.
-            // Ví dụ: đã tra đơn 1 bằng SĐT A, sau đó hỏi "đơn hàng số 2 cơ".
-            if (extractedOrderId.HasValue && string.IsNullOrWhiteSpace(phone))
-            {
-                phone = profile.LastResolvedOrderPhone ?? profile.PendingOrderPhone;
-            }
+            string? reusedPhoneNotice = null;
 
+            if (extractedOrderId.HasValue)
+            {
+                var rememberedPhone = profile.LastResolvedOrderPhone ?? profile.PendingOrderPhone;
+
+                if (!string.IsNullOrWhiteSpace(rememberedPhone))
+                {
+                    phone = rememberedPhone;
+
+                    // 👉 Che bớt số điện thoại (ẩn cho đẹp + bảo mật)
+                    var maskedPhone = rememberedPhone.Length >= 4
+                        ? rememberedPhone.Substring(0, 4) + "xxxx"
+                        : rememberedPhone;
+
+                    reusedPhoneNotice =
+                        $"Mình đang dùng số điện thoại {maskedPhone} từ lần tra trước để kiểm tra đơn DH{extractedOrderId.Value:D3}.\n" +
+                        $"Nếu không đúng, bạn có thể gửi lại số điện thoại nhé.\n\n";
+                }
+            }
             // Nếu đang pending thì chỉ lấy Pending, KHÔNG tự lấy LastResolvedOrderId.
             // Đây là chỗ sửa quan trọng để tránh bot trả nhầm đơn cũ.
             if (profile.HasPendingOrderLookup)
@@ -225,7 +238,7 @@ namespace Chatbot.API.Services
                 UsedAI = false,
                 UsedTool = ToolNames.LookupOrder,
                 ConversationId = conversationId,
-                Reply = reply
+                Reply = (reusedPhoneNotice ?? "") + reply
             };
         }
         private async Task SetPendingOrderLookupAsync(string conversationId, int? orderId, string? phone)
