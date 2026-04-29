@@ -442,11 +442,12 @@ namespace Chatbot.API.Services
         private async Task<ChatResponse?> ExecuteDeterministicFlowAsync(ChatOrchestrationContext context)
         {
             _logger.LogWarning(
-    "FINAL ROUTING => ConversationId={ConversationId}, FlowType={FlowType}, Reason={Reason}, Message={Message}",
-    context.ConversationId,
-    context.FinalRouting?.FlowType,
-    context.FinalRouting?.Reason,
-    context.NormalizedMessage);
+                "FINAL ROUTING => ConversationId={ConversationId}, FlowType={FlowType}, Reason={Reason}, Message={Message}",
+                context.ConversationId,
+                context.FinalRouting?.FlowType,
+                context.FinalRouting?.Reason,
+                context.NormalizedMessage);
+
             var flowType = context.FinalRouting?.FlowType ?? ChatFlowType.Unknown;
 
             if (string.Equals(flowType, ChatFlowType.Greeting, StringComparison.OrdinalIgnoreCase))
@@ -460,6 +461,8 @@ namespace Chatbot.API.Services
                 };
             }
 
+            // Các yêu cầu hỗ trợ trực tiếp mạnh phải được ưu tiên trước OrderLookup
+            // để tránh câu như "khiếu nại đơn hàng" bị hiểu nhầm là tra cứu đơn hàng.
             if (LooksLikeHumanSupportOrAfterSalesRequest(context.NormalizedMessage))
             {
                 return new ChatResponse
@@ -470,6 +473,7 @@ namespace Chatbot.API.Services
                     Reply = BuildHumanSupportReply(context.NormalizedMessage)
                 };
             }
+
             if (string.Equals(flowType, ChatFlowType.OutOfScope, StringComparison.OrdinalIgnoreCase))
             {
                 return new ChatResponse
@@ -561,7 +565,6 @@ namespace Chatbot.API.Services
 
             return null;
         }
-       
         private async Task<ChatResponse?> TryHandleForcedCompareFollowUpAsync(ChatOrchestrationContext context)
         {
             if (!_conversationPolicyService.ShouldForceCompareFollowUp(
@@ -2481,47 +2484,88 @@ turnContext.Reason,
         {
             var text = NormalizeText(message);
 
-            string[] keywords =
+            string[] strongHumanSupportKeywords =
             {
         "bao hanh",
         "loi xe",
         "xe bi loi",
         "hong xe",
+
         "doi tra",
+        "doi xe",
+        "muon doi xe",
         "hoan tien",
         "khieu nai",
-        "giao hang",
-        "van chuyen",
-        "thanh toan",
-        "chuyen khoan",
-        "don hang",
-        "ma don",
+
+        "loi thanh toan",
+        "thanh toan loi",
+        "thanh toan bi loi",
+        "khong thanh toan duoc",
+
+        "loi chuyen khoan",
+        "chuyen khoan loi",
+        "chuyen khoan bi loi",
+        "khong chuyen khoan duoc",
+
         "gap nhan vien",
+        "muon gap nhan vien",
         "nhan vien tu van",
+        "gap admin",
         "admin",
         "ho tro truc tiep"
     };
 
-            return keywords.Any(k => text.Contains(k));
+            return strongHumanSupportKeywords.Any(k => text.Contains(k));
         }
-
         private static string BuildHumanSupportReply(string message)
         {
             var text = NormalizeText(message);
 
-            if (text.Contains("bao hanh") || text.Contains("loi xe") || text.Contains("xe bi loi") || text.Contains("hong xe"))
+            if (text.Contains("bao hanh") ||
+                text.Contains("loi xe") ||
+                text.Contains("xe bi loi") ||
+                text.Contains("hong xe"))
             {
                 return "Rất tiếc vì xe của bạn đang gặp vấn đề. Với trường hợp bảo hành hoặc lỗi xe, nhân viên cần kiểm tra tình trạng xe, thời gian mua và chính sách áp dụng. Bạn có thể bấm **Gặp nhân viên** để được hỗ trợ trực tiếp nhé.";
             }
 
-            if (text.Contains("don hang") || text.Contains("ma don") || text.Contains("giao hang") || text.Contains("van chuyen"))
+            if (text.Contains("doi tra") ||
+                text.Contains("doi xe") ||
+                text.Contains("muon doi xe"))
             {
-                return "Để kiểm tra thông tin đơn hàng hoặc giao hàng, bạn cần đăng nhập để hệ thống bảo vệ thông tin cá nhân. Sau đó bạn có thể bấm **Gặp nhân viên** để được hỗ trợ chi tiết nhé.";
+                return "Với yêu cầu đổi xe hoặc đổi trả, nhân viên cần kiểm tra thông tin đơn hàng và chính sách áp dụng. Bạn có thể bấm **Gặp nhân viên** để được hỗ trợ chính xác hơn nhé.";
             }
 
-            if (text.Contains("thanh toan") || text.Contains("chuyen khoan") || text.Contains("hoan tien"))
+            if (text.Contains("hoan tien"))
             {
-                return "Với vấn đề thanh toán hoặc hoàn tiền, nhân viên cần kiểm tra giao dịch cụ thể. Bạn có thể bấm **Gặp nhân viên** để được hỗ trợ an toàn và chính xác hơn nhé.";
+                return "Với yêu cầu hoàn tiền, nhân viên cần kiểm tra giao dịch và thông tin đơn hàng cụ thể. Bạn có thể bấm **Gặp nhân viên** để được hỗ trợ an toàn và chính xác hơn nhé.";
+            }
+
+            if (text.Contains("khieu nai"))
+            {
+                return "Mình đã ghi nhận bạn muốn khiếu nại. Trường hợp này cần nhân viên kiểm tra trực tiếp thông tin đơn hàng và nội dung khiếu nại. Bạn có thể bấm **Gặp nhân viên** để được hỗ trợ nhé.";
+            }
+
+            if (text.Contains("loi thanh toan") ||
+                text.Contains("thanh toan loi") ||
+                text.Contains("thanh toan bi loi") ||
+                text.Contains("khong thanh toan duoc") ||
+                text.Contains("loi chuyen khoan") ||
+                text.Contains("chuyen khoan loi") ||
+                text.Contains("chuyen khoan bi loi") ||
+                text.Contains("khong chuyen khoan duoc"))
+            {
+                return "Với sự cố thanh toán hoặc chuyển khoản, nhân viên cần kiểm tra giao dịch cụ thể để hỗ trợ an toàn. Bạn có thể bấm **Gặp nhân viên** để được hỗ trợ trực tiếp nhé.";
+            }
+
+            if (text.Contains("gap nhan vien") ||
+                text.Contains("muon gap nhan vien") ||
+                text.Contains("nhan vien tu van") ||
+                text.Contains("gap admin") ||
+                text.Contains("admin") ||
+                text.Contains("ho tro truc tiep"))
+            {
+                return "Bạn có thể bấm **Gặp nhân viên** để được nhân viên tư vấn hỗ trợ trực tiếp nhé.";
             }
 
             return "Vấn đề này có thể cần nhân viên kiểm tra trực tiếp. Bạn có thể bấm **Gặp nhân viên** để được hỗ trợ chi tiết hơn nhé.";

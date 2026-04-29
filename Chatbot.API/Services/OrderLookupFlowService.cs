@@ -34,6 +34,7 @@ namespace Chatbot.API.Services
                 : request.ConversationId.Trim();
 
             request.ConversationId = conversationId;
+
             var isAuthenticated = request.IsAuthenticated;
             var currentUserId = request.UserId?.Trim();
 
@@ -49,6 +50,7 @@ namespace Chatbot.API.Services
                     Reply = "Để bảo mật thông tin đơn hàng, bạn vui lòng đăng nhập tài khoản đã đặt hàng trước khi tra cứu đơn nhé."
                 };
             }
+
             var profile = await _conversationPreferenceService.GetAsync(conversationId);
 
             var extractedOrderId = ExtractOrderId(normalizedMessage);
@@ -62,21 +64,33 @@ namespace Chatbot.API.Services
             int? orderId = extractedOrderId;
             string? phone = extractedPhone;
 
+            // Chỉ khi user nói rõ "đơn đó / đơn này / mã đó" mới dùng lại đơn đã tra trước.
             if (sameOrderReference)
             {
                 orderId ??= profile.LastResolvedOrderId ?? profile.PendingOrderId;
                 phone ??= profile.LastResolvedOrderPhone ?? profile.PendingOrderPhone;
             }
 
+            // Nếu user nhập mã đơn mới nhưng thiếu SĐT, có thể dùng lại SĐT cũ để tiện hơn.
+            // Ví dụ: đã tra đơn 1 bằng SĐT A, sau đó hỏi "đơn hàng số 2 cơ".
+            if (extractedOrderId.HasValue && string.IsNullOrWhiteSpace(phone))
+            {
+                phone = profile.LastResolvedOrderPhone ?? profile.PendingOrderPhone;
+            }
+
+            // Nếu đang pending thì chỉ lấy Pending, KHÔNG tự lấy LastResolvedOrderId.
+            // Đây là chỗ sửa quan trọng để tránh bot trả nhầm đơn cũ.
             if (profile.HasPendingOrderLookup)
             {
-                orderId ??= profile.PendingOrderId ?? profile.LastResolvedOrderId;
-                phone ??= profile.PendingOrderPhone ?? profile.LastResolvedOrderPhone;
+                orderId ??= profile.PendingOrderId;
+                phone ??= profile.PendingOrderPhone;
             }
 
             _logger.LogInformation(
-                "Order lookup flow started. ConversationId={ConversationId}, OrderId={OrderId}, Phone={Phone}, HasPending={HasPending}, SameOrderReference={SameOrderReference}, OtherOrderReference={OtherOrderReference}",
+                "Order lookup flow started. ConversationId={ConversationId}, ExtractedOrderId={ExtractedOrderId}, ExtractedPhone={ExtractedPhone}, FinalOrderId={OrderId}, FinalPhone={Phone}, HasPending={HasPending}, SameOrderReference={SameOrderReference}, OtherOrderReference={OtherOrderReference}",
                 conversationId,
+                extractedOrderId,
+                extractedPhone,
                 orderId,
                 phone,
                 profile.HasPendingOrderLookup,
@@ -198,13 +212,11 @@ namespace Chatbot.API.Services
 
             reply += $"Sản phẩm: {itemText}.";
 
-            // Lưu order đã tra thành công thành resolved context
             await _conversationPreferenceService.SaveResolvedOrderContextAsync(
                 conversationId,
                 orderId.Value,
                 phone);
 
-            // Xóa pending vì đã tra xong thành công
             await _conversationPreferenceService.ClearOrderLookupPendingAsync(conversationId);
 
             return new ChatResponse
@@ -268,12 +280,15 @@ namespace Chatbot.API.Services
             var patterns = new[]
             {
         @"\bDH\s*[-#]?\s*0*(\d{1,9})\b",
-        @"mã\s*đơn\s*(?:hàng)?\s*[:#]?\s*(?:DH\s*[-#]?\s*)?0*(\d{1,9})",
-        @"ma\s*don\s*(?:hang)?\s*[:#]?\s*(?:DH\s*[-#]?\s*)?0*(\d{1,9})",
-        @"đơn\s*hàng\s*[:#]?\s*(?:DH\s*[-#]?\s*)?0*(\d{1,9})",
-        @"don\s*hang\s*[:#]?\s*(?:DH\s*[-#]?\s*)?0*(\d{1,9})",
-        @"\bđơn\s*[:#]?\s*(?:DH\s*[-#]?\s*)?0*(\d{1,9})",
-        @"\bdon\s*[:#]?\s*(?:DH\s*[-#]?\s*)?0*(\d{1,9})"
+
+        @"mã\s*đơn\s*(?:hàng)?\s*(?:số|so)?\s*[:#]?\s*(?:DH\s*[-#]?\s*)?0*(\d{1,9})",
+        @"ma\s*don\s*(?:hang)?\s*(?:so)?\s*[:#]?\s*(?:DH\s*[-#]?\s*)?0*(\d{1,9})",
+
+        @"đơn\s*hàng\s*(?:số|so)?\s*[:#]?\s*(?:DH\s*[-#]?\s*)?0*(\d{1,9})",
+        @"don\s*hang\s*(?:so)?\s*[:#]?\s*(?:DH\s*[-#]?\s*)?0*(\d{1,9})",
+
+        @"\bđơn\s*(?:số|so)?\s*[:#]?\s*(?:DH\s*[-#]?\s*)?0*(\d{1,9})",
+        @"\bdon\s*(?:so)?\s*[:#]?\s*(?:DH\s*[-#]?\s*)?0*(\d{1,9})"
     };
 
             foreach (var pattern in patterns)

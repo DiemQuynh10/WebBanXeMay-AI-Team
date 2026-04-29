@@ -127,36 +127,58 @@
         }, 120);
     }
     function shouldSuggestHumanSupport(message, replyText) {
-        const text = `${message || ""} ${replyText || ""}`.toLowerCase();
+        const userText = String(message || "").toLowerCase();
+        const botText = String(replyText || "").toLowerCase();
+        const combinedText = `${userText} ${botText}`;
 
-        const keywords = [
-            "đơn hàng",
-            "don hang",
-            "mã đơn",
-            "ma don",
-            "giao hàng",
-            "giao hang",
-            "vận chuyển",
-            "van chuyen",
+        const mustHumanKeywords = [
             "bảo hành",
             "bao hanh",
+            "lỗi xe",
+            "loi xe",
+            "xe bị lỗi",
+            "xe bi loi",
+            "hỏng xe",
+            "hong xe",
             "đổi trả",
             "doi tra",
             "hoàn tiền",
             "hoan tien",
             "khiếu nại",
             "khieu nai",
-            "lỗi xe",
-            "loi xe",
-            "thanh toán",
-            "thanh toan",
-            "nhân viên",
+            "lỗi thanh toán",
+            "loi thanh toan",
+            "thanh toán lỗi",
+            "thanh toan loi",
+            "không thanh toán được",
+            "khong thanh toan duoc",
+            "không chuyển khoản được",
+            "khong chuyen khoan duoc",
+            "gặp nhân viên",
+            "gap nhan vien",
+            "nhân viên tư vấn",
+            "nhan vien tu van",
             "admin",
-            "tư vấn viên",
-            "tu van vien"
+            "hỗ trợ trực tiếp",
+            "ho tro truc tiep"
         ];
 
-        return keywords.some(k => text.includes(k));
+        if (mustHumanKeywords.some(k => combinedText.includes(k))) {
+            return true;
+        }
+
+        const orderNeedHumanKeywords = [
+            "không tìm thấy đơn",
+            "khong tim thay don",
+            "chưa tìm thấy đơn",
+            "chua tim thay don",
+            "không có đơn hàng",
+            "khong co don hang",
+            "kiểm tra lại mã đơn",
+            "kiem tra lai ma don"
+        ];
+
+        return orderNeedHumanKeywords.some(k => botText.includes(k));
     }
 
     function addHumanSupportSuggestion() {
@@ -166,7 +188,7 @@
         <div class="ai-human-support-card">
             <div class="ai-human-support-title">Cần nhân viên hỗ trợ?</div>
             <div class="ai-human-support-text">
-                Nhân viên sẽ kiểm tra chi tiết hơn về đơn hàng, bảo hành hoặc thanh toán.
+                Nhân viên sẽ kiểm tra chi tiết hơn nếu vấn đề cần hỗ trợ trực tiếp.
             </div>
             <button type="button" class="ai-human-support-btn" data-human-support="true">
                 Gặp nhân viên
@@ -648,6 +670,11 @@
 
             if (shouldSuggestHumanSupport(message, replyText)) {
                 addHumanSupportSuggestion();
+            }
+            if (message.toLowerCase().includes("gặp nhân viên") ||
+                message.toLowerCase().includes("gap nhan vien")) {
+                openHumanSupport();
+                return;
             }
 
             if (isAuthenticatedUser()) {
