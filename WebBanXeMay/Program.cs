@@ -11,6 +11,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
+var toolApiKey = SharedEnvLoader.GetValue(
+    "TOOL_API_KEY",
+    Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "Chatbot-dev", ".env")));
+
+if (!string.IsNullOrWhiteSpace(toolApiKey))
+{
+    builder.Configuration["ToolApi:ApiKey"] = toolApiKey;
+}
 // ===== Database (SQL Server) =====
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -173,3 +181,46 @@ app.MapControllerRoute(
 app.MapHub<ChatHub>("/chatHub"); // <== THÊM DÒNG NÀY (Định tuyến đường dẫn cho Hub)
 
 app.Run();
+
+static class SharedEnvLoader
+{
+    public static string? GetValue(string key, string envFilePath)
+    {
+        var systemValue = Environment.GetEnvironmentVariable(key);
+        if (!string.IsNullOrWhiteSpace(systemValue))
+        {
+            return systemValue.Trim();
+        }
+
+        if (!File.Exists(envFilePath))
+        {
+            return null;
+        }
+
+        foreach (var rawLine in File.ReadAllLines(envFilePath))
+        {
+            var line = rawLine.Trim();
+            if (string.IsNullOrWhiteSpace(line) || line.StartsWith('#'))
+            {
+                continue;
+            }
+
+            var separatorIndex = line.IndexOf('=');
+            if (separatorIndex <= 0)
+            {
+                continue;
+            }
+
+            var currentKey = line[..separatorIndex].Trim();
+            if (!string.Equals(currentKey, key, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var value = line[(separatorIndex + 1)..].Trim().Trim('"');
+            return string.IsNullOrWhiteSpace(value) ? null : value;
+        }
+
+        return null;
+    }
+}

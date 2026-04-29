@@ -529,6 +529,7 @@ namespace Chatbot.API.Services
                 return "khá hợp với nhu cầu đi học";
 
             if (!string.IsNullOrWhiteSpace(intent.Brand) &&
+                !intent.ExcludedBrands.Contains(intent.Brand) &&
                 string.Equals(product.ThuongHieu, intent.Brand, StringComparison.OrdinalIgnoreCase))
             {
                 return $"đúng hãng {intent.Brand} và là một phương án khá gần với mức giá bạn đang cân nhắc";
@@ -1382,22 +1383,22 @@ namespace Chatbot.API.Services
                 conversationProfile.ExcludedCategories.Contains("xe số") ||
                 ContainsAny(message, "khong thich xe so", "khong muon xe so", "ne xe so", "ghet xe so");
             var explicitlyWants50cc =
-    ContainsAny(message,
+    ContainsAffirmativeAny(message,
         "50cc", "xe 50", "xe 50cc",
         "chua co bang", "chưa có bằng",
         "hoc sinh", "học sinh",
         "khong can bang", "không cần bằng");
             var explicitlyWantsScooter =
-    ContainsAny(message, "muon xe ga", "thich xe ga", "chon xe ga", "tay ga");
+    ContainsAffirmativeAny(message, "muon xe ga", "thich xe ga", "chon xe ga", "tay ga");
 
             var explicitlyWantsUnderbone =
-                ContainsAny(message, "muon xe so", "thich xe so", "chon xe so");
+                ContainsAffirmativeAny(message, "muon xe so", "thich xe so", "chon xe so");
 
             var explicitlyWantsManual =
-                ContainsAny(message, "muon xe con", "chon xe con", "thich xe con", "xe con tay", "muon con tay", "thich con tay", "chon con tay");
+                ContainsAffirmativeAny(message, "muon xe con", "chon xe con", "thich xe con", "xe con tay", "muon con tay", "thich con tay", "chon con tay");
 
             var needsCompactFit =
-                ContainsAny(message,
+                ContainsAffirmativeAny(message,
                     "dang nguoi nho", "dang nguoi nho gon", "voc dang nho", "nguoi nho", "nho con",
                     "nho gon", "gon nhe", "xe gon", "dang gon", "than hinh nho",
                     "nguoi be", "nho nhan", "xe dung qua to", "xe khong qua to")
@@ -1406,13 +1407,13 @@ namespace Chatbot.API.Services
 
             var needsLowSeat =
                 conversationProfile.NeedsLowSeat
-                || ContainsAny(message,
+                || ContainsAffirmativeAny(message,
                     "de chong chan", "yen thap", "chan ngan", "nguoi thap", "thap", "de xuong chan",
                     "xe thap", "de cham chan", "yen khong cao", "de dung chan");
 
             var wantsEasyControl =
     conversationProfile.WantsEasyControl ||
-    ContainsAny(message,
+    ContainsAffirmativeAny(message,
         "de di", "de dieu khien", "nhe", "linh hoat", "de xoay tro",
         "de quay dau", "de dat", "de dung", "de lam quen",
         "di pho", "di lai hang ngay");
@@ -1427,16 +1428,16 @@ namespace Chatbot.API.Services
 
                 IsStudent =
                     ContainsAny(target, "sinh vien", "sinhvien") ||
-                    ContainsAny(message, "sinh vien", "sinhvien"),
+                    ContainsAffirmativeAny(message, "sinh vien", "sinhvien"),
 
-                ForSchool = conversationProfile.ForSchool || ContainsAny(message, "di hoc", "den truong", "hoc hang ngay"),
-                ForWork = conversationProfile.ForWork || ContainsAny(message, "di lam", "cong so", "di lam hang ngay"),
-                ForCity = conversationProfile.ForCity || ContainsAny(message, "di pho", "trong pho", "do thi", "hang ngay", "di lam hang ngay", "linh hoat", "di lai hang ngay"),
-                ForTour = conversationProfile.ForTour || ContainsAny(message, "di tour", "duong dai", "di xa", "phuot"),
+                ForSchool = conversationProfile.ForSchool || ContainsAffirmativeAny(message, "di hoc", "den truong", "hoc hang ngay"),
+                ForWork = conversationProfile.ForWork || ContainsAffirmativeAny(message, "di lam", "cong so", "di lam hang ngay"),
+                ForCity = conversationProfile.ForCity || ContainsAffirmativeAny(message, "di pho", "trong pho", "do thi", "hang ngay", "di lam hang ngay", "linh hoat", "di lai hang ngay"),
+                ForTour = conversationProfile.ForTour || ContainsAffirmativeAny(message, "di tour", "duong dai", "di xa", "phuot"),
                 ExplicitlyWants50cc = explicitlyWants50cc,
                 WantsEasyControl = wantsEasyControl,
-                WantsFuelSaving = conversationProfile.WantsFuelSaving || ContainsAny(message, "tiet kiem xang", "it ton xang"),
-                WantsLargeStorage = conversationProfile.WantsLargeStorage || ContainsAny(message, "cop rong", "de do", "chua do"),
+                WantsFuelSaving = conversationProfile.WantsFuelSaving || ContainsAffirmativeAny(message, "tiet kiem xang", "it ton xang"),
+                WantsLargeStorage = conversationProfile.WantsLargeStorage || ContainsAffirmativeAny(message, "cop rong", "de do", "chua do"),
 
                 WantsScooter = !dislikesScooter &&
     (explicitlyWantsScooter || (!string.IsNullOrWhiteSpace(preferredCategory) && preferredCategory.Contains("ga"))),
@@ -1862,22 +1863,22 @@ namespace Chatbot.API.Services
         {
             var styles = new HashSet<StyleTag>();
 
-            if (ContainsAny(message, "the thao", "nang dong", "ca tinh", "tre trung"))
+            if (ContainsAffirmativeAny(message, "the thao", "nang dong", "ca tinh", "tre trung"))
             {
                 styles.Add(StyleTag.Sporty);
             }
 
-            if (ContainsAny(message, "thanh lich", "nha nhan", "nhe nhang", "sang", "mem mai", "nu tinh"))
+            if (ContainsAffirmativeAny(message, "thanh lich", "nha nhan", "nhe nhang", "sang", "mem mai", "nu tinh"))
             {
                 styles.Add(StyleTag.Elegant);
             }
 
-            if (ContainsAny(message, "ham ho", "manh me", "dam", "chat"))
+            if (ContainsAffirmativeAny(message, "ham ho", "manh me", "dam", "chat"))
             {
                 styles.Add(StyleTag.Aggressive);
             }
 
-            if (ContainsAny(message,
+            if (ContainsAffirmativeAny(message,
                 "nho gon", "gon", "linh hoat", "nguoi nho", "nho con", "dang nguoi nho",
                 "de xoay tro", "gon nhe", "xe nho"))
             {
@@ -1985,6 +1986,61 @@ namespace Chatbot.API.Services
 
             return false;
         }
+
+        private static bool ContainsAffirmativeAny(string text, params string[] keywords)
+        {
+            var normalized = Normalize(text);
+
+            foreach (var keyword in keywords)
+            {
+                var key = Normalize(keyword);
+
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    continue;
+                }
+
+                if (!HasWholePhrase(normalized, key))
+                {
+                    continue;
+                }
+
+                if (IsNegatedPhrase(normalized, key))
+                {
+                    continue;
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsNegatedPhrase(string text, string phrase)
+        {
+            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(phrase))
+            {
+                return false;
+            }
+
+            var escaped = Regex.Escape(phrase.Trim());
+            var patterns = new[]
+            {
+                $@"\b(khong|ko|k|chua|dung|tranh|ne|bo)\s+(can\s+|muon\s+|thich\s+|uu\s+tien\s+|chon\s+|lay\s+|cho\s+|goi\s+y\s+|de\s+xuat\s+)?(xe\s+)?{escaped}\b",
+                $@"\b(khong\s+phai|ko\s+phai|khong\s+hop|khong\s+nen)\s+(xe\s+)?{escaped}\b",
+                $@"\b{escaped}\s+(thi\s+)?(khong|ko|chua)\b"
+            };
+
+            return patterns.Any(pattern => Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase));
+        }
+
+        private static bool HasWholePhrase(string text, string phrase)
+        {
+            return Regex.IsMatch(
+                text,
+                $@"(?<!\p{{L}}|\p{{N}}){Regex.Escape(phrase.Trim())}(?!\p{{L}}|\p{{N}})",
+                RegexOptions.IgnoreCase);
+        }
         private static (bool PrefersMaleStyle, bool PrefersFemaleStyle) ResolveGenderPreference(
     string message,
     string? target,
@@ -1996,7 +2052,7 @@ namespace Chatbot.API.Services
 
             bool explicitMale =
                 ContainsAny(normalizedTarget, "nam") ||
-                ContainsAny(normalizedMessage,
+                ContainsAffirmativeAny(normalizedMessage,
                     "cho nam",
                     "xe cho nam",
                     "tu van xe cho nam",
@@ -2006,7 +2062,7 @@ namespace Chatbot.API.Services
 
             bool explicitFemale =
                 ContainsAny(normalizedTarget, "nu") ||
-                ContainsAny(normalizedMessage,
+                ContainsAffirmativeAny(normalizedMessage,
                     "cho nu",
                     "xe cho nu",
                     "tu van xe cho nu",

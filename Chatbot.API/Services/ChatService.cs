@@ -1,4 +1,4 @@
-﻿using Chatbot.API.Models.Requests;
+using Chatbot.API.Models.Requests;
 using Chatbot.API.Models.Responses;
 using Chatbot.API.Services.Interfaces;
 
@@ -19,7 +19,7 @@ namespace Chatbot.API.Services
 
         public Task<ChatResponse> ProcessMessageAsync(ChatRequest request)
         {
-            _logger.LogWarning("=== CHAT SERVICE WRAPPER HIT ===");
+            _logger.LogDebug("ChatService delegating request to ChatFlowOrchestrator.");
             return _orchestrator.HandleAsync(request);
         }
     }

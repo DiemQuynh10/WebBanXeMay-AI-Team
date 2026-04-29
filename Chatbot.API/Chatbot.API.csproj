@@ -5,7 +5,15 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>ae38c9ec-0b1e-4eb1-ba89-022057447c61</UserSecretsId>
+    <DefaultItemExcludes>$(DefaultItemExcludes);artifacts/**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Remove="artifacts/**" />
+    <None Remove="artifacts/**" />
+    <Compile Remove="artifacts/**" />
+    <EmbeddedResource Remove="artifacts/**" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.10" />

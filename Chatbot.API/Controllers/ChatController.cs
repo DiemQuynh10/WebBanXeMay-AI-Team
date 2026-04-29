@@ -1,4 +1,6 @@
-﻿using Chatbot.API.Models.Requests;
+﻿using Chatbot.API.Helpers;
+using Chatbot.API.Models.Requests;
+using Chatbot.API.Models.Responses;
 using Chatbot.API.Services;
 using Chatbot.API.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
@@ -50,26 +52,33 @@ namespace Chatbot.API.Controllers
                     });
                 }
 
-                _logger.LogInformation("ChatController BEFORE sanitize: {Message}", request.Message);
-
                 request.Message = _inputTextSanitizer.Sanitize(request.Message);
 
-                _logger.LogInformation("ChatController AFTER sanitize: {Message}", request.Message);
+                if (string.IsNullOrWhiteSpace(request.Message))
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        errorMessage = "Tin nhắn không được để trống."
+                    });
+                }
+
+                if (ChatChannelMessageHelper.TryGetStaticCommandReply(request.Message, out var staticReply))
+                {
+                    var commandResult = BuildStaticCommandResponse(request, staticReply);
+                    await SaveExchangeIfNeededAsync(request, commandResult);
+                    return Ok(commandResult);
+                }
+
+                request.Message = ChatChannelMessageHelper.NormalizeQuickMenuInput(request.Message);
 
                 var result = await _chatService.ProcessMessageAsync(request);
 
-                if (result.Success
-                    && !string.IsNullOrWhiteSpace(request.Message)
-                    && !string.IsNullOrWhiteSpace(result.Reply)
-                    && !string.IsNullOrWhiteSpace(result.ConversationId))
-                {
-                    await _historyService.SaveExchangeAsync(
-                        result.ConversationId!,
-                        request.Channel,
-                        request.UserId,
-                        request.Message.Trim(),
-                        result.Reply.Trim());
-                }
+                result.Reply = ChatChannelMessageHelper.FormatReply(
+                    result.Reply,
+                    "Mình chưa có câu trả lời phù hợp. Bạn thử nói rõ hơn nhu cầu như ngân sách, giới tính hoặc loại xe nhé.");
+
+                await SaveExchangeIfNeededAsync(request, result);
 
                 return Ok(result);
             }
@@ -84,6 +93,42 @@ namespace Chatbot.API.Controllers
                     errorMessage = "Internal server error",
                     conversationId = request?.ConversationId
                 });
+            }
+        }
+
+        private static ChatResponse BuildStaticCommandResponse(ChatRequest request, string reply)
+        {
+            var conversationId = string.IsNullOrWhiteSpace(request.ConversationId)
+                ? Guid.NewGuid().ToString()
+                : request.ConversationId.Trim();
+
+            request.ConversationId = conversationId;
+
+            return new ChatResponse
+            {
+                Success = true,
+                Reply = ChatChannelMessageHelper.FormatReply(
+                    reply,
+                    "Mình chưa có câu trả lời phù hợp. Bạn thử nói rõ hơn nhu cầu như ngân sách, giới tính hoặc loại xe nhé."),
+                ConversationId = conversationId,
+                UsedAI = false,
+                ElapsedMs = 0
+            };
+        }
+
+        private async Task SaveExchangeIfNeededAsync(ChatRequest request, ChatResponse result)
+        {
+            if (result.Success
+                && !string.IsNullOrWhiteSpace(request.Message)
+                && !string.IsNullOrWhiteSpace(result.Reply)
+                && !string.IsNullOrWhiteSpace(result.ConversationId))
+            {
+                await _historyService.SaveExchangeAsync(
+                    result.ConversationId!,
+                    request.Channel,
+                    request.UserId,
+                    request.Message.Trim(),
+                    result.Reply.Trim());
             }
         }
 

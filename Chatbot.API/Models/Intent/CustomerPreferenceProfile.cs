@@ -15,6 +15,7 @@
 
         public HashSet<string> ExcludedCategories { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> ExcludedBrands { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> ExcludedProducts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
         public int? HeightCm { get; set; }
         public bool NeedsLowSeat { get; set; }
@@ -60,6 +61,10 @@
 
         public string? LastUserMessage { get; set; }
         public string? LastIntentType { get; set; }
+        public string? LastSemanticIntent { get; set; }
+        public string? LastSemanticFlowType { get; set; }
+        public string? LastSemanticMeaning { get; set; }
+        public SemanticResult? LastSemanticResult { get; set; }
         public bool HasPendingOrderLookup { get; set; }
         public int? LastResolvedProductId { get; set; }
         public string? LastResolvedProductName { get; set; }
@@ -69,6 +74,7 @@
         public string? LastResolvedOrderPhone { get; set; }
         public int? PendingOrderId { get; set; }
         public string? PendingOrderPhone { get; set; }
+        public SemanticResult? SemanticResult { get; set; }
         public List<string> BaseRecommendedProducts { get; set; } = new();
         public List<int> BaseRecommendedProductIds { get; set; } = new();
         public List<string>? CurrentRecommendedProducts { get; set; }

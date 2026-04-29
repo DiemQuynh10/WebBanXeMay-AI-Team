@@ -69,7 +69,6 @@ namespace Chatbot.API.Services
 
             await PostTelegramAsync(url, payload, "Telegram sendPhoto error");
         }
-
         public async Task SendTypingAsync(long chatId)
         {
             var url = $"{_settings.BaseUrl}/bot{_settings.BotToken}/sendChatAction";

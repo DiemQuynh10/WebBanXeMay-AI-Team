@@ -241,7 +241,59 @@ namespace Chatbot.API.Services.Conversation
                    text.Contains("cái nào hơn") ||
                    text.Contains("cai nao hon");
         }
+        public static bool LooksLikeAlternativeRequestAfterRejection(
+    string normalizedMessage,
+    ParsedIntent parsedIntent,
+    CustomerPreferenceProfile? existingProfile)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedMessage))
+            {
+                return false;
+            }
 
+            var text = normalizedMessage.Trim().ToLowerInvariant();
+
+            var hasAlternativeSignal =
+                text.Contains("khác") ||
+                text.Contains("khac") ||
+                text.Contains("mẫu khác") ||
+                text.Contains("mau khac") ||
+                text.Contains("xe khác") ||
+                text.Contains("xe khac") ||
+                text.Contains("gợi ý khác") ||
+                text.Contains("goi y khac") ||
+                text.Contains("tư vấn khác") ||
+                text.Contains("tu van khac") ||
+                text.Contains("còn mẫu nào") ||
+                text.Contains("con mau nao") ||
+                text.Contains("còn xe nào") ||
+                text.Contains("con xe nao") ||
+                text.Contains("lựa chọn khác") ||
+                text.Contains("lua chon khac");
+
+            var hasRejectionSignal =
+                text.Contains("không thích") ||
+                text.Contains("khong thich") ||
+                text.Contains("không ưng") ||
+                text.Contains("khong ung") ||
+                text.Contains("không hợp") ||
+                text.Contains("khong hop") ||
+                text.Contains("không phù hợp") ||
+                text.Contains("khong phu hop") ||
+                text.Contains("chưa ưng") ||
+                text.Contains("chua ung") ||
+                text.Contains("không muốn") ||
+                text.Contains("khong muon");
+
+            if (hasAlternativeSignal || hasRejectionSignal)
+            {
+                return true;
+            }
+
+            return existingProfile?.HasActiveRecommendationContext == true
+                   && parsedIntent.IntentType == "recommendation"
+                   && hasAlternativeSignal;
+        }
         private static bool HasFeatureRefinementSignal(string text, ParsedIntent parsedIntent)
         {
             if (string.IsNullOrWhiteSpace(text) || parsedIntent == null)

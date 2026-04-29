@@ -31,7 +31,7 @@ namespace Chatbot.API.Services
                 .OrderBy(x => x.CreatedAtUtc)
                 .Select(x => new ChatMessage
                 {
-                    Role = x.Role,
+                    Role = NormalizeRole(x.Role),
                     Content = x.Content
                 })
                 .ToListAsync();
@@ -87,6 +87,18 @@ namespace Chatbot.API.Services
         {
             return await _dbContext.ConversationSessions
                 .AnyAsync(x => x.ConversationId == conversationId && x.IsActive);
+        }
+
+        private static string NormalizeRole(string? role)
+        {
+            if (string.IsNullOrWhiteSpace(role))
+            {
+                return "user";
+            }
+
+            return role.Equals("bot", StringComparison.OrdinalIgnoreCase)
+                ? "assistant"
+                : role;
         }
     }
 }

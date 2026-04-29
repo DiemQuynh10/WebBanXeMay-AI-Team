@@ -426,6 +426,69 @@
         white-space: normal;
     }
 
+    .ai-msg-text p {
+        margin: 0 0 8px;
+    }
+
+    .ai-msg-text p:last-child {
+        margin-bottom: 0;
+    }
+
+    .ai-msg-text ul,
+    .ai-msg-text ol {
+        margin: 6px 0 8px 18px;
+        padding: 0;
+    }
+
+    .ai-msg-text li {
+        margin: 3px 0;
+    }
+
+    .ai-msg-text strong {
+        color: #ffffff;
+        font-weight: 800;
+    }
+
+    .ai-msg-text em {
+        color: #d9dee7;
+    }
+
+    .ai-msg-text code {
+        background: #0f1117;
+        border: 1px solid var(--chat-border-soft);
+        border-radius: 6px;
+        padding: 1px 6px;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        color: #fbbf24;
+    }
+
+    .ai-msg-text pre {
+        margin: 8px 0;
+        background: #0f1117;
+        border: 1px solid var(--chat-border-soft);
+        border-radius: 10px;
+        padding: 10px 12px;
+        overflow-x: auto;
+    }
+
+    .ai-msg-text pre code {
+        border: none;
+        background: transparent;
+        padding: 0;
+        color: #e5e7eb;
+        font-size: 12px;
+    }
+
+    .ai-msg-text blockquote {
+        margin: 8px 0;
+        padding: 6px 10px;
+        border-left: 3px solid #f9a8d4;
+        background: rgba(249, 168, 212, 0.08);
+        border-radius: 0 8px 8px 0;
+        color: #e5e7eb;
+    }
+
     .ai-msg-text a {
         color: #f9a8d4;
         text-decoration: underline;

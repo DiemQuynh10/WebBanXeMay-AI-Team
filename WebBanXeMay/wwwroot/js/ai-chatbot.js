@@ -22,8 +22,9 @@
     const state = {
         isSending: false,
         currentConversationId: sessionStorage.getItem(CURRENT_CONVERSATION_KEY) || null,
-        conversations: []
+        conversations: [],
     };
+
     function isAuthenticatedUser() {
         return document.getElementById("__isAuth")?.value === "1";
     }
@@ -45,6 +46,7 @@
 
         return userId;
     }
+
     function getAuthState() {
         return isAuthenticatedUser() ? "1" : "0";
     }
@@ -73,6 +75,7 @@
     }
 
     syncAuthSessionState();
+
     function setCurrentConversationId(id) {
         state.currentConversationId = id || null;
 
@@ -82,14 +85,15 @@
             sessionStorage.removeItem(CURRENT_CONVERSATION_KEY);
         }
     }
+
     async function resetConversationRequest(conversationId) {
         const response = await fetch("/ai-chat/reset", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json; charset=utf-8",
-                "Accept": "application/json"
+                Accept: "application/json",
             },
-            body: JSON.stringify({ conversationId })
+            body: JSON.stringify({ conversationId }),
         });
 
         return await safeReadJson(response);
@@ -131,60 +135,185 @@
             return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${safeUrl}</a>`;
         });
     }
-    function formatBasicMarkdown(text) {
-        if (!text) return "";
 
-        return text
+    function renderMarkdownSafe(content) {
+        if (!content) return "";
+
+        const codeBlocks = [];
+        const inlineCodes = [];
+
+        let safe = escapeHtml(content).replace(/\r\n?/g, "\n");
+
+        safe = safe.replace(/```([\s\S]*?)```/g, (_, code) => {
+            const token = `__AI_CODE_BLOCK_${codeBlocks.length}__`;
+            const trimmed = (code || "").replace(/^\n+|\n+$/g, "");
+            codeBlocks.push(`<pre><code>${trimmed}</code></pre>`);
+            return token;
+        });
+
+        safe = safe.replace(/`([^`\n]+)`/g, (_, code) => {
+            const token = `__AI_INLINE_CODE_${inlineCodes.length}__`;
+            inlineCodes.push(`<code>${code}</code>`);
+            return token;
+        });
+
+        safe = formatLinks(safe);
+
+        safe = safe
             .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-            .replace(/\*(.+?)\*/g, "<em>$1</em>");
-    }
-    function buildProductDetailUrl(product) {
-        if (!product) return null;
+            .replace(/__(.+?)__/g, "<strong>$1</strong>")
+            .replace(/(^|\s)\*(?!\s)([^*]+?)\*(?=\s|$)/g, "$1<em>$2</em>")
+            .replace(/(^|\s)_(?!\s)([^_]+?)_(?=\s|$)/g, "$1<em>$2</em>");
 
-        if (product.slug && product.slug.trim()) {
-            return `/SanPham/Details?slug=${encodeURIComponent(product.slug)}`;
+        const lines = safe.split("\n");
+        const htmlParts = [];
+        let inUnordered = false;
+        let inOrdered = false;
+
+        const closeLists = () => {
+            if (inUnordered) {
+                htmlParts.push("</ul>");
+                inUnordered = false;
+            }
+            if (inOrdered) {
+                htmlParts.push("</ol>");
+                inOrdered = false;
+            }
+        };
+
+        for (const rawLine of lines) {
+            const line = rawLine.trim();
+
+            if (!line) {
+                closeLists();
+                continue;
+            }
+
+            if (/^>\s+/.test(line)) {
+                closeLists();
+                htmlParts.push(`<blockquote>${line.replace(/^>\s+/, "")}</blockquote>`);
+                continue;
+            }
+
+            const unorderedMatch = line.match(/^-\s+(.+)/);
+            if (unorderedMatch) {
+                if (inOrdered) {
+                    htmlParts.push("</ol>");
+                    inOrdered = false;
+                }
+                if (!inUnordered) {
+                    htmlParts.push("<ul>");
+                    inUnordered = true;
+                }
+                htmlParts.push(`<li>${unorderedMatch[1]}</li>`);
+                continue;
+            }
+
+            const orderedMatch = line.match(/^\d+\.\s+(.+)/);
+            if (orderedMatch) {
+                if (inUnordered) {
+                    htmlParts.push("</ul>");
+                    inUnordered = false;
+                }
+                if (!inOrdered) {
+                    htmlParts.push("<ol>");
+                    inOrdered = true;
+                }
+                htmlParts.push(`<li>${orderedMatch[1]}</li>`);
+                continue;
+            }
+
+            closeLists();
+            htmlParts.push(`<p>${line}</p>`);
+        }
+
+        closeLists();
+
+        let html = htmlParts.join("");
+
+        codeBlocks.forEach((block, index) => {
+            html = html.replace(`__AI_CODE_BLOCK_${index}__`, block);
+        });
+
+        inlineCodes.forEach((code, index) => {
+            html = html.replace(`__AI_INLINE_CODE_${index}__`, code);
+        });
+
+        return html;
+    }
+
+    function formatPrice(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return "Liên hệ";
+        return `${numeric.toLocaleString("vi-VN")} VNĐ`;
+    }
+
+    function buildProductDetailUrl(product) {
+        const slug = String(product?.slug ?? product?.Slug ?? "").trim();
+        const id = product?.id ?? product?.Id;
+
+        if (slug) {
+            return `/SanPham/Details?slug=${encodeURIComponent(slug)}`;
+        }
+
+        if (id) {
+            return `/SanPham/Details?id=${encodeURIComponent(id)}`;
         }
 
         return null;
     }
-    // Thay thế hàm renderProductCards cũ của mày bằng bản này
+
     function renderProductCards(products) {
-        if (!Array.isArray(products) || !products.length) return "";
+        if (!Array.isArray(products) || products.length === 0) return "";
 
-        return `<div class="ai-shop-card-list">` +
-            products.map(p => {
-                const name = escapeHtml(p.ten || "Sản phẩm");
-                const price = p.gia ? Number(p.gia).toLocaleString("vi-VN") + " ₫" : "Liên hệ";
-                const url = buildProductDetailUrl(p);
-                const img = (p.imageUrl && p.imageUrl.trim()) ? p.imageUrl : "/images/no-image.png";
+        return (
+            `<div class="ai-shop-card-list">` +
+            products
+                .map((product) => {
+                    const name = String(product?.ten ?? product?.Ten ?? "Sản phẩm").trim();
+                    const price = formatPrice(product?.gia ?? product?.Gia);
+                    const imageUrl = String(product?.imageUrl ?? product?.ImageUrl ?? "").trim();
+                    const safeImageUrl = imageUrl || "/images/no-image.png";
+                    const detailUrl = buildProductDetailUrl(product);
 
-                return `
-                <a href="${escapeAttribute(url)}" class="ai-shop-card" target="_blank">
-                    <div class="ai-shop-card-media">
-                        <img src="${escapeAttribute(img)}" class="ai-shop-card-thumb" alt="${name}">
-                    </div>
-                    <div class="ai-shop-card-body">
-                        <div class="ai-shop-card-name">${name}</div>
-                        <div class="ai-shop-card-price">${price}</div>
-                        <div class="ai-shop-card-link-text">Nhấn để xem chi tiết...</div>
-                    </div>
-                </a>`;
-            }).join("") +
-            `</div>`;
+                    const openTag = detailUrl
+                        ? `<a href="${escapeAttribute(detailUrl)}" class="ai-shop-card" target="_blank" rel="noopener noreferrer">`
+                        : `<div class="ai-shop-card">`;
+
+                    const closeTag = detailUrl ? "</a>" : "</div>";
+                    const linkHint = detailUrl
+                        ? `<div class="ai-shop-card-link-text">Nhấn để xem chi tiết...</div>`
+                        : "";
+
+                    return `
+            ${openTag}
+              <div class="ai-shop-card-media">
+                <img src="${escapeAttribute(safeImageUrl)}" class="ai-shop-card-thumb" alt="${escapeAttribute(name)}" />
+              </div>
+              <div class="ai-shop-card-body">
+                <div class="ai-shop-card-name">${escapeHtml(name)}</div>
+                <div class="ai-shop-card-price">${escapeHtml(price)}</div>
+                ${linkHint}
+              </div>
+            ${closeTag}
+          `;
+                })
+                .join("") +
+            `</div>`
+        );
     }
 
-    // Sửa hàm formatBotMessage để CHẶN đứng việc render ảnh lung tung
     function formatBotMessage(content, products = []) {
-        // 1. Dùng Regex xóa sạch các tag ảnh Markdown ![alt](url) để nó không hiện ảnh to đùng nữa
-        let cleanText = (content || "").replace(/!\[.*?\]\(.*?\)/g, "").trim();
+        const textOnly = String(content || "")
+            .replace(/!\[(.*?)\]\((.*?)\)/g, "")
+            .trim();
 
-        let safeHtml = escapeHtml(cleanText).replace(/\n/g, "<br>");
-        safeHtml = formatBasicMarkdown(safeHtml);
+        const safeText = renderMarkdownSafe(textOnly);
+        const productHtml = renderProductCards(products);
 
-        // 2. Render list card gọn gàng bên dưới text
-        const cards = renderProductCards(products);
+        if (!safeText) return productHtml;
 
-        return `<div class="ai-msg-text">${safeHtml}</div>${cards}`;
+        return `<div class="ai-msg-text">${safeText}</div>${productHtml}`;
     }
 
     function toggleEmptyState(show) {
@@ -203,31 +332,32 @@
         const welcome = document.createElement("div");
         welcome.className = "ai-msg bot ai-msg-welcome";
         welcome.innerHTML = `
-            <div class="ai-msg-text">
-                Xin chào 👋 Mình có thể hỗ trợ bạn:
-                <br>- Tra cứu giá xe
-                <br>- Kiểm tra tồn kho
-                <br>- Tư vấn mẫu xe phù hợp
-            </div>
-        `;
+      <div class="ai-msg-text">
+        Xin chào 👋 Mình có thể hỗ trợ bạn:
+        <br>- Tra cứu giá xe
+        <br>- Kiểm tra tồn kho
+        <br>- Tư vấn mẫu xe phù hợp
+      </div>
+    `;
+
         messages.appendChild(welcome);
         scrollBottom();
     }
 
-function addMessage(role, content, products = []) {
-    const div = document.createElement("div");
-    div.className = `ai-msg ${role}`;
+    function addMessage(role, content, products = []) {
+        const div = document.createElement("div");
+        div.className = `ai-msg ${role}`;
 
-    if (role === "bot") {
-        div.innerHTML = formatBotMessage(content, products);
-    } else {
-        div.innerHTML = escapeHtml(content).replace(/\n/g, "<br>");
+        if (role === "bot") {
+            div.innerHTML = formatBotMessage(content, products);
+        } else {
+            div.innerHTML = escapeHtml(content).replace(/\n/g, "<br>");
+        }
+
+        messages.appendChild(div);
+        toggleEmptyState(false);
+        scrollBottom();
     }
-
-    messages.appendChild(div);
-    toggleEmptyState(false);
-    scrollBottom();
-}
 
     function addTyping() {
         removeTyping();
@@ -236,6 +366,7 @@ function addMessage(role, content, products = []) {
         div.className = "ai-msg bot typing";
         div.id = "aiTyping";
         div.innerHTML = `<div class="ai-msg-text">Bot đang trả lời...</div>`;
+
         messages.appendChild(div);
         toggleEmptyState(false);
         scrollBottom();
@@ -259,42 +390,45 @@ function addMessage(role, content, products = []) {
 
     function formatTime(isoString) {
         if (!isoString) return "";
+
         const date = new Date(isoString);
 
         return date.toLocaleString("vi-VN", {
             hour: "2-digit",
             minute: "2-digit",
             day: "2-digit",
-            month: "2-digit"
+            month: "2-digit",
         });
     }
 
     function renderConversationList() {
         if (!state.conversations.length) {
             conversationList.innerHTML = `
-                <div class="ai-chat-no-history">Chưa có cuộc trò chuyện nào.</div>
-            `;
+        <div class="ai-chat-no-history">Chưa có cuộc trò chuyện nào.</div>
+      `;
             return;
         }
 
-        conversationList.innerHTML = state.conversations.map(item => {
-            const activeClass = item.conversationId === state.currentConversationId ? "active" : "";
-            const title = escapeHtml(item.title || "Đoạn chat mới");
-            const preview = escapeHtml(item.lastMessagePreview || "Chưa có nội dung xem trước.");
-            const updatedAt = formatTime(item.updatedAtUtc);
+        conversationList.innerHTML = state.conversations
+            .map((item) => {
+                const activeClass = item.conversationId === state.currentConversationId ? "active" : "";
+                const title = escapeHtml(item.title || "Đoạn chat mới");
+                const preview = escapeHtml(item.lastMessagePreview || "Chưa có nội dung xem trước.");
+                const updatedAt = formatTime(item.updatedAtUtc);
 
-            return `
-                <button type="button"
-                        class="ai-chat-conversation-item ${activeClass}"
-                        data-conversation-id="${escapeAttribute(item.conversationId)}">
-                    <div class="ai-chat-conversation-title">${title}</div>
-                    <div class="ai-chat-conversation-preview">${preview}</div>
-                    <div class="ai-chat-conversation-time">${updatedAt}</div>
-                </button>
-            `;
-        }).join("");
+                return `
+          <button type="button"
+                  class="ai-chat-conversation-item ${activeClass}"
+                  data-conversation-id="${escapeAttribute(item.conversationId)}">
+            <div class="ai-chat-conversation-title">${title}</div>
+            <div class="ai-chat-conversation-preview">${preview}</div>
+            <div class="ai-chat-conversation-time">${updatedAt}</div>
+          </button>
+        `;
+            })
+            .join("");
 
-        conversationList.querySelectorAll(".ai-chat-conversation-item").forEach(btn => {
+        conversationList.querySelectorAll(".ai-chat-conversation-item").forEach((btn) => {
             btn.addEventListener("click", async () => {
                 if (!isAuthenticatedUser()) {
                     clearLocalChatSession();
@@ -314,12 +448,19 @@ function addMessage(role, content, products = []) {
 
     async function fetchConversations() {
         const userId = getUserId();
-        const response = await fetch(`/ai-chat/conversations?userId=${encodeURIComponent(userId)}&channel=${encodeURIComponent(CHANNEL)}`);
+
+        const response = await fetch(
+            `/ai-chat/conversations?userId=${encodeURIComponent(userId)}&channel=${encodeURIComponent(CHANNEL)}`
+        );
+
         return await safeReadJson(response);
     }
 
     async function fetchMessages(conversationId) {
-        const response = await fetch(`/ai-chat/conversations/${encodeURIComponent(conversationId)}/messages`);
+        const response = await fetch(
+            `/ai-chat/conversations/${encodeURIComponent(conversationId)}/messages`
+        );
+
         return await safeReadJson(response);
     }
 
@@ -328,23 +469,32 @@ function addMessage(role, content, products = []) {
             method: "POST",
             headers: {
                 "Content-Type": "application/json; charset=utf-8",
-                "Accept": "application/json"
+                Accept: "application/json",
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
         });
 
         return await safeReadJson(response);
     }
 
     async function deleteConversationRequest(conversationId) {
-        const response = await fetch(`/ai-chat/conversations/${encodeURIComponent(conversationId)}`, {
-            method: "DELETE"
-        });
+        const response = await fetch(
+            `/ai-chat/conversations/${encodeURIComponent(conversationId)}`,
+            {
+                method: "DELETE",
+            }
+        );
 
         return await safeReadJson(response);
     }
 
     async function loadConversations() {
+        if (!isAuthenticatedUser()) {
+            state.conversations = [];
+            renderConversationList();
+            return;
+        }
+
         try {
             const result = await fetchConversations();
 
@@ -381,7 +531,7 @@ function addMessage(role, content, products = []) {
 
             toggleEmptyState(false);
 
-            items.forEach(item => {
+            items.forEach((item) => {
                 const role = item.role === "user" ? "user" : "bot";
                 addMessage(role, item.content || "");
             });
@@ -403,14 +553,12 @@ function addMessage(role, content, products = []) {
         addTyping();
 
         try {
-            console.log("RAW INPUT VALUE:", input.value);
-            console.log("MESSAGE SENT:", message);
             const result = await sendChatMessage({
                 message: message,
                 conversationId: state.currentConversationId,
                 userId: getUserId(),
                 channel: CHANNEL,
-                isAuthenticated: isAuthenticatedUser()
+                isAuthenticated: isAuthenticatedUser(),
             });
 
             removeTyping();
@@ -419,8 +567,9 @@ function addMessage(role, content, products = []) {
                 setCurrentConversationId(result.conversationId);
             }
 
-            const replyText = result?.reply?.trim()
-                || "Xin lỗi, hiện tại mình chưa thể phản hồi. Bạn thử lại giúp mình nhé.";
+            const replyText =
+                result?.reply?.trim() ||
+                "Xin lỗi, hiện tại mình chưa thể phản hồi. Bạn thử lại giúp mình nhé.";
 
             const products = Array.isArray(result?.products) ? result.products : [];
 
@@ -474,7 +623,10 @@ function addMessage(role, content, products = []) {
 
             setCurrentConversationId(null);
             renderWelcomeMessage();
-            await loadConversations();
+
+            if (isAuthenticatedUser()) {
+                await loadConversations();
+            }
         } catch (error) {
             console.error("Delete conversation error:", error);
             alert("Không thể xóa đoạn chat.");
@@ -537,7 +689,7 @@ function addMessage(role, content, products = []) {
         }
     });
 
-    widget.querySelectorAll(".ai-suggest-btn").forEach(btn => {
+    widget.querySelectorAll(".ai-suggest-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
             const msg = btn.dataset.message;
             if (msg) {

@@ -15,6 +15,7 @@ namespace Chatbot.API.Services.Interfaces
         Task SetMentionedProductsAsync(string conversationId, IEnumerable<string> productNames);
         Task SetComparedProductsAsync(string conversationId, IEnumerable<string> productNames);
         Task SetLastIntentTypeAsync(string conversationId, string intentType);
+        Task SetSemanticContextAsync(string conversationId, SemanticResult semanticResult);
 
         Task ClearRecommendationContextAsync(string conversationId);
         Task ResetForFreshConsultationAsync(string conversationId);

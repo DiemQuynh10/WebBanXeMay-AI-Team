@@ -94,6 +94,8 @@ namespace Chatbot.API.Services
                 .Select(g => g.First())
                 .ToList();
 
+            products = ProductExclusionHelper.ApplyExclusions(products, intent, profile);
+
             _logger.LogInformation(
                 "Follow-up rerank candidates after strict filter. ConversationId: {ConversationId}, Count: {Count}, Products: {Products}",
                 conversationId,
@@ -133,6 +135,8 @@ namespace Chatbot.API.Services
                         (x.Loai ?? string.Empty).Contains(ex, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
             }
+
+            products = ProductExclusionHelper.ApplyExclusions(products, intent, profile);
             if (products.Count == 0)
             {
                 return new ChatResponse

@@ -10,6 +10,8 @@
         public const string Compare = "compare";
         public const string RecommendationFollowUp = "recommendation_followup";
         public const string Refinement = "refinement";
+        public const string ServiceInfo = "service_info";
+        public const string PolicyInfo = "policy_info";
         public const string BrandSwitch = "brand_switch";
         public const string OutOfScope = "out_of_scope";
         public const string Unknown = "unknown";

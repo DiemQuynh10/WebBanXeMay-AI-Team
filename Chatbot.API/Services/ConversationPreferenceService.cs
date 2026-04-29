@@ -952,6 +952,23 @@ namespace Chatbot.API.Services
             }
 
             return value;
+
+        }
+        public Task SetSemanticContextAsync(string conversationId, SemanticResult semanticResult)
+        {
+            if (string.IsNullOrWhiteSpace(conversationId))
+            {
+                return Task.CompletedTask;
+            }
+
+            var profile = _store.GetOrAdd(conversationId, id => new CustomerPreferenceProfile
+            {
+                ConversationId = id
+            });
+
+            profile.SemanticResult = semanticResult;
+
+            return Task.CompletedTask;
         }
     }
 }

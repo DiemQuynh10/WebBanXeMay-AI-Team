@@ -17,6 +17,10 @@ obj/
 *.jfm
 *.pdb
 TestResults/
+artifacts/
+**/artifacts/
+bin_temp/
+**/bin_temp/
 
 # =========================
 # Rider / VS Code

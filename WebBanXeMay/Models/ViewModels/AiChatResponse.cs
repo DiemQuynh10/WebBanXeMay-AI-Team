@@ -20,7 +20,6 @@
         public string? UsedTool { get; set; }
         public string? ErrorMessage { get; set; }
         public string? ConversationId { get; set; }
-
         public List<AiChatProductCard>? Products { get; set; }
     }
 }
