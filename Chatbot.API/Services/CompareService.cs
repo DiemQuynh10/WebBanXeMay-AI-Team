@@ -73,22 +73,24 @@ namespace Chatbot.API.Services
             ParsedIntent intent,
             CustomerPreferenceProfile profile)
         {
+            var effectiveIntent = intent ?? new ParsedIntent();
+            var effectiveProfile = profile ?? new CustomerPreferenceProfile();
+
             bool wantsCompareAll = LooksLikeCompareAllRequest(normalizedMessage);
-            var targetNames = ResolveComparisonTargets(intent, profile, normalizedMessage);
+            var targetNames = ResolveComparisonTargets(effectiveIntent, effectiveProfile, normalizedMessage);
 
             _logger.LogInformation(
                 "Compare targets resolved. ConversationId={ConversationId}, CompareAll={CompareAll}, RawMentionedProducts={RawMentionedProducts}, FinalTargets={FinalTargets}",
                 conversationId,
                 wantsCompareAll,
-                intent?.MentionedProducts != null ? string.Join(", ", intent.MentionedProducts) : "(null)",
+                effectiveIntent.MentionedProducts != null ? string.Join(", ", effectiveIntent.MentionedProducts) : "(null)",
                 string.Join(", ", targetNames));
 
             bool isFollowUpCompare =
-                profile != null &&
-                profile.HasActiveCompareContext &&
-                profile.LastComparedProducts != null &&
-                profile.LastComparedProducts.Count >= 2 &&
-                (intent.MentionedProducts == null || intent.MentionedProducts.Count < 2);
+                effectiveProfile.HasActiveCompareContext &&
+                effectiveProfile.LastComparedProducts != null &&
+                effectiveProfile.LastComparedProducts.Count >= 2 &&
+                (effectiveIntent.MentionedProducts == null || effectiveIntent.MentionedProducts.Count < 2);
 
             bool shouldForceFullCompareReply = LooksLikeFullCompareQuestion(normalizedMessage);
 
@@ -169,9 +171,9 @@ namespace Chatbot.API.Services
             latestProfile.HasActiveRecommendationContext = false;
             latestProfile.UpdatedAtUtc = DateTime.UtcNow;
 
-            if (matchedProducts.Count >= 3 && wantsCompareAll)
+            if (matchedProducts.Count >= 3)
             {
-                var compareAllReply = BuildCompareAllReply(matchedProducts, normalizedMessage);
+                var compareAllReply = BuildCompareAllReply(matchedProducts, normalizedMessage, effectiveIntent, effectiveProfile);
                 return new ChatResponse
                 {
                     Success = true,
@@ -185,11 +187,11 @@ namespace Chatbot.API.Services
             var first = matchedProducts[0];
             var second = matchedProducts[1];
 
-            var questionKind = DetectCompareQuestionKind(normalizedMessage, intent);
+            var questionKind = DetectCompareQuestionKind(normalizedMessage, effectiveIntent);
             string? ragContext = null;
             try
             {
-                var ragQuery = BuildRagCompareQuery(first, second, intent, profile, normalizedMessage);
+                var ragQuery = BuildRagCompareQuery(first, second, effectiveIntent, effectiveProfile, normalizedMessage);
                 var ragResult = await _ragService.QueryAsync(ragQuery, topK: 4);
                 if (ragResult?.Success == true && !string.IsNullOrWhiteSpace(ragResult.Context))
                 {
@@ -201,14 +203,14 @@ namespace Chatbot.API.Services
                 _logger.LogWarning(ex, "RAG compare failed. ConversationId: {ConversationId}", conversationId);
             }
 
-            var resolvedFeature = ResolveComparisonFeature(intent, normalizedMessage)
+            var resolvedFeature = ResolveComparisonFeature(effectiveIntent, normalizedMessage)
                                   ?? InferFeatureFromMessageOnly(normalizedMessage);
 
             _logger.LogInformation(
                 "Compare feature resolved. ConversationId={ConversationId}, Message={Message}, RawComparisonFeature={RawComparisonFeature}, ResolvedFeature={ResolvedFeature}",
                 conversationId,
                 normalizedMessage,
-                intent?.ComparisonFeature,
+                effectiveIntent.ComparisonFeature,
                 resolvedFeature);
 
             if (!string.IsNullOrWhiteSpace(resolvedFeature))
@@ -221,8 +223,8 @@ namespace Chatbot.API.Services
                 : BuildDeterministicCompareReply(
                     first,
                     second,
-                    intent,
-                    profile,
+                    effectiveIntent,
+                    effectiveProfile,
                     normalizedMessage,
                     ragContext,
                     isFollowUpCompare && !shouldForceFullCompareReply);
@@ -414,7 +416,9 @@ namespace Chatbot.API.Services
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            return wantsCompareAll ? distinct : distinct.Take(2).ToList();
+            return wantsCompareAll || distinct.Count > 2
+                ? distinct
+                : distinct.Take(2).ToList();
         }
 
         private static CompareQuestionKind DetectCompareQuestionKind(string message, ParsedIntent intent)
@@ -668,69 +672,129 @@ namespace Chatbot.API.Services
             return sb.ToString().Trim();
         }
 
-        private static string BuildCompareAllReply(List<ProductSummaryDto> products, string normalizedMessage)
+        private static string BuildCompareAllReply(
+            List<ProductSummaryDto> products,
+            string normalizedMessage,
+            ParsedIntent intent,
+            CustomerPreferenceProfile profile)
         {
             var lines = new List<string>();
 
-            lines.Add("Mình tóm lại nhanh để bạn dễ chọn giữa các mẫu này:");
+            lines.Add("Mình so sánh nhanh các mẫu này để bạn dễ chốt:");
+            lines.Add("");
+            lines.Add(BuildComparisonTable(products));
             lines.Add("");
 
-            // 1. Phân nhóm theo cảm nhận thực tế
-            var easyRide = products.Where(x => ContainsAny(x.Ten, "Vision", "Janus", "Latte", "Shark", "Attila")).ToList();
-            var balanced = products.Where(x => ContainsAny(x.Ten, "Air Blade", "Freego")).ToList();
-
-            if (easyRide.Any())
-            {
-                lines.Add($"- Nhóm **dễ đi, nhẹ, hợp đi phố**: {string.Join(", ", easyRide.Select(x => x.Ten))}");
-            }
-
-            if (balanced.Any())
-            {
-                lines.Add($"- Nhóm **đầm hơn, máy khỏe hơn**: {string.Join(", ", balanced.Select(x => x.Ten))}");
-            }
-
-            var cheapest = products.OrderBy(x => x.Gia).First();
-            lines.Add("");
-            lines.Add($"- Nếu ưu tiên **giá mềm nhất** thì **{cheapest.Ten}** ({cheapest.Gia:N0} VNĐ) là lựa chọn dễ cân nhắc.");
-
-            var bestDaily = products.FirstOrDefault(x => ContainsAny(x.Ten, "Vision", "Freego", "Air Blade")) ?? cheapest;
-            lines.Add($"- Nếu cần **đi hằng ngày ổn định, ít phải nghĩ** thì **{bestDaily.Ten}** là mẫu dễ chọn nhất.");
-
-            lines.Add("");
-            lines.Add("Ưu nhược điểm nhanh từng mẫu:");
+            lines.Add("Ưu nhược điểm nhanh:");
 
             foreach (var p in products)
             {
-                lines.Add($"- **{p.Ten}**: {BuildRealProsCons(p)}");
+                lines.Add($"- **{p.Ten}**: ưu điểm {BuildPros(p)}; nhược điểm {BuildCons(p)}.");
             }
-            
+
             lines.Add("");
-            lines.Add(BuildFinalMultiSuggestion(products));
+            lines.Add(BuildMultiChoiceSuggestion(products, intent, profile, normalizedMessage));
 
             return string.Join("\n", lines).Trim();
         }
-        private static string BuildFinalMultiSuggestion(List<ProductSummaryDto> products)
+
+        private static string BuildMultiChoiceSuggestion(
+            IReadOnlyList<ProductSummaryDto> products,
+            ParsedIntent intent,
+            CustomerPreferenceProfile profile,
+            string normalizedMessage)
         {
+            var text = NormalizeText(normalizedMessage);
+            var best = PickBestByProfile(products, intent, profile, text);
             var cheapest = products.OrderBy(x => x.Gia).First();
-            var bestDaily = products.FirstOrDefault(x => ContainsAny(x.Ten, "Vision", "Freego")) ?? cheapest;
 
-            return $"Nếu bạn muốn **rẻ nhất** thì chọn **{cheapest.Ten}**.\n" +
-                   $"Nếu bạn muốn **dễ đi, ổn định lâu dài** thì chọn **{bestDaily.Ten}**.\n" +
-                   $"Nếu bạn cần mình chọn giúp theo nhu cầu cụ thể (đi làm, đi học, chiều cao...) thì mình lọc kỹ hơn cho bạn.";
+            if (string.Equals(best.Ten, cheapest.Ten, StringComparison.OrdinalIgnoreCase))
+                return $"Nếu chốt theo hướng **dễ mua, chi phí hợp lý**, mình nghiêng về **{best.Ten}** vì giá đang mềm và vẫn đáp ứng tốt nhu cầu cơ bản.";
+
+            return $"Nếu ưu tiên **đúng nhu cầu sử dụng**, mình nghiêng về **{best.Ten}**. Còn nếu tiêu chí số 1 là **giá mềm nhất**, **{cheapest.Ten}** sẽ dễ cân nhắc hơn.";
         }
-        private static string BuildRealProsCons(ProductSummaryDto p)
+
+        private static string BuildComparisonTable(IReadOnlyList<ProductSummaryDto> products)
         {
-            if (ContainsAny(p.Ten, "Vision"))
-                return "dễ đi, ít hao xăng; nhược điểm là máy không mạnh";
+            var sb = new StringBuilder();
+            sb.AppendLine("| Xe | Hãng | Loại | Giá | Dung tích | Tồn kho | Điểm nổi bật |");
+            sb.AppendLine("|---|---|---|---:|---:|---:|---|");
 
-            if (ContainsAny(p.Ten, "Attila", "Shark"))
-                return "giá mềm, đi phố ổn; nhược điểm là thương hiệu không mạnh bằng Honda";
+            foreach (var p in products)
+            {
+                sb.Append("| ")
+                    .Append(EscapeTableCell(p.Ten))
+                    .Append(" | ")
+                    .Append(EscapeTableCell(BlankIfEmpty(p.ThuongHieu)))
+                    .Append(" | ")
+                    .Append(EscapeTableCell(BlankIfEmpty(p.Loai)))
+                    .Append(" | ")
+                    .Append(p.Gia > 0 ? $"{p.Gia:N0} VNĐ" : "Đang cập nhật")
+                    .Append(" | ")
+                    .Append(p.CC.HasValue ? $"{p.CC.Value}cc" : "Đang cập nhật")
+                    .Append(" | ")
+                    .Append(p.SoLuong)
+                    .Append(" | ")
+                    .Append(EscapeTableCell(BuildHighlight(p)))
+                    .AppendLine(" |");
+            }
 
-            if (ContainsAny(p.Ten, "Air Blade"))
-                return "máy khỏe, đi đầm; nhược điểm là giá cao hơn";
-
-            return "đi ổn trong tầm giá; nhược điểm là cần cân nhắc thêm theo nhu cầu cụ thể";
+            return sb.ToString().Trim();
         }
+
+        private static string BuildHighlight(ProductSummaryDto product)
+        {
+            if (ContainsAny(product.Ten, "Wave", "Sirius", "Future"))
+                return "bền, tiết kiệm, chi phí dùng thấp";
+            if (ContainsAny(product.Ten, "Vision", "Janus", "Latte", "Zip", "Shark", "Attila"))
+                return "gọn, dễ đi phố, dễ làm quen";
+            if (ContainsAny(product.Ten, "Lead", "Grande"))
+                return "tiện dụng, cốp rộng, hợp đi hằng ngày";
+            if (ContainsAny(product.Ten, "Air Blade", "Freego", "PCX"))
+                return "đầm xe, tiện ích tốt, hợp đi làm";
+            if (ContainsAny(product.Ten, "Winner", "Exciter", "Raider"))
+                return "thể thao, máy khỏe, hợp người thích cảm giác lái";
+            if (ContainsAny(product.Ten, "SH", "Vespa", "Sprint", "Liberty"))
+                return "thiết kế nổi bật, thiên về hình ảnh";
+            return "cân bằng trong tầm giá";
+        }
+
+        private static string BuildPros(ProductSummaryDto product)
+        {
+            if (ContainsAny(product.Ten, "Wave", "Sirius"))
+                return "giá mềm, bền, tiết kiệm xăng";
+            if (ContainsAny(product.Ten, "Future"))
+                return "thực dụng, đi làm ổn, chi phí dùng dễ chịu";
+            if (ContainsAny(product.Ten, "Vision", "Janus", "Latte", "Zip", "Shark", "Attila"))
+                return "dáng gọn, dễ điều khiển, hợp đi phố";
+            if (ContainsAny(product.Ten, "Lead", "Grande"))
+                return "cốp rộng, tiện đi làm và chở đồ";
+            if (ContainsAny(product.Ten, "Air Blade", "Freego", "PCX"))
+                return "đầm xe, tiện ích tốt, đi hằng ngày ổn";
+            if (ContainsAny(product.Ten, "Winner", "Exciter", "Raider"))
+                return "máy khỏe, dáng thể thao, chạy xa tốt hơn";
+            if (ContainsAny(product.Ten, "SH", "Vespa", "Sprint", "Liberty"))
+                return "kiểu dáng sang, giữ hình ảnh tốt";
+            return "có mức giá và cấu hình đáng cân nhắc";
+        }
+
+        private static string BuildCons(ProductSummaryDto product)
+        {
+            if (ContainsAny(product.Ten, "Wave", "Sirius", "Future"))
+                return "tiện ích và cốp không bằng xe ga";
+            if (ContainsAny(product.Ten, "Vision", "Janus", "Latte", "Zip", "Shark", "Attila"))
+                return "không mạnh bằng nhóm xe đầm/máy khỏe";
+            if (ContainsAny(product.Ten, "Lead", "Grande"))
+                return "thân xe lớn hơn, không gọn bằng Vision/Janus";
+            if (ContainsAny(product.Ten, "Air Blade", "Freego", "PCX"))
+                return "giá và thân xe nhỉnh hơn nhóm gọn nhẹ";
+            if (ContainsAny(product.Ten, "Winner", "Exciter", "Raider"))
+                return "không tiện bằng xe ga khi đi phố hoặc chở đồ";
+            if (ContainsAny(product.Ten, "SH", "Vespa", "Sprint", "Liberty"))
+                return "giá cao, chi phí sử dụng cần cân nhắc";
+            return "cần chốt thêm theo nhu cầu như đi làm, tiết kiệm xăng hay cốp rộng";
+        }
+
         private static string BuildShortProsCons(ProductSummaryDto product)
         {
             if (ContainsAny(product.Ten, "Wave", "Sirius"))
@@ -761,22 +825,12 @@ namespace Chatbot.API.Services
                 lines.Add("");
             }
 
-            // 1. Giá
-            if (first.Gia != second.Gia)
-            {
-                var cheaper = first.Gia < second.Gia ? first : second;
-                lines.Add($"- Về giá: **{cheaper.Ten}** mềm hơn ({cheaper.Gia:N0} VNĐ).");
-            }
-            else
-            {
-                lines.Add($"- Về giá: hai mẫu đang ngang nhau ({first.Gia:N0} VNĐ).");
-            }
-
-            // 2. Cảm nhận thực tế (QUAN TRỌNG NHẤT)
-            lines.AddRange(BuildRealWorldComparison(first, second));
-
-            // 3. KẾT LUẬN (điểm ăn tiền)
-            lines.Add(""); 
+            lines.Add(BuildComparisonTable(new[] { first, second }));
+            lines.Add("");
+            lines.Add("Ưu nhược điểm nhanh:");
+            lines.Add($"- **{first.Ten}**: ưu điểm {BuildPros(first)}; nhược điểm {BuildCons(first)}.");
+            lines.Add($"- **{second.Ten}**: ưu điểm {BuildPros(second)}; nhược điểm {BuildCons(second)}.");
+            lines.Add("");
             lines.Add(BuildFinalSuggestion(first, second, intent, profile, normalizedMessage));
 
             return string.Join("\n", lines).Trim();
@@ -894,6 +948,44 @@ namespace Chatbot.API.Services
 
             return scoreA > scoreB ? a : b;
         }
+
+        private static ProductSummaryDto PickBestByProfile(
+            IReadOnlyList<ProductSummaryDto> products,
+            ParsedIntent intent,
+            CustomerPreferenceProfile profile,
+            string normalizedText)
+        {
+            bool wantsFemale =
+                intent.PrefersFemaleStyle ||
+                profile.PrefersFemaleStyle ||
+                ContainsAny(normalizedText, "cho nu", "xe nu", "hop nu", "nu tinh");
+
+            bool wantsMale =
+                intent.PrefersMaleStyle ||
+                profile.PrefersMaleStyle ||
+                ContainsAny(normalizedText, "cho nam", "xe nam", "hop nam", "nam tinh");
+
+            bool forWork =
+                intent.ForWork || profile.ForWork || ContainsAny(normalizedText, "di lam", "di pho");
+
+            bool forSchool =
+                intent.ForSchool || profile.ForSchool || ContainsAny(normalizedText, "di hoc", "sinh vien", "hoc sinh");
+
+            bool wantsFuelSaving =
+                intent.WantsFuelSaving || profile.WantsFuelSaving || ContainsAny(normalizedText, "tiet kiem xang", "it hao xang");
+
+            bool wantsEasy =
+                intent.WantsEasyControl || profile.WantsEasyControl || profile.NeedsLowSeat ||
+                ContainsAny(normalizedText, "de di", "de chong chan", "yen thap", "thap nguoi");
+
+            bool wantsStorage =
+                intent.WantsLargeStorage || profile.WantsLargeStorage || ContainsAny(normalizedText, "cop rong", "dung do", "nhieu do");
+
+            return products
+                .OrderByDescending(x => ScoreProductForProfile(x, wantsFemale, wantsMale, forWork, forSchool, wantsFuelSaving, wantsEasy, wantsStorage))
+                .ThenBy(x => x.Gia > 0 ? x.Gia : decimal.MaxValue)
+                .First();
+        }
         private static int ScoreProductForProfile(
     ProductSummaryDto p,
     bool wantsFemale,
@@ -967,12 +1059,24 @@ namespace Chatbot.API.Services
 
         private static string BuildPriceCompareReply(ProductSummaryDto first, ProductSummaryDto second)
         {
+            var lines = new List<string>
+            {
+                $"Mình so sánh nhanh giá **{first.Ten}** và **{second.Ten}**:",
+                "",
+                BuildComparisonTable(new[] { first, second }),
+                ""
+            };
+
             if (first.Gia == second.Gia)
-                return $"Về **giá** thì **{first.Ten}** và **{second.Ten}** hiện đang ngang nhau, cùng ở mức {first.Gia:N0} VNĐ.";
+            {
+                lines.Add($"Về **giá** thì hai mẫu đang ngang nhau, cùng ở mức {first.Gia:N0} VNĐ.");
+                return string.Join("\n", lines).Trim();
+            }
 
             var cheaper = first.Gia < second.Gia ? first : second;
             var higher = first.Gia < second.Gia ? second : first;
-            return $"Nếu xét riêng về **giá** thì **{cheaper.Ten}** mềm hơn với mức {cheaper.Gia:N0} VNĐ; còn **{higher.Ten}** đang ở mức {higher.Gia:N0} VNĐ.";
+            lines.Add($"Nếu xét riêng về **giá** thì **{cheaper.Ten}** mềm hơn với mức {cheaper.Gia:N0} VNĐ; còn **{higher.Ten}** đang ở mức {higher.Gia:N0} VNĐ.");
+            return string.Join("\n", lines).Trim();
         }
 
         private static string BuildStorageVerdict(ProductSummaryDto first, ProductSummaryDto second, bool isFollowUpCompare)
@@ -1083,6 +1187,16 @@ namespace Chatbot.API.Services
         private static bool ContainsAny(string text, params string[] keywords)
         {
             return keywords.Any(k => text.Contains(k, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static string BlankIfEmpty(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? "Đang cập nhật" : value.Trim();
+        }
+
+        private static string EscapeTableCell(string value)
+        {
+            return (value ?? string.Empty).Replace("|", "/").Replace("\r", " ").Replace("\n", " ").Trim();
         }
     }
 }

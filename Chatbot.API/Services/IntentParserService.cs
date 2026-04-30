@@ -547,9 +547,12 @@ namespace Chatbot.API.Services
                     "tra gop", "lai suat", "tra truoc", "vay", "ngan hang", "tin dung",
                     "bao hanh", "bao duong", "sua chua", "cuu ho",
                     "giay to", "bien so", "ca vet", "dang ky", "truoc ba",
-                    "giao hang", "van chuyen", "bao hiem", "khuyen mai",
+                    "giao hang", "van chuyen", "noi thanh", "ngoai thanh", "khu vuc", "mien phi",
+                    "bao hiem", "khuyen mai", "phong thuy", "menh", "mau xe", "hop mau",
                     "dat coc", "hoan coc", "doi tra", "thu cu", "doi moi",
-                    "thanh toan", "quet the", "lai thu", "test ride");
+                    "thanh toan", "quet the", "mua xe online", "lai thu", "test ride",
+                    "gia lan banh", "bao giay", "gia niem yet", "thu cu doi moi",
+                    "my honda", "y-connect", "ung dung", "hao xang", "co san", "giao ngay");
 
             if (!hasKnowledgeQuestion)
                 return;
@@ -562,6 +565,10 @@ namespace Chatbot.API.Services
             result.IsProductSearch = false;
             result.IsOpenRecommendation = false;
             result.IsFollowUp = false;
+            result.HasFreshConsultationSignal = false;
+            result.HasExpandRecommendationSignal = false;
+            result.HasNarrowRefinementSignal = false;
+            result.RecommendationContextActionHint = null;
             result.HasDeterministicProductIntent = false;
         }
 
@@ -579,7 +586,7 @@ namespace Chatbot.API.Services
             if (ContainsAny(text, "lai suat", "0%", "uu dai"))
                 return "interest";
 
-            if (ContainsAny(text, "ky han", "ki han", "bao lau", "thoi gian vay", "may thang"))
+            if (ContainsAny(text, "ky han", "kỳ hạn", "ki han", "kì hạn", "bao lau", "thoi gian vay", "may thang", "mấy tháng"))
                 return "loan_term";
 
             if (ContainsAny(text, "tra truoc", "down payment"))
@@ -594,26 +601,182 @@ namespace Chatbot.API.Services
             if (ContainsAny(text, "bao hanh", "bao hanh bao lau", "may nam", "km"))
                 return "warranty_period";
 
+            if (ContainsAny(text, "dong co"))
+                return "warranty_engine";
+
+            if (ContainsAny(text, "khung xe", "moi han", "nứt gãy", "nut gay"))
+                return "warranty_frame";
+
+            if (ContainsAny(text, "phu tung", "linh kien"))
+                return "warranty_parts";
+
+            if (ContainsAny(text, "dieu kien bao hanh", "trung tam uy quyen", "phieu bao hanh", "tu y sua chua"))
+                return "warranty_conditions";
+
             if (ContainsAny(text, "khong bao hanh", "hao mon", "lop xe", "ma phanh", "bugi", "bong den", "dau nhot"))
                 return "warranty_exclusion";
 
             if (ContainsAny(text, "goi bao duong", "bao duong co ban", "bao duong nang cao", "bao duong cao cap"))
                 return "service_package";
 
+            if (ContainsAny(text, "goi co ban", "500.000"))
+                return "basic_service_package";
+
+            if (ContainsAny(text, "goi nang cao", "800.000", "xe de lau", "ac quy"))
+                return "advanced_service_package";
+
+            if (ContainsAny(text, "goi cao cap", "1.200.000", "he thong treo"))
+                return "premium_service_package";
+
             if (ContainsAny(text, "lich bao duong", "dinh ky", "bao duong khi nao", "500km", "3000km", "6000km"))
                 return "maintenance_schedule";
 
-            if (ContainsAny(text, "phi", "bao nhieu tien", "gia dich vu", "phi giao", "phi bien so"))
+            if (ContainsAny(text, "ro-dai", "ro dai", "500km dau", "thay nhot lan dau"))
+                return "break_in_service";
+
+            if (ContainsAny(text, "noi thanh", "nội thành", "ngoai thanh", "ngoại thành", "khu vuc", "khu vực"))
+                return "delivery_area";
+
+            if (ContainsAny(text, "phi giao", "tien giao", "giao hang bao nhieu", "giao co mien phi"))
+                return "delivery_fee";
+
+            if (ContainsAny(text, "giao bao lau", "giao may ngay", "giao may gio", "thoi gian giao"))
+                return "delivery_time";
+
+            if (ContainsAny(text, "rui ro van chuyen", "trach nhiem van chuyen", "hu hong khi giao"))
+                return "delivery_risk";
+
+            if (ContainsAny(text, "dieu kien giao", "thanh toan du", "co mat nhan xe"))
+                return "delivery_conditions";
+
+            if (ContainsAny(text, "kiem tra khi nhan", "no may", "kiem tra ngoai quan"))
+                return "delivery_inspection";
+
+            if (ContainsAny(text, "phi", "mien phi", "miễn phí", "bao nhieu tien", "gia dich vu", "phi giao", "phi bien so"))
                 return "fee";
+
+            if (ContainsAny(text, "phong thuy", "phong thủy", "menh", "mệnh", "mau xe", "màu xe", "hop mau", "hợp màu", "kim", "moc", "thuy", "hoa", "tho"))
+                return "fengshui_color";
+
+            if (ContainsAny(text, "giay to bat buoc", "giay to xe", "ca vet", "dang ky xe", "tnds bat buoc"))
+                return "required_vehicle_documents";
 
             if (ContainsAny(text, "bam bien", "ca vet", "bao lau co bien", "bao lau co ca vet"))
                 return "registration_time";
 
+            if (ContainsAny(text, "bao bien", "lam giay to tron goi", "ct07", "vneid", "tam tru"))
+                return "plate_service";
+
+            if (ContainsAny(text, "tu dang ky", "to khai", "nop le phi", "thu tuc dang ky xe"))
+                return "registration_process";
+
+            if (ContainsAny(text, "gia niem yet", "gia xe tren web"))
+                return "listed_price";
+
+            if (ContainsAny(text, "gia lan banh", "bao giay", "gia ra bien"))
+                return "onroad_price";
+
+            if (ContainsAny(text, "phi cap bien", "phi bien so", "bien so bao nhieu"))
+                return "plate_fee";
+
+            if (ContainsAny(text, "le phi truoc ba", "truoc ba"))
+                return "registration_tax";
+
+            if (ContainsAny(text, "bien so dinh danh", "giu lai bien", "bien di theo nguoi"))
+                return "plate_identity";
+
             if (ContainsAny(text, "dat coc", "giu xe"))
                 return "deposit";
 
+            if (ContainsAny(text, "muc coc", "tien coc", "coc bao nhieu"))
+                return "deposit_amount";
+
             if (ContainsAny(text, "hoan", "hoan coc", "doi tra", "tra xe"))
                 return "refund";
+
+            if (ContainsAny(text, "chua xuat hoa don", "da xuat hoa don", "lan banh", "xe cu"))
+                return "return_boundary";
+
+            if (ContainsAny(text, "dieu kien doi tra", "nguyen tem", "niem phong", "phu kien", "qua tang"))
+                return "return_conditions";
+
+            if (ContainsAny(text, "quy trinh doi tra", "mang xe", "ktv kiem tra", "hoan tien"))
+                return "return_process";
+
+            if (ContainsAny(text, "khau hao", "mat gia", "10-20%"))
+                return "depreciation";
+
+            if (ContainsAny(text, "bao hiem bat buoc", "tnds"))
+                return "compulsory_insurance";
+
+            if (ContainsAny(text, "bao hiem tu nguyen", "bao hiem toan dien", "bao hiem vat chat"))
+                return "voluntary_insurance";
+
+            if (ContainsAny(text, "bao hiem mat cap", "mat cap", "chia goc", "ho so cong an"))
+                return "theft_insurance";
+
+            if (ContainsAny(text, "bao hiem tai nan"))
+                return "accident_insurance";
+
+            if (ContainsAny(text, "khuyen mai hien tai", "uu dai hien tai", "chuong trinh khuyen mai"))
+                return "current_promotion";
+
+            if (ContainsAny(text, "khuyen mai sinh vien", "the sinh vien", "giay bao trung tuyen"))
+                return "student_promotion";
+
+            if (ContainsAny(text, "dieu kien khuyen mai", "qua hien vat", "quy doi tien mat"))
+                return "promotion_conditions";
+
+            if (ContainsAny(text, "thu cu doi moi", "dinh gia xe cu", "len doi"))
+                return "tradein_valuation";
+
+            if (ContainsAny(text, "giay to xe cu", "xe chinh chu", "so khung", "so may", "uy quyen"))
+                return "tradein_documents";
+
+            if (ContainsAny(text, "tro gia", "voucher"))
+                return "tradein_voucher";
+
+            if (ContainsAny(text, "thanh toan chenh lech", "phan chenh lech"))
+                return "tradein_payment";
+
+            if (ContainsAny(text, "hinh thuc thanh toan", "tien mat", "chuyen khoan", "atm"))
+                return "payment_methods";
+
+            if (ContainsAny(text, "phi quet the", "the tin dung", "visa", "mastercard", "jcb"))
+                return "credit_card_fee";
+
+            if (ContainsAny(text, "mua xe online", "video call", "so khung so may"))
+                return "online_purchase";
+
+            if (ContainsAny(text, "xe nao duoc lai thu", "dong xe lai thu", "co san lai thu"))
+                return "testride_models";
+
+            if (ContainsAny(text, "dieu kien lai thu", "bang lai", "a1", "a2"))
+                return "testride_conditions";
+
+            if (ContainsAny(text, "quy trinh lai thu", "dat lich lai thu", "sa hinh"))
+                return "testride_process";
+
+            if (ContainsAny(text, "my honda", "y-connect", "ung dung", "bluetooth", "so bao hanh dien tu"))
+                return "smart_app";
+
+            if (ContainsAny(text, "cuu ho truong hop nao", "thung lop", "chet may", "mat chia khoa", "het xang"))
+                return "rescue_cases";
+
+            if (ContainsAny(text, "phi cuu ho", "cuu ho mien phi", "10km"))
+                return "rescue_fee";
+
+            if (ContainsAny(text, "hao xang", "ton xang", "lit/100km"))
+                return "fuel_consumption_faq";
+
+            if (ContainsAny(text, "bao hanh toan quoc", "ve que bao hanh", "head", "yamaha town"))
+                return "nationwide_warranty";
+
+            if (ContainsAny(text, "sao moi noi mot gia", "phi bien so moi noi", "phan vung"))
+                return "plate_fee_reason";
+
+            if (ContainsAny(text, "co san khong", "giao ngay", "check kho", "mau dac biet"))
+                return "stock_availability";
 
             return null;
         }
@@ -622,7 +785,7 @@ namespace Chatbot.API.Services
         {
             return ContainsAny(text,
                 "bao duong", "sua chua", "cuu ho", "giao hang", "van chuyen",
-                "lai thu", "test ride", "bao hiem", "thanh toan");
+                "noi thanh", "ngoai thanh", "lai thu", "test ride", "bao hiem", "thanh toan");
         }
 
         private static bool LooksLikeProductRecommendationOrSearch(string text, ParsedIntent result)

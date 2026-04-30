@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Globalization;
 
 namespace Chatbot.API.Helpers
 {
@@ -123,6 +124,12 @@ Gõ /menu để hiện lại menu nhanh.
             }
 
             var lines = text.Replace("\r\n", "\n").Split('\n');
+
+            if (TryBuildTelegramCompareCardsFromMarkdownTable(lines, out formattedHtml))
+            {
+                return true;
+            }
+
             var rows = new List<(int Index, string Name, string Brand, string Category, string Cc, string Price, string Stock)>();
 
             for (var i = 0; i < lines.Length; i++)
@@ -202,6 +209,222 @@ Gõ /menu để hiện lại menu nhanh.
             formattedHtml = sb.ToString().Trim();
             return true;
         }
+
+        private static bool TryBuildTelegramCompareCardsFromMarkdownTable(string[] lines, out string formattedHtml)
+        {
+            formattedHtml = string.Empty;
+
+            var headerIndex = -1;
+            for (var i = 0; i < lines.Length - 1; i++)
+            {
+                var current = lines[i].Trim();
+                var next = lines[i + 1].Trim();
+
+                if (IsMarkdownTableRow(current) && IsMarkdownTableSeparator(next))
+                {
+                    headerIndex = i;
+                    break;
+                }
+            }
+
+            if (headerIndex < 0)
+            {
+                return false;
+            }
+
+            var headers = SplitMarkdownTableRow(lines[headerIndex]);
+            var bodyLines = new List<string>();
+            var cursor = headerIndex + 2;
+
+            while (cursor < lines.Length)
+            {
+                var line = lines[cursor].Trim();
+                if (!IsMarkdownTableRow(line) || IsMarkdownTableSeparator(line))
+                {
+                    break;
+                }
+
+                bodyLines.Add(line);
+                cursor++;
+            }
+
+            if (headers.Count == 0 || bodyLines.Count < 2)
+            {
+                return false;
+            }
+
+            var rows = bodyLines
+                .Select(row => SplitMarkdownTableRow(row))
+                .Where(cells => cells.Count > 0)
+                .Select(cells => BuildTelegramCompareRow(headers, cells))
+                .Where(row => !string.IsNullOrWhiteSpace(row.Name))
+                .ToList();
+
+            if (rows.Count < 2)
+            {
+                return false;
+            }
+
+            var introLines = lines
+                .Take(headerIndex)
+                .Select(x => x.Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToList();
+
+            var tailLines = lines
+                .Skip(cursor)
+                .Select(x => x.Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToList();
+
+            var sb = new StringBuilder();
+
+            if (introLines.Count > 0)
+            {
+                sb.AppendLine(ConvertMarkdownToTelegramHtml(string.Join("\n", introLines)));
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("<b>📊 Bảng so sánh dễ nhìn</b>");
+
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i];
+                sb.AppendLine();
+                sb.AppendLine($"<b>{i + 1}. {WebUtility.HtmlEncode(row.Name)}</b>");
+                AppendTelegramField(sb, "🏷 Hãng", row.Brand);
+                AppendTelegramField(sb, "🛵 Loại", row.Category);
+                AppendTelegramField(sb, "💰 Giá", row.Price);
+                AppendTelegramField(sb, "⚙️ Dung tích", row.Cc);
+                AppendTelegramField(sb, "📦 Tồn kho", row.Stock);
+                AppendTelegramField(sb, "⭐ Nổi bật", row.Highlight);
+            }
+
+            if (tailLines.Count > 0)
+            {
+                sb.AppendLine();
+                sb.Append(ConvertMarkdownToTelegramHtml(string.Join("\n", tailLines)));
+            }
+
+            formattedHtml = sb.ToString().Trim();
+            return true;
+        }
+
+        private static bool IsMarkdownTableRow(string line)
+        {
+            return !string.IsNullOrWhiteSpace(line)
+                && line.TrimStart().StartsWith("|", StringComparison.Ordinal)
+                && line.TrimEnd().EndsWith("|", StringComparison.Ordinal);
+        }
+
+        private static bool IsMarkdownTableSeparator(string line)
+        {
+            if (!IsMarkdownTableRow(line))
+            {
+                return false;
+            }
+
+            var cells = SplitMarkdownTableRow(line);
+            return cells.Count > 0 && cells.All(cell =>
+            {
+                var value = cell.Trim();
+                return Regex.IsMatch(value, @"^:?-{3,}:?$");
+            });
+        }
+
+        private static List<string> SplitMarkdownTableRow(string line)
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("|", StringComparison.Ordinal))
+            {
+                trimmed = trimmed[1..];
+            }
+
+            if (trimmed.EndsWith("|", StringComparison.Ordinal))
+            {
+                trimmed = trimmed[..^1];
+            }
+
+            return trimmed
+                .Split('|')
+                .Select(cell => cell.Trim())
+                .ToList();
+        }
+
+        private static TelegramCompareRow BuildTelegramCompareRow(IReadOnlyList<string> headers, IReadOnlyList<string> cells)
+        {
+            string GetCell(params string[] aliases)
+            {
+                for (var i = 0; i < headers.Count; i++)
+                {
+                    var normalizedHeader = NormalizeHeader(headers[i]);
+                    if (aliases.Any(alias => normalizedHeader.Contains(alias, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return i < cells.Count ? StripMarkdown(cells[i]) : string.Empty;
+                    }
+                }
+
+                return string.Empty;
+            }
+
+            return new TelegramCompareRow(
+                Name: GetCell("xe", "mau"),
+                Brand: GetCell("hang", "thuong hieu"),
+                Category: GetCell("loai"),
+                Price: GetCell("gia"),
+                Cc: GetCell("dung tich", "cc"),
+                Stock: GetCell("ton", "con"),
+                Highlight: GetCell("noi bat", "diem"));
+        }
+
+        private static string NormalizeHeader(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            var normalized = value.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+            var sb = new StringBuilder();
+
+            foreach (var c in normalized)
+            {
+                if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+                {
+                    sb.Append(c);
+                }
+            }
+
+            return sb.ToString().Normalize(NormalizationForm.FormC).Replace('đ', 'd');
+        }
+
+        private static string StripMarkdown(string value)
+        {
+            return (value ?? string.Empty)
+                .Replace("**", string.Empty)
+                .Replace("__", string.Empty)
+                .Replace("`", string.Empty)
+                .Trim();
+        }
+
+        private static void AppendTelegramField(StringBuilder sb, string label, string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value) || value.Trim() == "-")
+            {
+                return;
+            }
+
+            sb.AppendLine($"{label}: {WebUtility.HtmlEncode(value.Trim())}");
+        }
+
+        private sealed record TelegramCompareRow(
+            string Name,
+            string Brand,
+            string Category,
+            string Price,
+            string Cc,
+            string Stock,
+            string Highlight);
 
         private static string BuildMonospaceCompareTable(
             List<(int Index, string Name, string Brand, string Category, string Cc, string Price, string Stock)> rows)

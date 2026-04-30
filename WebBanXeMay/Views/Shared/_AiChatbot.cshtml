@@ -494,6 +494,62 @@
         text-decoration: underline;
     }
 
+    .ai-table-wrap {
+        width: 100%;
+        margin: 10px 0 12px;
+        overflow-x: auto;
+        border: 1px solid var(--chat-border-soft);
+        border-radius: 10px;
+        background: #11141b;
+    }
+
+    .ai-compare-table {
+        width: 100%;
+        min-width: 680px;
+        border-collapse: collapse;
+        font-size: 12.5px;
+        color: #e5e7eb;
+    }
+
+    .ai-compare-table th,
+    .ai-compare-table td {
+        padding: 9px 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        vertical-align: top;
+        line-height: 1.45;
+    }
+
+    .ai-compare-table th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #1b1f2a;
+        color: #f8fafc;
+        font-weight: 800;
+        white-space: nowrap;
+    }
+
+    .ai-compare-table tbody tr:nth-child(even) {
+        background: rgba(255, 255, 255, 0.025);
+    }
+
+    .ai-compare-table tbody tr:hover {
+        background: rgba(249, 168, 212, 0.08);
+    }
+
+    .ai-compare-table .align-right {
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .ai-compare-table .align-center {
+        text-align: center;
+    }
+
+    .ai-compare-table .align-left {
+        text-align: left;
+    }
+
     .ai-product-card {
         margin-top: 10px;
     }

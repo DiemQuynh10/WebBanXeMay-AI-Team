@@ -52,6 +52,13 @@ namespace Chatbot.API.Controllers
                     });
                 }
 
+                request.Channel = string.IsNullOrWhiteSpace(request.Channel)
+                    ? "web"
+                    : request.Channel.Trim();
+
+                if (!string.IsNullOrWhiteSpace(request.UserId))
+                    request.UserId = request.UserId.Trim();
+
                 request.Message = _inputTextSanitizer.Sanitize(request.Message);
 
                 if (string.IsNullOrWhiteSpace(request.Message))

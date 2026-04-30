@@ -500,6 +500,7 @@ namespace Chatbot.API.Services
                 SoLuong = product.SoLuong,
                 CC = product.CC?.ToString(),
                 ImageUrl = product.ImageUrl,
+                ProductUrl = ChatProductCardMapper.BuildProductUrl(product),
                 ThuongHieu = product.ThuongHieu,
                 Loai = product.Loai
             };

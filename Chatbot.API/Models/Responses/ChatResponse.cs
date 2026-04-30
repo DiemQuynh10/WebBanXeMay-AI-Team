@@ -9,6 +9,7 @@
         public int SoLuong { get; set; }
         public string? CC { get; set; }
         public string? ImageUrl { get; set; }
+        public string? ProductUrl { get; set; }
         public string? ThuongHieu { get; set; }
         public string? Loai { get; set; }
     }

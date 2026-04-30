@@ -17,6 +17,7 @@ namespace Chatbot.API.Services
         private readonly IClarificationStateService _clarificationStateService;
         private readonly IQueryNormalizationService _queryNormalizationService;
         private readonly IConversationPreferenceService _conversationPreferenceService;
+        private readonly ISemanticParserService _semanticParserService;
         private readonly IPriceIntentParser _priceIntentParser;
         private readonly IIntentParserService _intentParserService;
         private readonly ILLMIntentUnderstandingService _llmIntentUnderstandingService;
@@ -39,6 +40,7 @@ namespace Chatbot.API.Services
     IClarificationStateService clarificationStateService,
     IQueryNormalizationService queryNormalizationService,
     IConversationPreferenceService conversationPreferenceService,
+    ISemanticParserService semanticParserService,
     IPriceIntentParser priceIntentParser,
     IIntentParserService intentParserService,
     ILLMIntentUnderstandingService llmIntentUnderstandingService,
@@ -61,6 +63,7 @@ namespace Chatbot.API.Services
             _clarificationStateService = clarificationStateService;
             _queryNormalizationService = queryNormalizationService;
             _conversationPreferenceService = conversationPreferenceService;
+            _semanticParserService = semanticParserService;
             _priceIntentParser = priceIntentParser;
             _intentParserService = intentParserService;
             _llmIntentUnderstandingService = llmIntentUnderstandingService;
@@ -169,7 +172,10 @@ namespace Chatbot.API.Services
                 conversationId,
                 originalMessage);
 
+            var semanticResult = await _semanticParserService.ParseAsync(originalMessage, existingProfile);
             var parsedIntent = await ParseIntentAsync(normalizedMessage, existingProfile);
+            ApplySemanticPolicyUnderstanding(parsedIntent, semanticResult);
+
             var isFreshRecommendationByCurrentMessage =
     IsFreshRecommendationRequest(normalizedMessage, parsedIntent);
             if (isFreshRecommendationByCurrentMessage &&
@@ -237,6 +243,8 @@ namespace Chatbot.API.Services
      state);
 
             var effectiveIntent = turnContext.EffectiveIntent ?? parsedIntent;
+            ApplySemanticPolicyUnderstanding(effectiveIntent, semanticResult);
+
             if (MessageAsksForCheaperOption(normalizedMessage))
             {
                 effectiveIntent.IntentType = "refine";
@@ -357,6 +365,25 @@ namespace Chatbot.API.Services
                 mergedProfile,
                 finalRouting);
 
+            if (IsPolicyOrServiceIntent(effectiveIntent))
+            {
+                finalRouting.FlowType = string.Equals(effectiveIntent.IntentType, ChatFlowType.PolicyInfo, StringComparison.OrdinalIgnoreCase)
+                    ? ChatFlowType.PolicyInfo
+                    : ChatFlowType.ServiceInfo;
+                finalRouting.ShouldUseDeterministicFlow = true;
+                finalRouting.ShouldUseAiFallback = false;
+                finalRouting.ShouldUseRag = true;
+                finalRouting.Reason = "semantic_policy_service_guard";
+            }
+
+            var semanticQuery = BuildRagSemanticQuery(
+                normalizedMessage,
+                effectiveIntent,
+                existingProfile,
+                semanticResult);
+
+            await _conversationPreferenceService.SetSemanticContextAsync(conversationId, semanticResult);
+
             LogContextSummary(
                 conversationId,
                 parsedIntent,
@@ -371,7 +398,7 @@ namespace Chatbot.API.Services
                 ConversationId = conversationId,
                 OriginalMessage = originalMessage,
                 NormalizedMessage = normalizedMessage,
-                SemanticQuery = BuildRagSemanticQuery(normalizedMessage, effectiveIntent, existingProfile),
+                SemanticQuery = semanticQuery,
                 ExistingProfile = mergedProfile,
                 State = state,
                 ParsedIntent = parsedIntent,
@@ -422,7 +449,8 @@ namespace Chatbot.API.Services
                     EffectivePrompt = BuildFallbackPrompt(
                         context.NormalizedMessage,
                         context.ExistingProfile),
-                    Channel = "web"
+                    Channel = context.Request?.Channel ?? "web",
+                    UserId = context.Request?.UserId
                 });
 
                 if (aiResponse != null && aiResponse.Success && !string.IsNullOrWhiteSpace(aiResponse.Reply))
@@ -679,15 +707,73 @@ Không bịa thông tin tồn kho, giá hay đơn hàng nếu không chắc.
 Tin nhắn người dùng: {normalizedMessage}";
         }
 
+        private static void ApplySemanticPolicyUnderstanding(
+            ParsedIntent intent,
+            SemanticResult? semanticResult)
+        {
+            if (intent == null || semanticResult == null || semanticResult.IsFallback)
+                return;
+
+            if (!IsPolicyOrServiceIntent(semanticResult.Intent))
+                return;
+
+            intent.IntentType = semanticResult.Intent;
+            intent.RouteFlow = semanticResult.Intent;
+            intent.IsProductSearch = false;
+            intent.IsOpenRecommendation = false;
+            intent.IsDirectProductLookup = false;
+            intent.HasDeterministicProductIntent = false;
+            intent.IsFollowUp = false;
+
+            if (!string.IsNullOrWhiteSpace(semanticResult.PolicySlot))
+                intent.PolicySlot = semanticResult.PolicySlot;
+
+            if (!string.IsNullOrWhiteSpace(semanticResult.Brand))
+                intent.Brand = semanticResult.Brand;
+
+            if (!string.IsNullOrWhiteSpace(semanticResult.LookupField))
+                intent.LookupField = semanticResult.LookupField;
+
+            if (semanticResult.MentionedProducts?.Count > 0)
+            {
+                intent.MentionedProducts = semanticResult.MentionedProducts
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+        }
+
+        private static bool IsPolicyOrServiceIntent(ParsedIntent? intent)
+        {
+            return IsPolicyOrServiceIntent(intent?.IntentType) ||
+                   IsPolicyOrServiceIntent(intent?.RouteFlow);
+        }
+
+        private static bool IsPolicyOrServiceIntent(string? intentType)
+        {
+            return string.Equals(intentType, ChatFlowType.ServiceInfo, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(intentType, ChatFlowType.PolicyInfo, StringComparison.OrdinalIgnoreCase);
+        }
+
         private static string BuildRagSemanticQuery(
             string normalizedMessage,
             ParsedIntent? intent,
-            CustomerPreferenceProfile? profile)
+            CustomerPreferenceProfile? profile,
+            SemanticResult? semanticResult = null)
         {
             var parts = new List<string>();
 
+            if (!string.IsNullOrWhiteSpace(semanticResult?.NormalizedMeaning))
+                parts.Add(semanticResult.NormalizedMeaning);
+
+            if (!string.IsNullOrWhiteSpace(semanticResult?.PolicySlot))
+                parts.Add(semanticResult.PolicySlot);
+
             if (!string.IsNullOrWhiteSpace(intent?.PolicySlot))
                 parts.Add(intent.PolicySlot);
+
+            if (!string.IsNullOrWhiteSpace(semanticResult?.Brand))
+                parts.Add(semanticResult.Brand);
 
             if (!string.IsNullOrWhiteSpace(intent?.Brand))
                 parts.Add(intent.Brand);

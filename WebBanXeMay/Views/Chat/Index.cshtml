@@ -239,11 +239,17 @@
 
         if (productData) {
             const priceFmt = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(productData.price);
+            const productSlug = (productData.slug || productData.Slug || '').toString().trim();
+            const productId = productData.id || productData.Id;
+            const detailUrl = productSlug
+                ? `/SanPham/Details?slug=${encodeURIComponent(productSlug)}`
+                : `/SanPham/Details?id=${encodeURIComponent(productId)}`;
+            const imageUrl = (productData.image || productData.imageUrl || productData.ImageUrl || '/images/no-image.png').toString().trim();
             html = `
             <div class="bubble ${alignClass} p-0 bg-transparent border-0">
-                <div class="shopee-product-card" onclick="window.location.href='/Products/Details/${productData.id}'">
+                <div class="shopee-product-card" onclick="window.location.href='${detailUrl}'">
                     <div class="shopee-body">
-                        <img src="${productData.image}" class="shopee-img">
+                        <img src="${imageUrl || '/images/no-image.png'}" class="shopee-img" onerror="this.onerror=null;this.src='/images/no-image.png';">
                         <div class="shopee-info">
                             <div class="shopee-name">${productData.name}</div>
                             <div class="shopee-price">${priceFmt}</div>

@@ -20,6 +20,7 @@ CHROMA_DIR = Path(__file__).parent / "chroma_db"
 COLLECTION = "knowledge"
 EMBED_MODEL = "text-embedding-3-small"
 TOP_K = 8
+RAG_SCHEMA_VERSION = "structured-v2"
 
 _openai_client = None
 _chroma_collection = None
@@ -73,14 +74,20 @@ def _infer_domain(text: str) -> str:
         "warranty": ["bao hanh", "chinh hang", "dong co", "khung xe", "phu tung", "khong bao hanh"],
         "maintenance": ["bao duong", "thay nhot", "bugi", "loc gio", "day curoa", "dinh ky"],
         "paperwork": ["giay to", "bien so", "ca vet", "dang ky", "truoc ba", "cu tru", "ct07", "vneid", "bao bien"],
+        "return_policy": ["doi tra", "tra xe", "hoan tien", "khau hao", "hoa don vat", "lan banh", "nguyen tem"],
         "delivery": ["giao hang", "van chuyen", "tan noi", "noi thanh", "ngoai thanh"],
         "insurance": ["bao hiem", "tnds", "tai nan", "mat cap", "boi thuong"],
         "promotion": ["khuyen mai", "uu dai", "giam", "tang", "sinh vien"],
+        "pricing": ["gia lan banh", "bao giay", "gia niem yet", "phi cap bien", "le phi truoc ba"],
         "deposit": ["dat coc", "giu xe", "hoan coc"],
         "tradein": ["thu cu", "doi moi", "trade-in", "len doi", "dinh gia"],
         "payment": ["thanh toan", "chuyen khoan", "quet the", "visa", "mastercard", "phi giao dich", "online"],
         "testride": ["lai thu", "test ride", "bang lai", "a1", "a2"],
         "technology": ["abs", "cbs", "smartkey", "chia khoa", "fi", "phun xang"],
+        "connected_app": ["my honda", "y-connect", "app", "ung dung", "bluetooth", "bao duong dien tu"],
+        "rescue": ["cuu ho", "thung lop", "chet may", "mat chia khoa", "het xang", "khan cap"],
+        "faq": ["hao xang", "ton xang", "bao duong o que", "bao hanh toan quoc", "co san", "giao ngay"],
+        "fengshui": ["phong thuy", "menh", "mau xe", "hop mau", "kim", "moc", "thuy", "hoa", "tho"],
     }
 
     for domain, keywords in domains.items():
@@ -94,22 +101,104 @@ def _infer_slot(text: str, domain: str) -> str:
     lower = _normalize_text(text)
     slots = {
         "interest": ["lai suat", "0%", "0.5", "1.2", "1.5"],
+        "zero_interest": ["0%", "0 %", "khong lai", "lai suat 0"],
         "down_payment": ["tra truoc", "down payment", "0 dong", "20%", "50%"],
-        "loan_term": ["thoi gian vay", "12", "60 thang"],
+        "loan_term": ["ky han", "ki han", "thoi gian vay", "may thang", "bao lau", "12", "60 thang"],
         "monthly_payment": ["hang thang", "moi thang", "1.5 trieu"],
         "approval_time": ["duyet", "15", "30 phut", "nhan xe"],
         "early_settlement": ["tat toan", "phi phat", "du no goc"],
         "conditions": ["dieu kien", "do tuoi", "thu nhap", "cic", "no xau", "bao lanh"],
         "documents": ["ho so", "giay to", "cmnd", "cccd", "ho khau", "kt3", "hop dong lao dong", "sao ke"],
         "process": ["quy trinh", "buoc", "ky hop dong", "tham dinh"],
+        "deposit": ["dat coc", "giu xe", "hoan coc", "khong duoc duyet"],
+        "deposit_amount": ["muc coc", "tien coc", "1.000.000", "3.000.000"],
+        "listed_price": ["gia niem yet", "gia xe", "da co vat"],
+        "onroad_price": ["gia lan banh", "bao giay", "ra bien", "chay ra duong"],
+        "plate_fee": ["phi cap bien", "bien so", "2-4 trieu", "ho khau"],
+        "registration_tax": ["le phi truoc ba", "truoc ba", "10-15%", "5%", "2%"],
+        "plate_identity": ["bien so dinh danh", "giu lai bien", "di theo nguoi"],
         "warranty_period": ["bao hanh", "nam", "km", "khong gioi han"],
+        "warranty_engine": ["dong co"],
+        "warranty_frame": ["khung xe", "nut gay", "moi han"],
+        "warranty_parts": ["phu tung", "linh kien"],
+        "warranty_conditions": ["dieu kien bao hanh", "trung tam uy quyen", "phieu giay", "tu y sua chua"],
         "warranty_exclusion": ["khong bao hanh", "hao mon", "lop xe", "ma phanh", "bugi", "bong den", "dau nhot"],
         "service_package": ["goi", "500.000", "800.000", "1.200.000"],
+        "basic_service_package": ["goi co ban", "500.000", "kiem tra tong the", "thay nhot"],
+        "advanced_service_package": ["goi nang cao", "800.000", "bugi", "day curoa", "ac quy"],
+        "premium_service_package": ["goi cao cap", "1.200.000", "loc nhien lieu", "he thong treo"],
         "maintenance_schedule": ["500km", "3,000km", "6,000km", "12,000km", "dinh ky", "ro-dai"],
-        "fee": ["phi", "66.000", "100.000", "200.000", "500.000", "1.500.000", "2-4 trieu"],
+        "break_in_service": ["ro-dai", "500km dau", "thay nhot lan dau"],
+        "fee": ["phi", "mien phi", "66.000", "100.000", "200.000", "500.000", "1.500.000", "2-4 trieu"],
         "registration_time": ["bam bien", "ca vet", "1-3 ngay", "7-10 ngay"],
+        "required_vehicle_documents": ["ca vet", "giay dang ky", "kiem dinh", "tnds bat buoc"],
+        "plate_service": ["bao bien", "lam giay to tron goi", "ct07", "vneid"],
+        "registration_process": ["tu dang ky", "to khai", "nop le phi", "nhan bien"],
+        "return_boundary": ["chua xuat hoa don", "da xuat hoa don", "lan banh", "xe cu"],
+        "return_conditions": ["nguyen tem", "niem phong", "phu kien", "qua tang"],
+        "return_process": ["mang xe", "ktv kiem tra", "xac nhan", "hoan tien", "doi xe"],
+        "depreciation": ["khau hao", "10-20%"],
+        "delivery_area": ["noi thanh", "ngoai thanh", "khu vuc", "tinh lan can"],
+        "delivery_fee": ["phi giao", "mien phi", "100.000", "200.000", "tinh theo km"],
+        "delivery_time": ["1-2 gio", "2-4 gio", "1-2 ngay", "2-3 ngay"],
+        "delivery_risk": ["rui ro van chuyen", "chiu 100%", "ky nhan"],
+        "delivery_conditions": ["thanh toan du", "kiem dinh", "co mat nhan xe"],
+        "delivery_inspection": ["no may", "kiem tra ngoai quan", "truoc khi nhan"],
+        "compulsory_insurance": ["tnds", "bat buoc", "66.000", "nguoi bi tong"],
+        "voluntary_insurance": ["tu nguyen", "mat cap", "toan dien", "1-1.5%"],
+        "theft_insurance": ["mat cap", "chia goc", "ho so cong an", "70-80%"],
+        "accident_insurance": ["tai nan", "20.000"],
+        "current_promotion": ["khuyen mai hien tai", "thang 4", "giam 5%", "qua 500.000"],
+        "student_promotion": ["sinh vien", "the sv", "giay bao trung tuyen", "balo"],
+        "promotion_conditions": ["dieu kien ap dung", "qua hien vat", "khong quy doi"],
+        "tradein_valuation": ["dinh gia", "15 phut", "kiem tra xe cu"],
+        "tradein_documents": ["chinh chu", "hop dong mua ban", "uy quyen", "so khung", "so may"],
+        "tradein_voucher": ["tro gia", "voucher", "1.000.000", "2.000.000"],
+        "tradein_payment": ["chenh lech", "tra gop phan chenh lech"],
+        "payment_methods": ["tien mat", "chuyen khoan", "atm", "visa", "mastercard", "jcb"],
+        "credit_card_fee": ["phi quet the", "the tin dung", "1.5%", "2.5%"],
+        "online_purchase": ["mua xe online", "video call", "so khung", "so may", "thanh toan phan con lai"],
+        "testride_models": ["dong xe co san lai thu", "vario", "exciter", "winner"],
+        "testride_conditions": ["bang lai", "a1", "a2", "cmnd", "cccd"],
+        "testride_process": ["dat lich", "xuat trinh", "ky bien ban", "sa hinh"],
+        "smart_app": ["my honda", "y-connect", "bao hanh dien tu", "nhac lich bao duong", "bluetooth"],
+        "rescue_cases": ["thung lop", "chet may", "mat chia khoa", "het xang"],
+        "rescue_fee": ["phi cuu ho", "mien phi", "10km", "bao gia truoc"],
+        "fuel_consumption_faq": ["hao xang", "ton xang", "lit/100km", "fi"],
+        "nationwide_warranty": ["bao hanh toan quoc", "ve que", "head", "yamaha town"],
+        "plate_fee_reason": ["phi bien so", "moi noi mot gia", "phan vung", "ha noi", "tp.hcm"],
+        "stock_availability": ["co san", "giao ngay", "check kho", "mau dac biet"],
+        "fengshui_color": ["phong thuy", "menh", "mau xe", "hop mau", "kim", "moc", "thuy", "hoa", "tho"],
         "refund": ["hoan", "hoan coc", "doi tra"],
     }
+
+    priority_slots = [
+        "zero_interest",
+        "deposit_amount",
+        "plate_fee",
+        "delivery_fee",
+        "credit_card_fee",
+        "rescue_fee",
+        "warranty_engine",
+        "warranty_frame",
+        "warranty_parts",
+        "warranty_conditions",
+        "basic_service_package",
+        "advanced_service_package",
+        "premium_service_package",
+        "break_in_service",
+        "required_vehicle_documents",
+        "plate_service",
+        "registration_process",
+        "delivery_time",
+        "delivery_risk",
+        "delivery_conditions",
+        "delivery_inspection",
+    ]
+
+    for slot in priority_slots:
+        if any(k in lower for k in slots.get(slot, [])):
+            return slot
 
     for slot, keywords in slots.items():
         if any(k in lower for k in keywords):
@@ -348,7 +437,12 @@ def build_index(force: bool = False):
         try:
             sample = collection.get(limit=1, include=["metadatas"])
             metadata = (sample.get("metadatas") or [{}])[0] or {}
-            has_structured_metadata = "domain" in metadata and "slot" in metadata and "brand" in metadata
+            has_structured_metadata = (
+                "domain" in metadata and
+                "slot" in metadata and
+                "brand" in metadata and
+                metadata.get("schema_version") == RAG_SCHEMA_VERSION
+            )
         except Exception:
             has_structured_metadata = False
 
@@ -393,6 +487,7 @@ def build_index(force: bool = False):
             "domain": chunk.get("domain", ""),
             "slot": chunk.get("slot", ""),
             "brand": chunk.get("brand", ""),
+            "schema_version": RAG_SCHEMA_VERSION,
         })
 
     collection.add(

@@ -252,12 +252,75 @@
             }
         };
 
-        for (const rawLine of lines) {
+        const isTableRow = (line) => /^\|.+\|$/.test(line.trim());
+        const isTableSeparator = (line) => {
+            const value = line.trim();
+            if (!isTableRow(value)) return false;
+
+            const cells = splitTableRow(value);
+            return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+        };
+        const splitTableRow = (line) => {
+            const value = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+            return value.split("|").map((cell) => cell.trim());
+        };
+        const buildTable = (headerLine, separatorLine, bodyLines) => {
+            const headers = splitTableRow(headerLine);
+            const separators = splitTableRow(separatorLine);
+            const aligns = separators.map((cell) => {
+                const value = cell.trim();
+                if (value.startsWith(":") && value.endsWith(":")) return "center";
+                if (value.endsWith(":")) return "right";
+                return "left";
+            });
+
+            const thead = headers
+                .map((cell, index) => `<th class="align-${aligns[index] || "left"}">${cell}</th>`)
+                .join("");
+
+            const rows = bodyLines
+                .map((row) => {
+                    const cells = splitTableRow(row);
+                    return `<tr>${headers
+                        .map((_, index) => {
+                            const value = cells[index] || "";
+                            return `<td class="align-${aligns[index] || "left"}">${value}</td>`;
+                        })
+                        .join("")}</tr>`;
+                })
+                .join("");
+
+            return `<div class="ai-table-wrap"><table class="ai-compare-table"><thead><tr>${thead}</tr></thead><tbody>${rows}</tbody></table></div>`;
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+            const rawLine = lines[i];
             const line = rawLine.trim();
 
             if (!line) {
                 closeLists();
                 continue;
+            }
+
+            if (isTableRow(line) && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+                closeLists();
+
+                const headerLine = line;
+                const separatorLine = lines[i + 1].trim();
+                const bodyLines = [];
+                i += 2;
+
+                while (i < lines.length && isTableRow(lines[i]) && !isTableSeparator(lines[i])) {
+                    bodyLines.push(lines[i].trim());
+                    i++;
+                }
+
+                i--;
+
+                if (bodyLines.length > 0) {
+                    htmlParts.push(buildTable(headerLine, separatorLine, bodyLines));
+                    continue;
+                }
             }
 
             if (/^>\s+/.test(line)) {
@@ -320,6 +383,9 @@
     }
 
     function buildProductDetailUrl(product) {
+        const explicitUrl = String(product?.productUrl ?? product?.ProductUrl ?? "").trim();
+        if (explicitUrl) return explicitUrl;
+
         const slug = String(product?.slug ?? product?.Slug ?? "").trim();
         const id = product?.id ?? product?.Id;
 
@@ -334,6 +400,24 @@
         return null;
     }
 
+    function buildProductImageUrl(product) {
+        const raw = String(product?.imageUrl ?? product?.ImageUrl ?? "").trim();
+        if (!raw) return "/images/no-image.png";
+
+        try {
+            const url = new URL(raw, window.location.origin);
+            const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+
+            if (isLocalhost && window.location.hostname !== url.hostname) {
+                return `${url.pathname}${url.search}`;
+            }
+
+            return url.href;
+        } catch {
+            return raw.startsWith("/") ? raw : `/${raw}`;
+        }
+    }
+
     function renderProductCards(products) {
         if (!Array.isArray(products) || products.length === 0) return "";
 
@@ -343,8 +427,7 @@
                 .map((product) => {
                     const name = String(product?.ten ?? product?.Ten ?? "Sản phẩm").trim();
                     const price = formatPrice(product?.gia ?? product?.Gia);
-                    const imageUrl = String(product?.imageUrl ?? product?.ImageUrl ?? "").trim();
-                    const safeImageUrl = imageUrl || "/images/no-image.png";
+                    const safeImageUrl = buildProductImageUrl(product);
                     const detailUrl = buildProductDetailUrl(product);
 
                     const openTag = detailUrl
@@ -359,7 +442,7 @@
                     return `
             ${openTag}
               <div class="ai-shop-card-media">
-                <img src="${escapeAttribute(safeImageUrl)}" class="ai-shop-card-thumb" alt="${escapeAttribute(name)}" />
+                <img src="${escapeAttribute(safeImageUrl)}" class="ai-shop-card-thumb" alt="${escapeAttribute(name)}" onerror="this.onerror=null;this.src='/images/no-image.png';" />
               </div>
               <div class="ai-shop-card-body">
                 <div class="ai-shop-card-name">${escapeHtml(name)}</div>

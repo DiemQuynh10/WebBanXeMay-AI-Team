@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using Chatbot.API.Helpers;
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.Responses;
 using Chatbot.API.Models.ToolApi;
@@ -632,6 +633,7 @@ namespace Chatbot.API.Services
                 SoLuong = product.SoLuong,
                 CC = product.CC?.ToString(),
                 ImageUrl = product.ImageUrl,
+                ProductUrl = ChatProductCardMapper.BuildProductUrl(product),
                 ThuongHieu = product.ThuongHieu,
                 Loai = product.Loai
             };

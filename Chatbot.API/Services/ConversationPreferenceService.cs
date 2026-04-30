@@ -967,6 +967,12 @@ namespace Chatbot.API.Services
             });
 
             profile.SemanticResult = semanticResult;
+            profile.LastSemanticResult = semanticResult.Clone();
+            profile.LastSemanticIntent = semanticResult.Intent;
+            profile.LastSemanticFlowType = semanticResult.FlowType;
+            profile.LastSemanticMeaning = semanticResult.NormalizedMeaning;
+            profile.LastIntentType = semanticResult.Intent;
+            profile.UpdatedAtUtc = DateTime.UtcNow;
 
             return Task.CompletedTask;
         }

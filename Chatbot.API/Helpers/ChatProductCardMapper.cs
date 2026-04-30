@@ -16,6 +16,7 @@ namespace Chatbot.API.Helpers
                 SoLuong = product.SoLuong,
                 CC = product.CC?.ToString(),
                 ImageUrl = product.ImageUrl,
+                ProductUrl = BuildProductUrl(product),
                 ThuongHieu = product.ThuongHieu,
                 Loai = product.Loai
             };
@@ -28,6 +29,16 @@ namespace Chatbot.API.Helpers
                 .Take(take)
                 .Select(Map)
                 .ToList();
+        }
+
+        public static string? BuildProductUrl(ProductSummaryDto product)
+        {
+            if (!string.IsNullOrWhiteSpace(product.Slug))
+                return $"/SanPham/Details?slug={Uri.EscapeDataString(product.Slug.Trim())}";
+
+            return product.Id > 0
+                ? $"/SanPham/Details?id={product.Id}"
+                : null;
         }
     }
 }

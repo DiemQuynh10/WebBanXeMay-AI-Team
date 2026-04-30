@@ -140,7 +140,7 @@ namespace Chatbot.API.Controllers
                         "HTML");
 
                     await SaveExchangeIfNeededAsync(
-                        $"telegram_{chatId}_main",
+                        BuildTelegramConversationId(chatId),
                         chatId.ToString(),
                         messageText,
                         ChatChannelMessageHelper.FormatReply(
@@ -164,7 +164,7 @@ namespace Chatbot.API.Controllers
                     _logger.LogWarning(exTyping, "Failed to send Telegram typing action.");
                 }
 
-                var conversationId = ResolveConversationId(chatId, messageText);
+                var conversationId = BuildTelegramConversationId(chatId);
 
                 Console.WriteLine($"ResolvedConversationId: {conversationId}");
 
@@ -255,18 +255,8 @@ namespace Chatbot.API.Controllers
             }
         }
 
-        private static string ResolveConversationId(long chatId, string messageText)
-        {
-            var normalized = NormalizeForIntent(messageText);
-
-            if (IsExplicitProductLookup(normalized))
-            {
-                var lookupKey = BuildLookupKey(normalized);
-                return $"telegram_{chatId}_lookup_{lookupKey}";
-            }
-
-            return $"telegram_{chatId}_main";
-        }
+        private static string BuildTelegramConversationId(long chatId)
+            => $"telegram_{chatId}";
 
         private static bool IsExplicitProductLookup(string normalized)
         {
@@ -558,12 +548,18 @@ namespace Chatbot.API.Controllers
 
         private string? BuildProductUrl(ChatProductCard product, string? resolvedBaseUrl = null)
         {
-            var apiBaseUrl = NormalizeOrigin(_telegramSettings.WebhookUrl);
+            var webBaseUrl = NormalizeOrigin(resolvedBaseUrl) ?? ResolvePublicWebBaseUrl();
 
-            if (string.IsNullOrWhiteSpace(apiBaseUrl))
+            if (!string.IsNullOrWhiteSpace(webBaseUrl))
             {
-                return null;
+                var path = BuildProductPathCandidates(product).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(path))
+                    return $"{webBaseUrl}{path}";
             }
+
+            var apiBaseUrl = NormalizeOrigin(_telegramSettings.WebhookUrl);
+            if (string.IsNullOrWhiteSpace(apiBaseUrl))
+                return null;
 
             if (!string.IsNullOrWhiteSpace(product.Slug))
             {
@@ -826,6 +822,8 @@ namespace Chatbot.API.Controllers
         public IActionResult ProductDetailRedirect([FromQuery] string? slug, [FromQuery] int? id)
         {
             var webBaseUrl = NormalizeOrigin(_telegramSettings.PublicWebBaseUrl)
+                             ?? NormalizeOrigin(_toolApiOptions.BaseUrl)
+                             ?? ExtractOriginFromUrl(_telegramSettings.WebhookUrl)
                              ?? "https://localhost:7097";
 
             if (!string.IsNullOrWhiteSpace(slug))
