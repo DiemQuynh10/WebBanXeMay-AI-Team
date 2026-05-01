@@ -2,13 +2,21 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Chatbot.API.Helpers;
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Services.Interfaces;
+using static Chatbot.API.Models.Intent.ParsedIntent;
 
 namespace Chatbot.API.Services
 {
     public class IntentParserService : IIntentParserService
     {
+        private readonly IProductNameResolverService _productNameResolver;
+
+        public IntentParserService(IProductNameResolverService productNameResolver)
+        {
+            _productNameResolver = productNameResolver;
+        }
         private static readonly Dictionary<string, string> ProductAliasMap = new(StringComparer.OrdinalIgnoreCase)
         {
             ["vision"] = "Honda Vision",
@@ -62,6 +70,8 @@ namespace Chatbot.API.Services
             ["shark mini"] = "SYM Shark Mini",
             ["sym shark"] = "SYM Shark Mini",
             ["sym shark mini"] = "SYM Shark Mini",
+            ["husky"] = "SYM Husky",
+            ["sym husky"] = "SYM Husky",
             ["attila"] = "SYM Attila Venus",
             ["attila venus"] = "SYM Attila Venus",
             ["sym attila"] = "SYM Attila Venus",
@@ -74,7 +84,7 @@ namespace Chatbot.API.Services
 
         private static readonly string[] KnownBrands = { "Honda", "Yamaha", "Suzuki", "SYM", "Piaggio" };
 
-        public Task<ParsedIntent> ParseAsync(string message)
+        public async Task<ParsedIntent> ParseAsync(string message)
         {
             var result = new ParsedIntent
             {
@@ -82,11 +92,9 @@ namespace Chatbot.API.Services
             };
 
             if (string.IsNullOrWhiteSpace(message))
-                return Task.FromResult(result);
+                return result;
 
             var text = Normalize(message);
-            Console.WriteLine("INTENT PARSER VERSION = step-noise-ack-clean");
-            Console.WriteLine("NORMALIZED TEXT = " + text);
             ParseExcludedCategory(text, result);
             ParseExcludedBrand(text, result);
 
@@ -98,10 +106,13 @@ namespace Chatbot.API.Services
             ParsePreferenceFeatures(text, result);
             ParseHeightAndSeat(text, result);
             ParseStyles(text, result);
-            ParseMentionedProducts(text, result);
+            await ParseMentionedProductsAsync(text, result);
+            ApplyProductMentionSafety(text, result);
+            ParseExcludedProducts(text, result);
             ParseComparisonFeature(text, result);
 
             ResolveBrandAndCategoryConflicts(result);
+            RecommendationConstraintExtractor.Apply(text, result);
             ParseRecommendationContextSignals(text, result);
 
             ParseGreeting(text, result);
@@ -110,7 +121,7 @@ namespace Chatbot.API.Services
             ParseNoise(text, result);
 
             if (result.IsOutOfScope || result.IsNoise || result.IsAck)
-                return Task.FromResult(result);
+                return result;
 
             ParseOrderLookup(text, result);
             ParseLookupSignals(text, result);
@@ -118,7 +129,7 @@ namespace Chatbot.API.Services
             ParseFollowUp(text, result);
             ParseRouteFlow(text, result);
 
-            return Task.FromResult(result);
+            return result;
         }
 
         private static void ParseGreeting(string text, ParsedIntent result)
@@ -188,10 +199,11 @@ namespace Chatbot.API.Services
                 result.ForTour;
 
             bool hasHardConstraintSignal =
-                !string.IsNullOrWhiteSpace(result.Brand) ||
-                !string.IsNullOrWhiteSpace(result.Category) ||
-                result.ExcludedBrands.Any() ||
-                result.ExcludedCategories.Any();
+     !string.IsNullOrWhiteSpace(result.Brand) ||
+     !string.IsNullOrWhiteSpace(result.Category) ||
+     result.ExcludedBrands.Any() ||
+     result.ExcludedCategories.Any() ||
+     result.ExcludedProducts.Any();
 
             bool hasStrongPreferenceSignal =
                 result.WantsLargeStorage ||
@@ -267,7 +279,6 @@ namespace Chatbot.API.Services
 
         private static void ParseOutOfScope(string text, ParsedIntent result)
         {
-            Console.WriteLine("PARSE OUT OF SCOPE TEXT = " + text);
             if (text.Contains("mau khac") ||
     text.Contains("xe khac") ||
     text.Contains("khac di") ||
@@ -278,6 +289,9 @@ namespace Chatbot.API.Services
             }
             bool hasMotorbikeSignal =
                 result.MentionedProducts.Any()
+                || result.ExcludedProducts.Any()
+|| result.ExcludedBrands.Any()
+|| result.ExcludedCategories.Any()
                 || !string.IsNullOrWhiteSpace(result.Brand)
                 || !string.IsNullOrWhiteSpace(result.Category)
                 || !string.IsNullOrWhiteSpace(result.Target)
@@ -314,7 +328,6 @@ namespace Chatbot.API.Services
 
             if (hasMotorbikeSignal)
                 return;
-            Console.WriteLine("OUT OF SCOPE MATCHED");
 
             if (ContainsAny(text,
      "thoi tiet",
@@ -363,7 +376,52 @@ namespace Chatbot.API.Services
 
         private static void ParseLookupSignals(string text, ParsedIntent result)
         {
+            if (result.ExcludedProducts.Any())
+            {
+                result.IsDirectProductLookup = false;
+                result.LookupTargetType = null;
+                result.LookupField = null;
+                return;
+            }
+
+            if (LooksLikeExplicitProductListRequest(text))
+            {
+                result.IsDirectProductLookup = false;
+                result.LookupTargetType = null;
+                result.LookupField = null;
+                result.MentionedProducts.Clear();
+
+                result.IntentType = "product_search";
+                result.IsProductSearch = true;
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
+
             bool hasMentionedProduct = result.MentionedProducts.Count >= 1;
+
+            bool hasRecommendationCue = ContainsAny(text,
+                "tu van",
+                "goi y",
+                "phu hop",
+                "nen mua",
+                "xe nao",
+                "chon xe",
+                "mua xe");
+
+            bool hasCompareCue = ContainsAny(text,
+                "so sanh",
+                "so voi",
+                "khac nhau",
+                "uu nhuoc",
+                "tot hon",
+                "hop hon",
+                "re hon",
+                "dat hon",
+                "rong hon",
+                "thap hon");
+
+            if (hasRecommendationCue || hasCompareCue)
+                return;
 
             bool asksCc = Regex.IsMatch(text, @"\bcc\b", RegexOptions.IgnoreCase)
                || ContainsAny(text, "bao nhieu cc", "bao nhieu phan khoi", "dung tich", "phan khoi");
@@ -389,6 +447,15 @@ namespace Chatbot.API.Services
                 "thong tin",
                 "mo ta",
                 "co gi",
+                "co gi noi bat",
+                "noi bat",
+                "tu van ve",
+                "tu van them",
+                "noi them",
+                "review",
+                "danh gia",
+                "xe nay the nao",
+                "mau nay the nao",
                 "xem chi tiet");
 
             if (asksCc)
@@ -410,11 +477,11 @@ namespace Chatbot.API.Services
 
             if (hasMentionedProduct &&
                 result.MentionedProducts.Count == 1 &&
-                !ContainsAny(text, "tu van", "goi y", "phu hop", "nen mua", "xe nao", "so sanh"))
+                IsBareProductMention(text, result.MentionedProducts[0]))
             {
                 result.IsDirectProductLookup = true;
                 result.LookupTargetType = "product";
-                result.LookupField ??= "detail";
+                result.LookupField = "detail";
                 result.HasDeterministicProductIntent = true;
             }
         }
@@ -438,25 +505,102 @@ namespace Chatbot.API.Services
                 result.IntentType = "order_lookup";
                 return;
             }
-
             if (IsExplicitCompareIntent(text, result.MentionedProducts.Count, result.ComparisonFeature))
             {
                 result.IntentType = "compare";
                 result.IsDirectCompare = true;
                 result.HasDeterministicProductIntent = true;
+
+                result.ExcludedBrands.Clear();
+                result.ExcludedProducts.Clear();
+                result.ExcludedCategories.Clear();
+
                 return;
             }
+            if (LooksLikeExplicitProductListRequest(text))
+            {
+                result.IntentType = "product_search";
+                result.IsProductSearch = true;
+                result.IsOpenRecommendation = false;
+                result.IsFollowUp = false;
+                result.FollowUpType = null;
+                result.Action = ConversationAction.None;
+                result.KeepConstraints = false;
+                result.ExcludePreviousProducts = false;
+                result.ExcludePreviousBrands = false;
+                result.HasFreshConsultationSignal = false;
+                result.HasExpandRecommendationSignal = false;
+                result.HasNarrowRefinementSignal = false;
+                result.HasDeterministicProductIntent = true;
 
+                result.ExcludedProducts.Clear();
+
+                return;
+            }
+            if (result.ExcludedProducts.Any() ||
+      result.ExcludedBrands.Any() ||
+      result.ExcludedCategories.Any())
+            {
+                if (result.HasFreshConsultationSignal ||
+                    !string.IsNullOrWhiteSpace(result.Category) ||
+                    !string.IsNullOrWhiteSpace(result.Brand) ||
+                    !string.IsNullOrWhiteSpace(result.Target) ||
+                    result.ForSchool ||
+                    result.ForWork ||
+                    result.ForCity ||
+                    result.ForTour ||
+                    result.PriceMin.HasValue ||
+                    result.PriceMax.HasValue ||
+                    result.TargetPrice.HasValue)
+                {
+                    result.IntentType = "recommend";
+                    result.IsOpenRecommendation = true;
+                    result.IsFollowUp = false;
+                    result.FollowUpType = null;
+                    result.HasDeterministicProductIntent = false;
+                    return;
+                }
+
+                result.IntentType = "refine";
+                result.IsFollowUp = true;
+                result.FollowUpType = "exclude";
+                result.IsDirectCompare = false;
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
             if (IsSwitchBrandIntent(text, result.Brand))
             {
                 result.IntentType = "brand_switch";
                 result.IsBrandSwitch = true;
                 result.IsFollowUp = true;
                 result.FollowUpType = "switch_brand";
+                result.IsDirectCompare = false;
+                result.ComparisonFeature = null;
                 result.HasDeterministicProductIntent = true;
                 return;
             }
+            if (result.ExcludedProducts.Any())
+            {
+                result.IntentType = "refine";
+                result.IsFollowUp = true;
+                result.FollowUpType = "exclude_product";
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
+            if (LooksLikeChangeProductIntent(text))
+            {
+                result.IntentType = "refine";
+                result.IsFollowUp = true;
+                result.FollowUpType = "change_product";
 
+                result.Action = ConversationAction.ChangeProduct;
+                result.KeepConstraints = true;
+                result.ExcludePreviousProducts = true;
+
+                result.HasNarrowRefinementSignal = true;
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
             if (result.HasExpandRecommendationSignal)
             {
                 result.IntentType = "refine";
@@ -465,8 +609,7 @@ namespace Chatbot.API.Services
                 result.HasDeterministicProductIntent = true;
                 return;
             }
-
-            if (result.HasNarrowRefinementSignal)
+            if (result.HasNarrowRefinementSignal && LooksLikeContextDependentFollowUp(text, result))
             {
                 result.IntentType = "followup";
                 result.IsFollowUp = true;
@@ -492,7 +635,6 @@ namespace Chatbot.API.Services
                 result.HasDeterministicProductIntent = true;
                 return;
             }
-
             if (result.IsDirectProductLookup)
             {
                 result.IntentType = "product_lookup";
@@ -530,7 +672,8 @@ namespace Chatbot.API.Services
             if (result.IntentType == "compare")
             {
                 result.IsFollowUp = result.MentionedProducts.Count < 2;
-                result.FollowUpType ??= "compare";
+                if (result.IsFollowUp)
+                    result.FollowUpType ??= "compare";
                 return;
             }
 
@@ -567,7 +710,7 @@ namespace Chatbot.API.Services
                 return;
             }
 
-            if (result.IsDirectCompare)
+            if (result.IsDirectCompare && result.MentionedProducts.Count >= 2)
             {
                 result.RouteFlow = ChatFlowType.Compare;
                 return;
@@ -670,7 +813,26 @@ namespace Chatbot.API.Services
                 result.Category = "côn tay";
             }
         }
+        private static bool IsBareProductMention(string text, string productName)
+        {
+            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(productName))
+                return false;
 
+            var normalizedProduct = Normalize(productName);
+
+            var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        normalizedProduct
+    };
+
+            foreach (var alias in ProductAliasMap)
+            {
+                if (string.Equals(alias.Value, productName, StringComparison.OrdinalIgnoreCase))
+                    allowed.Add(alias.Key);
+            }
+
+            return allowed.Any(x => string.Equals(text.Trim(), x, StringComparison.OrdinalIgnoreCase));
+        }
         private static void ParseExcludedCategory(string text, ParsedIntent result)
         {
             bool likesXeGa = HasPositiveCategorySignal(text, "xe ga");
@@ -752,33 +914,22 @@ namespace Chatbot.API.Services
 
         private static void ParseExcludedBrand(string text, ParsedIntent result)
         {
-            if (ContainsAny(text,
-                "khong thich honda",
-                "khong muon honda",
-                "ne honda",
-                "ghet honda",
-                "dung honda",
-                "bo honda",
-                "bo honda di",
-                "khong lay honda",
-                "khong lay honda nua",
-                "loai honda",
-                "loai honda ra"))
+            if (!HasNegativePreferenceSignal(text))
+                return;
+
+            foreach (var brand in KnownBrands)
             {
-                result.ExcludedBrands.Add("Honda");
+                var normalizedBrand = Normalize(brand);
+
+                if (MentionedAfterNegativeSignal(text, normalizedBrand) ||
+                    Regex.IsMatch(text, $@"\b{Regex.Escape(normalizedBrand)}\b", RegexOptions.IgnoreCase))
+                {
+                    result.ExcludedBrands.Add(brand);
+
+                    if (string.Equals(result.Brand, brand, StringComparison.OrdinalIgnoreCase))
+                        result.Brand = null;
+                }
             }
-
-            if (ContainsAny(text, "khong thich yamaha", "khong muon yamaha", "ne yamaha", "ghet yamaha", "dung yamaha", "bo yamaha", "loai yamaha"))
-                result.ExcludedBrands.Add("Yamaha");
-
-            if (ContainsAny(text, "khong thich suzuki", "khong muon suzuki", "ne suzuki", "ghet suzuki", "dung suzuki", "bo suzuki", "loai suzuki"))
-                result.ExcludedBrands.Add("Suzuki");
-
-            if (ContainsAny(text, "khong thich sym", "khong muon sym", "ne sym", "ghet sym", "dung sym", "bo sym", "loai sym"))
-                result.ExcludedBrands.Add("SYM");
-
-            if (ContainsAny(text, "khong thich piaggio", "khong muon piaggio", "ne piaggio", "ghet piaggio", "dung piaggio", "bo piaggio", "loai piaggio"))
-                result.ExcludedBrands.Add("Piaggio");
         }
 
         private static void ParseTarget(string text, ParsedIntent result)
@@ -883,7 +1034,7 @@ namespace Chatbot.API.Services
                 result.RequestedStyles.Add("compact");
         }
 
-        private static void ParseMentionedProducts(string text, ParsedIntent result)
+        private async Task ParseMentionedProductsAsync(string text, ParsedIntent result)
         {
             var matches = new List<(int Index, string DisplayName)>();
 
@@ -911,8 +1062,65 @@ namespace Chatbot.API.Services
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
-        }
 
+            var resolvedFromDb = await _productNameResolver.ResolveMentionedProductNamesAsync(text);
+
+            foreach (var productName in resolvedFromDb)
+            {
+                if (!result.MentionedProducts.Contains(productName, StringComparer.OrdinalIgnoreCase))
+                {
+                    result.MentionedProducts.Add(productName);
+                }
+            }
+        }
+        private static void ParseExcludedProducts(string text, ParsedIntent result)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            if (result.MentionedProducts == null || result.MentionedProducts.Count == 0)
+                return;
+
+            bool hasNegativeSignal = ContainsAny(text,
+                "khong thich",
+                "khong muon",
+                "khong lay",
+                "khong chon",
+                "khong can",
+                "khong xem",
+                "ko thich",
+                "ko muon",
+                "k thich",
+                "k muon",
+                "ne ",
+                "ghet",
+                "bo ",
+                "bo qua",
+                "loai",
+                "loai ra",
+                "dung goi y",
+                "dung tu van");
+
+            if (!hasNegativeSignal)
+                return;
+
+            foreach (var product in result.MentionedProducts)
+            {
+                if (!string.IsNullOrWhiteSpace(product))
+                {
+                    result.ExcludedProducts.Add(product);
+                }
+            }
+
+            result.IsDirectProductLookup = false;
+            result.LookupTargetType = null;
+            result.LookupField = null;
+
+            result.IntentType = "refine";
+            result.IsFollowUp = true;
+            result.FollowUpType = "exclude_product";
+            result.HasDeterministicProductIntent = true;
+        }
         private static int IndexOfWholePhrase(string text, string phrase)
         {
             if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(phrase))
@@ -951,7 +1159,39 @@ namespace Chatbot.API.Services
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
+        private static bool LooksLikeContextDependentFollowUp(string text, ParsedIntent result)
+        {
+            if (string.IsNullOrWhiteSpace(text) || result == null)
+                return false;
 
+            bool hasReferenceSignal = ContainsAny(text,
+                "thi sao",
+                "the con",
+                "vay con",
+                "con nay",
+                "con do",
+                "mau nay",
+                "mau do",
+                "xe nay",
+                "xe do",
+                "trong nhom nay",
+                "trong may mau nay",
+                "mau nao",
+                "xe nao");
+
+            bool startsLikeFollowUp =
+                text.StartsWith("con ") ||
+                text.StartsWith("neu ") ||
+                text.StartsWith("uu tien ") ||
+                text.StartsWith("chi lay ") ||
+                text.StartsWith("bo ") ||
+                text.StartsWith("loai ") ||
+                text.StartsWith("doi sang ") ||
+                text.StartsWith("giam xuong ") ||
+                text.StartsWith("len ");
+
+            return hasReferenceSignal || startsLikeFollowUp || result.IsFollowUp;
+        }
         private static void ParseComparisonFeature(string text, ParsedIntent result)
         {
             if (ContainsAny(text, "cop rong", "de do", "chua do"))
@@ -1102,12 +1342,47 @@ namespace Chatbot.API.Services
 
             return null;
         }
+        private static bool LooksLikeExplicitProductListRequest(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
 
+            bool hasListVerb = ContainsAny(text,
+                "dua ra",
+                "liệt kê",
+                "liet ke",
+                "ke ra",
+                "cho xem",
+                "xem danh sach",
+                "danh sach",
+                "shop co",
+                "cua hang co",
+                "co nhung xe nao",
+                "co xe nao",
+                "nhung xe nao",
+                "tat ca xe",
+                "toan bo xe");
+
+            bool hasProductSignal = ContainsAny(text,
+                "xe",
+                "xe may",
+                "mau",
+                "san pham",
+                "shop",
+                "cua hang");
+
+            bool hasFilterSignal =
+                ContainsAny(text, "tu", "den", "khoang", "tam", "duoi", "tren", "trieu", "xe ga", "xe so", "con tay") ||
+                Regex.IsMatch(text, @"\d+", RegexOptions.IgnoreCase);
+
+            return hasListVerb && (hasProductSignal || hasFilterSignal);
+        }
         private static bool LooksLikeProductSearch(string text, ParsedIntent result)
         {
             if (result.IsDirectProductLookup || result.IsOrderLookup || result.IsGreeting || result.IsOutOfScope)
                 return false;
-
+            if (LooksLikeExplicitProductListRequest(text))
+                return true;
             bool hasHardSearchConstraint =
                 !string.IsNullOrWhiteSpace(result.Brand)
                 || !string.IsNullOrWhiteSpace(result.Category)
@@ -1198,22 +1473,68 @@ namespace Chatbot.API.Services
 
             return (hasHumanNeed && hasHardSearchConstraint) || hasRecommendationCue || hasHumanNeed;
         }
-
-        private static bool IsExplicitCompareIntent(string text, int mentionedProductCount, string? comparisonFeature)
+        private static bool LooksLikeChangeProductIntent(string text)
         {
-            if (ContainsAny(text, "so sanh", "so voi", "khac nhau"))
-                return true;
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
 
-            if (mentionedProductCount >= 2 &&
-                (!string.IsNullOrWhiteSpace(comparisonFeature)
-                 || ContainsAny(text, "hon", "nao hon", "tot hon", "re hon", "dat hon", "rong hon", "thap hon")))
+            return ContainsAny(text,
+                "doi mau khac",
+                "doi con khac",
+                "doi xe khac",
+                "mau khac",
+                "con khac",
+                "xe khac",
+                "khac xem",
+                "khac di",
+                "mau nao khac",
+                "con nao khac",
+                "xe nao khac",
+                "goi y mau khac",
+                "goi y con khac",
+                "con lua chon nao khac",
+                "lua chon khac");
+        }
+        private static bool IsExplicitCompareIntent(
+      string text,
+      int mentionedProductCount,
+      string? comparisonFeature)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            if (ContainsAny(text,
+                "khong thich",
+                "khong muon",
+                "khong lay",
+                "khong chon",
+                "ghet",
+                "ne ",
+                "bo ",
+                "loai"))
             {
-                return true;
+                return false;
             }
 
-            return false;
-        }
+            bool hasExplicitCompareVerb = ContainsAny(text,
+                "so sanh",
+                "so voi",
+                "khac nhau",
+                "uu nhuoc diem",
+                "ưu nhược điểm");
 
+            if (hasExplicitCompareVerb)
+                return mentionedProductCount >= 2;
+
+            if (mentionedProductCount < 2)
+                return false;
+
+            bool hasComparePhrase =
+                Regex.IsMatch(text, @"\b(nao hon|tot hon|re hon|dat hon|rong hon|thap hon|nhe hon|em hon|hop hon|gon hon)\b",
+                    RegexOptions.IgnoreCase);
+
+            return !string.IsNullOrWhiteSpace(comparisonFeature) && hasComparePhrase;
+        }
         private static bool IsRefineIntent(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
@@ -1237,25 +1558,27 @@ namespace Chatbot.API.Services
 
         private static bool IsSwitchBrandIntent(string text, string? detectedBrand)
         {
-            if (string.IsNullOrWhiteSpace(text))
-                return false;
-
-            if (ContainsAny(text,
-                "doi sang honda",
-                "doi sang yamaha",
-                "doi sang suzuki",
-                "doi sang sym",
-                "doi sang piaggio"))
-            {
-                return true;
-            }
-
-            if (string.IsNullOrWhiteSpace(detectedBrand))
+            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(detectedBrand))
                 return false;
 
             var normalizedBrand = NormalizeBrandForText(detectedBrand);
-            return Regex.IsMatch(text, $@"\b(con|còn|doi sang|đổi sang)\s+{Regex.Escape(normalizedBrand)}\b")
-                   || Regex.IsMatch(text, $@"\b{Regex.Escape(normalizedBrand)}\s+(thi sao|thì sao)\b");
+
+            if (string.Equals(text.Trim(), normalizedBrand, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (Regex.IsMatch(text, $@"\b(co|có|con|còn)\s+{Regex.Escape(normalizedBrand)}\s*(khong|không)?\b", RegexOptions.IgnoreCase))
+                return true;
+
+            if (Regex.IsMatch(text, $@"\b{Regex.Escape(normalizedBrand)}\s+(co|có|con|còn)\s*(khong|không)?\b", RegexOptions.IgnoreCase))
+                return true;
+
+            if (Regex.IsMatch(text, $@"\b(doi sang|đổi sang|chuyen sang|chuyển sang|sang)\s+{Regex.Escape(normalizedBrand)}\b", RegexOptions.IgnoreCase))
+                return true;
+            
+            if (Regex.IsMatch(text, $@"\b{Regex.Escape(normalizedBrand)}\s+(thi sao|thì sao|duoc khong|được không|on khong|ổn không)\b", RegexOptions.IgnoreCase))
+                return true;
+
+            return false;
         }
 
         private static bool IsRecommendationFollowUpIntent(string text, ParsedIntent result)
@@ -1445,6 +1768,31 @@ namespace Chatbot.API.Services
                 result.IsAck = true;
                 result.IntentType = "unknown";
             }
+
+        }
+        private static bool HasNegativePreferenceSignal(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
+
+            return Regex.IsMatch(text,
+                @"\b(khong thich|khong muon|khong lay|khong chon|khong can|ko thich|ko muon|k thich|k muon|ghet|ne|bo|loai|loai ra|bo qua|tru|ngoai tru|mien khong|mien la khong|khong phai|khong la|hang khac khong)\b",
+                RegexOptions.IgnoreCase);
+        }
+
+        private static bool MentionedAfterNegativeSignal(string text, string keyword)
+        {
+            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(keyword))
+                return false;
+
+            var normalizedKeyword = Normalize(keyword);
+
+            return Regex.IsMatch(text,
+                $@"\b(khong thich|khong muon|khong lay|khong chon|khong can|ko thich|ko muon|k thich|k muon|ghet|ne|bo|loai|loai ra|bo qua|tru|ngoai tru|mien khong|mien la khong|khong phai|khong la|hang khac khong)\b.*\b{Regex.Escape(normalizedKeyword)}\b",
+                RegexOptions.IgnoreCase)
+                ||
+                Regex.IsMatch(text,
+                $@"\b{Regex.Escape(normalizedKeyword)}\b.*\b(khong thich|khong muon|khong lay|khong chon|khong can|ko thich|ko muon|k thich|k muon|ghet|ne|bo|loai|loai ra|bo qua)\b",
+                RegexOptions.IgnoreCase);
         }
         private static void ParseNoise(string text, ParsedIntent result)
         {
@@ -1459,6 +1807,11 @@ namespace Chatbot.API.Services
             {
                 result.IsNoise = true;
                 result.IntentType = "unknown";
+                return;
+            }
+
+            if (Regex.IsMatch(text, @"^0\d{8,9}$"))
+            {
                 return;
             }
 
@@ -1483,6 +1836,57 @@ namespace Chatbot.API.Services
                     result.IsNoise = true;
                     result.IntentType = "unknown";
                 }
+            }
+        }
+        private static void ApplyProductMentionSafety(string text, ParsedIntent result)
+        {
+            if (result == null || result.MentionedProducts == null)
+                return;
+
+            bool hasRecommendationCue = ContainsAny(text,
+                "tu van",
+                "goi y",
+                "nen mua",
+                "phu hop",
+                "xe nao",
+                "chon xe",
+                "mua xe");
+
+            bool hasCompareCue = ContainsAny(text,
+                "so sanh",
+                "so voi",
+                "khac nhau",
+                "uu nhuoc",
+                "cai nao hon",
+                "xe nao hon",
+                "mau nao hon",
+                "tot hon",
+                "hop hon");
+
+            bool hasLookupCue = ContainsAny(text,
+                "gia",
+                "bao nhieu",
+                "con hang",
+                "ton kho",
+                "chi tiet",
+                "thong tin",
+                "bao nhieu cc",
+                "phan khoi",
+                "dung tich");
+
+            if (hasRecommendationCue || hasCompareCue)
+            {
+                result.IsDirectProductLookup = false;
+                result.LookupField = null;
+                result.LookupTargetType = null;
+                return;
+            }
+
+            if (!hasLookupCue && result.MentionedProducts.Count > 1)
+            {
+                result.IsDirectProductLookup = false;
+                result.LookupField = null;
+                result.LookupTargetType = null;
             }
         }
     }

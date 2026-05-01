@@ -91,20 +91,30 @@ namespace Chatbot.API.Services
                     .ToList();
             }
 
-            var excludedBrands = BuildExcludedBrands(intent, profile);
-            var excludedCategories = BuildExcludedCategories(intent, profile);
+            bool explicitListSearch =
+    intent.IsProductSearch ||
+    string.Equals(intent.IntentType, "product_search", StringComparison.OrdinalIgnoreCase);
+
+            var excludedBrands = explicitListSearch && !MessageHasExplicitNegativeBrand(normalizedMessage)
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : BuildExcludedBrands(intent, profile);
+
+            var excludedCategories = explicitListSearch && !MessageHasExplicitNegativeCategory(normalizedMessage)
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : BuildExcludedCategories(intent, profile);
+
             var hasIntentBrandExclusions = intent.ExcludedBrands.Any();
 
             bool hasSearchSignals =
-    intent.IsProductSearch ||
-    intent.PriceMin.HasValue ||
-    intent.PriceMax.HasValue ||
-    intent.TargetPrice.HasValue ||
-    !string.IsNullOrWhiteSpace(intent.Brand) ||
-            !string.IsNullOrWhiteSpace(intent.Category) ||
-            intent.ExcludedBrands.Any() ||
-            intent.ExcludedCategories.Any() ||
-            intent.ExcludedProducts.Any();
+                intent.IsProductSearch ||
+                intent.PriceMin.HasValue ||
+                intent.PriceMax.HasValue ||
+                intent.TargetPrice.HasValue ||
+                !string.IsNullOrWhiteSpace(intent.Brand) ||
+                !string.IsNullOrWhiteSpace(intent.Category) ||
+                intent.ExcludedBrands.Any() ||
+                intent.ExcludedCategories.Any() ||
+                intent.ExcludedProducts.Any();
 
             if (!hasSearchSignals)
             {
@@ -115,12 +125,18 @@ namespace Chatbot.API.Services
             bool currentMessageHasBrand = MessageHasExplicitBrand(normalizedMessage);
 
             var effectiveBrand = !string.IsNullOrWhiteSpace(intent.Brand)
-                ? intent.Brand
-                : currentMessageHasCategory && !currentMessageHasBrand
-                    ? null
-                    : profile.PreferredBrand;
+     ? intent.Brand
+     : explicitListSearch
+         ? null
+         : currentMessageHasCategory && !currentMessageHasBrand
+             ? null
+             : profile.PreferredBrand;
 
-            var effectiveCategory = intent.Category ?? profile.PreferredCategory;
+            var effectiveCategory = !string.IsNullOrWhiteSpace(intent.Category)
+                ? intent.Category
+                : explicitListSearch
+                    ? null
+                    : profile.PreferredCategory;
 
             if (ProductExclusionHelper.IsBrandExcludedByIntentOrProfile(effectiveBrand, intent, profile))
             {
@@ -131,8 +147,13 @@ namespace Chatbot.API.Services
             {
                 effectiveCategory = null;
             }
-            var effectiveMinPrice = intent.PriceMin ?? profile.PriceMin;
-            var effectiveMaxPrice = intent.PriceMax ?? profile.PriceMax;
+            var effectiveMinPrice = explicitListSearch
+     ? intent.PriceMin
+     : intent.PriceMin ?? profile.PriceMin;
+
+            var effectiveMaxPrice = explicitListSearch
+                ? intent.PriceMax
+                : intent.PriceMax ?? profile.PriceMax;
             _logger.LogInformation(
     "ProductSearch effective filters. ConversationId: {ConversationId}, Brand: {Brand}, Category: {Category}, MinPrice: {MinPrice}, MaxPrice: {MaxPrice}, IntentType: {IntentType}, FilterType: {FilterType}",
     conversationId,
@@ -175,7 +196,10 @@ namespace Chatbot.API.Services
             var items = result?.Items?
                 .Where(x => x != null)
                 .ToList() ?? new List<ProductSummaryDto>();
-            items = ProductExclusionHelper.ApplyExclusions(items, intent, profile);
+            items = explicitListSearch
+     ? ApplyExplicitSearchExclusions(items, excludedBrands, excludedCategories)
+     : ProductExclusionHelper.ApplyExclusions(items, intent, profile);
+
             items = ApplyStrictExclusions(items, excludedBrands, excludedCategories);
 
             if (items.Count == 0)
@@ -190,7 +214,10 @@ namespace Chatbot.API.Services
                         effectiveMinPrice,
                         effectiveMaxPrice,
                         normalizedMessage);
-                    nearMatches = ProductExclusionHelper.ApplyExclusions(nearMatches, intent, profile);
+                    nearMatches = explicitListSearch
+     ? ApplyExplicitSearchExclusions(nearMatches, excludedBrands, excludedCategories)
+     : ProductExclusionHelper.ApplyExclusions(nearMatches, intent, profile);
+
                     nearMatches = ApplyStrictExclusions(nearMatches, excludedBrands, excludedCategories);
                 }
 
@@ -503,6 +530,87 @@ namespace Chatbot.API.Services
                 ThuongHieu = product.ThuongHieu,
                 Loai = product.Loai
             };
+        }
+        private static bool IsExplicitListSearch(string message)
+        {
+            var text = NormalizeText(message);
+
+            bool hasListVerb =
+                text.Contains("dua ra") ||
+                text.Contains("liet ke") ||
+                text.Contains("ke ra") ||
+                text.Contains("danh sach") ||
+                text.Contains("shop co") ||
+                text.Contains("cua hang co") ||
+                text.Contains("co nhung xe nao") ||
+                text.Contains("co xe nao") ||
+                text.Contains("nhung xe nao") ||
+                text.Contains("tat ca xe") ||
+                text.Contains("toan bo xe");
+
+            bool hasVehicleSignal =
+                text.Contains("xe") ||
+                text.Contains("mau") ||
+                text.Contains("san pham");
+
+            return hasListVerb && hasVehicleSignal;
+        }
+        private static bool MessageHasExplicitNegativeBrand(string message)
+        {
+            var text = NormalizeText(message);
+
+            return text.Contains("khong honda") ||
+                   text.Contains("khong yamaha") ||
+                   text.Contains("khong suzuki") ||
+                   text.Contains("khong sym") ||
+                   text.Contains("khong piaggio") ||
+                   text.Contains("khong thich honda") ||
+                   text.Contains("khong thich yamaha") ||
+                   text.Contains("khong thich suzuki") ||
+                   text.Contains("khong thich sym") ||
+                   text.Contains("khong thich piaggio") ||
+                   text.Contains("tru honda") ||
+                   text.Contains("tru yamaha") ||
+                   text.Contains("tru suzuki") ||
+                   text.Contains("tru sym") ||
+                   text.Contains("tru piaggio");
+        }
+
+        private static bool MessageHasExplicitNegativeCategory(string message)
+        {
+            var text = NormalizeText(message);
+
+            return text.Contains("khong xe ga") ||
+                   text.Contains("khong thich xe ga") ||
+                   text.Contains("khong xe so") ||
+                   text.Contains("khong thich xe so") ||
+                   text.Contains("khong con tay") ||
+                   text.Contains("khong thich con tay");
+        }
+        private static List<ProductSummaryDto> ApplyExplicitSearchExclusions(
+    IEnumerable<ProductSummaryDto> products,
+    HashSet<string> excludedBrands,
+    HashSet<string> excludedCategories)
+        {
+            var items = products
+                .Where(x => x != null)
+                .ToList();
+
+            if (excludedBrands.Count > 0)
+            {
+                items = items
+                    .Where(x => !excludedBrands.Contains(x.ThuongHieu?.Trim() ?? string.Empty))
+                    .ToList();
+            }
+
+            if (excludedCategories.Count > 0)
+            {
+                items = items
+                    .Where(x => !excludedCategories.Contains(x.Loai?.Trim() ?? string.Empty))
+                    .ToList();
+            }
+
+            return items;
         }
     }
 }

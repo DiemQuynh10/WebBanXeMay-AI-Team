@@ -157,22 +157,41 @@ namespace Chatbot.API.Services
     intent.PriceMax,
     intent.TargetPrice);
             _logger.LogInformation(
-                "Refinement entry. ConversationId={ConversationId}, Message={Message}, Brand={Brand}, Category={Category}, ExcludedCategories={ExcludedCategories}, ExcludedBrands={ExcludedBrands}, PriceMin={PriceMin}, PriceMax={PriceMax}, TargetPrice={TargetPrice}, FilterType={FilterType}, HardChange={HardChange}, SoftChange={SoftChange}, PreferCheaper={PreferCheaper}, PreferDifferent={PreferDifferent}, WantsBroader={WantsBroader}",
-                conversationId,
-                normalizedMessage,
-                intent.Brand,
-                intent.Category,
-                string.Join(",", intent.ExcludedCategories),
-                string.Join(",", intent.ExcludedBrands),
-                intent.PriceMin,
-                intent.PriceMax,
-                intent.TargetPrice,
-                intent.FilterType,
-                hasHardFilterChange,
-                hasSoftPreferenceChange,
-                signals.PreferCheaper,
-                signals.PreferDifferent,
-                signals.WantsBroaderAlternatives);
+    "Refinement entry. ConversationId={ConversationId}, Message={Message}, Brand={Brand}, Category={Category}, ExcludedProducts={ExcludedProducts}, ExcludedCategories={ExcludedCategories}, ExcludedBrands={ExcludedBrands}, PriceMin={PriceMin}, PriceMax={PriceMax}, TargetPrice={TargetPrice}, FilterType={FilterType}, HardChange={HardChange}, SoftChange={SoftChange}, PreferCheaper={PreferCheaper}, PreferDifferent={PreferDifferent}, WantsBroader={WantsBroader}",
+    conversationId,
+    normalizedMessage,
+    intent.Brand,
+    intent.Category,
+    string.Join(",", intent.ExcludedProducts),
+    string.Join(",", intent.ExcludedCategories),
+    string.Join(",", intent.ExcludedBrands),
+    intent.PriceMin,
+    intent.PriceMax,
+    intent.TargetPrice,
+    intent.FilterType,
+    hasHardFilterChange,
+    hasSoftPreferenceChange,
+    signals.PreferCheaper,
+    signals.PreferDifferent,
+    signals.WantsBroaderAlternatives);
+
+            foreach (var p in intent.ExcludedProducts)
+            {
+                if (!profile.ExcludedProducts.Contains(p))
+                    profile.ExcludedProducts.Add(p);
+            }
+
+            foreach (var b in intent.ExcludedBrands)
+            {
+                if (!profile.ExcludedBrands.Contains(b))
+                    profile.ExcludedBrands.Add(b);
+            }
+
+            foreach (var c in intent.ExcludedCategories)
+            {
+                if (!profile.ExcludedCategories.Contains(c))
+                    profile.ExcludedCategories.Add(c);
+            }
 
             if (hasHardFilterChange)
             {
@@ -199,6 +218,7 @@ namespace Chatbot.API.Services
 
             var items = await FetchHardRefinementCandidatesAsync(intent, minPrice, maxPrice);
             items = ApplyIntentFilters(items, intent);
+            items = ApplyAllExclusions(items, intent, profile);
             items = ApplySemanticRefinementOrdering(items, signals, profile, intent, normalizedMessage, previousProducts);
             items = ApplyPracticalUnderboneGuard(items, intent, normalizedMessage);
 
@@ -342,9 +362,23 @@ namespace Chatbot.API.Services
 
             if (contextFilteredCurrent.Count == 0)
             {
-                contextFilteredCurrent = currentProducts.ToList();
-            }
+                bool hasExclusion =
+                    intent.ExcludedBrands.Any() ||
+                    intent.ExcludedProducts.Any() ||
+                    intent.ExcludedCategories.Any() ||
+                    profile.ExcludedBrands.Any() ||
+                    profile.ExcludedProducts.Any() ||
+                    profile.ExcludedCategories.Any();
 
+                if (hasExclusion)
+                {
+                    contextFilteredCurrent = new List<ProductSummaryDto>();
+                }
+                else
+                {
+                    contextFilteredCurrent = currentProducts.ToList();
+                }
+            }
             var candidateProducts = contextFilteredCurrent;
 
             var isRelativePriceRefinement = IsRelativePriceRefinement(signals);
@@ -395,12 +429,12 @@ namespace Chatbot.API.Services
                     var (minPrice, maxPrice, brand, category) = BuildSoftRefinementBaseFilters(intent, profile);
 
                     var broaderCandidates = await FetchBroaderSoftCandidatesAsync(
-                        intent,
-                        minPrice,
-                        maxPrice,
-                        brand,
-                        category);
-
+    intent,
+    profile,
+    minPrice,
+    maxPrice,
+    brand,
+    category);
                     if (broaderCandidates.Count > 0)
                     {
                         candidateProducts = ApplySoftContextFilters(broaderCandidates, intent, profile);
@@ -469,15 +503,23 @@ namespace Chatbot.API.Services
             if (isRelativePriceRefinement)
             {
                 candidateProducts = ApplyRelativePriceRefinement(
-     candidateProducts,
-     relativePriceAnchor,
-     currentBand,
-     signals);
+    candidateProducts,
+    relativePriceAnchor,
+    currentBand,
+    signals);
+
+                candidateProducts = ApplyFemaleFriendlyRelativeGuard(
+                    candidateProducts,
+                    profile,
+                    normalizedMessage,
+                    previousProducts,
+                    signals);
+
                 _logger.LogWarning(
-     "RELATIVE FILTER RESULT => Anchor={Anchor}, Count={Count}, Products={Products}",
-     relativePriceAnchor,
-     candidateProducts.Count,
-     string.Join(" | ", candidateProducts.Select(x => $"{x.Ten}:{x.Gia:N0}")));
+                    "RELATIVE FILTER RESULT => Anchor={Anchor}, Count={Count}, Products={Products}",
+                    relativePriceAnchor,
+                    candidateProducts.Count,
+                    string.Join(" | ", candidateProducts.Select(x => $"{x.Ten}:{x.Gia:N0}")));
                 if (candidateProducts.Count == 0)
                 {
                     return await BuildRelativePriceNoMatchResponseAsync(
@@ -597,21 +639,13 @@ namespace Chatbot.API.Services
             List<ProductSummaryDto> previousProducts,
             RefinementSignals signals)
         {
-            IEnumerable<ProductSummaryDto> filtered = previousProducts;
-
-            if (intent.ExcludedBrands.Any())
-            {
-                filtered = filtered.Where(x =>
-                    !intent.ExcludedBrands.Any(ex => string.Equals(x.ThuongHieu, ex, StringComparison.OrdinalIgnoreCase)));
-            }
-
-            if (intent.ExcludedCategories.Any())
-            {
-                filtered = filtered.Where(x =>
-                    !intent.ExcludedCategories.Any(ex => IsSameCategory(x.Loai, ex)));
-            }
-
-            var filteredList = filtered.ToList();
+            var filteredList = ApplyAllExclusions(previousProducts, intent, profile);
+            _logger.LogWarning(
+    "EXCLUDE DEBUG => IntentExcludedProducts={IntentExcludedProducts}, ProfileExcludedProducts={ProfileExcludedProducts}, Previous={Previous}, After={After}",
+    string.Join(",", intent.ExcludedProducts),
+    string.Join(",", profile.ExcludedProducts),
+    string.Join(" | ", previousProducts.Select(x => x.Ten)),
+    string.Join(" | ", filteredList.Select(x => x.Ten)));
             if (filteredList.Count == 0)
             {
                 return await BuildNoMatchResponseAsync(conversationId, normalizedMessage, intent, profile);
@@ -800,7 +834,13 @@ namespace Chatbot.API.Services
                         string.Equals(x.ThuongHieu, ex, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
             }
-
+            if (intent.ExcludedProducts.Any())
+            {
+                items = items
+                    .Where(x => !intent.ExcludedProducts.Any(ex =>
+                        string.Equals(x.Ten, ex, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+            }
             return items;
         }
 
@@ -1205,10 +1245,11 @@ namespace Chatbot.API.Services
                 text.Contains(NormalizeText(intent.Category));
 
             bool hasExplicitBrandOrCategoryThisTurn =
-                mentionsBrandInCurrentTurn ||
-                mentionsCategoryInCurrentTurn ||
-                intent.ExcludedCategories.Any() ||
-                intent.ExcludedBrands.Any();
+     mentionsBrandInCurrentTurn ||
+     mentionsCategoryInCurrentTurn ||
+     intent.ExcludedCategories.Any() ||
+     intent.ExcludedBrands.Any() ||
+     intent.ExcludedProducts.Any();
 
             bool hasExplicitPricePhrase = HasAnyPricePhrase(text);
             bool hasPriceIntent =
@@ -1571,6 +1612,7 @@ namespace Chatbot.API.Services
                 .ToList() ?? new List<ProductSummaryDto>();
 
             relaxedItems = ApplyIntentFilters(relaxedItems, intent);
+            relaxedItems = ApplyAllExclusions(relaxedItems, intent, profile);
 
             if (relaxedItems.Count == 0)
                 return null;
@@ -1635,11 +1677,12 @@ namespace Chatbot.API.Services
             return (minPrice, maxPrice, brand, category);
         }
         private async Task<List<ProductSummaryDto>> FetchBroaderSoftCandidatesAsync(
-    ParsedIntent intent,
-    decimal? minPrice,
-    decimal? maxPrice,
-    string? brand,
-    string? category)
+     ParsedIntent intent,
+     CustomerPreferenceProfile profile,
+     decimal? minPrice,
+     decimal? maxPrice,
+     string? brand,
+     string? category)
         {
             var toolResult = await _toolClient.GetProductsByFiltersAsync(
                 brand: brand,
@@ -1652,7 +1695,10 @@ namespace Chatbot.API.Services
                 .Where(x => x != null)
                 .ToList() ?? new List<ProductSummaryDto>();
 
-            return ApplyIntentFilters(broaderCandidates, intent);
+            broaderCandidates = ApplyIntentFilters(broaderCandidates, intent);
+            broaderCandidates = ApplyAllExclusions(broaderCandidates, intent, profile);
+
+            return broaderCandidates;
         }
         private static List<ProductSummaryDto> ApplySoftPriceGuard(
     List<ProductSummaryDto> candidateProducts,
@@ -1791,21 +1837,7 @@ namespace Chatbot.API.Services
                     .ToList();
             }
 
-            if (intent.ExcludedBrands.Any())
-            {
-                items = items
-                    .Where(x => !intent.ExcludedBrands.Any(ex =>
-                        string.Equals(x.ThuongHieu, ex, StringComparison.OrdinalIgnoreCase)))
-                    .ToList();
-            }
-
-            if (intent.ExcludedCategories.Any())
-            {
-                items = items
-                    .Where(x => !intent.ExcludedCategories.Any(ex => IsSameCategory(x.Loai, ex)))
-                    .ToList();
-            }
-
+            items = ApplyAllExclusions(items, intent, profile);
             return items;
         }
         private static bool LooksLikeMoreExpensiveRequest(string text) =>
@@ -1933,6 +1965,7 @@ namespace Chatbot.API.Services
             // Lần 1: giữ brand + category nếu có
             var items = await FetchAsync(brand, category);
             items = ApplyIntentFilters(items, intent);
+            items = ApplyAllExclusions(items, intent, profile);
 
             if (items.Count > 0)
                 return items;
@@ -1945,6 +1978,7 @@ namespace Chatbot.API.Services
                 relaxedIntent.Brand = null;
 
                 relaxedBrandItems = ApplyIntentFilters(relaxedBrandItems, relaxedIntent);
+                relaxedBrandItems = ApplyAllExclusions(relaxedBrandItems, relaxedIntent, profile);
 
                 if (relaxedBrandItems.Count > 0)
                     return relaxedBrandItems;
@@ -1958,6 +1992,7 @@ namespace Chatbot.API.Services
                 relaxedIntent.Category = null;
 
                 relaxedCategoryItems = ApplyIntentFilters(relaxedCategoryItems, relaxedIntent);
+                relaxedCategoryItems = ApplyAllExclusions(relaxedCategoryItems, relaxedIntent, profile);
 
                 if (relaxedCategoryItems.Count > 0)
                     return relaxedCategoryItems;
@@ -2136,6 +2171,147 @@ namespace Chatbot.API.Services
                 .ToList();
 
             return practical.Count > 0 ? practical : new List<ProductSummaryDto>();
+
+        }
+        private static List<ProductSummaryDto> ApplyFemaleFriendlyRelativeGuard(
+    List<ProductSummaryDto> items,
+    CustomerPreferenceProfile profile,
+    string normalizedMessage,
+    List<ProductSummaryDto> previousProducts,
+    RefinementSignals signals)
+        {
+            if (items == null || items.Count == 0)
+                return new List<ProductSummaryDto>();
+
+            if (!signals.PreferCheaper)
+                return items;
+
+            if (!LooksLikeFemaleContext(profile, normalizedMessage, previousProducts))
+                return items;
+
+            var filtered = items
+                .Where(IsFemaleFriendlyCandidate)
+                .ToList();
+
+            return filtered;
+        }
+
+        private static bool LooksLikeFemaleContext(
+            CustomerPreferenceProfile profile,
+            string normalizedMessage,
+            List<ProductSummaryDto> previousProducts)
+        {
+            var text = NormalizeText(normalizedMessage);
+
+            if (profile.PrefersFemaleStyle)
+                return true;
+
+            if (!string.IsNullOrWhiteSpace(profile.Target) &&
+                NormalizeText(profile.Target).Contains("nu"))
+                return true;
+
+            if (ContainsAny(text, "cho nu", "xe nu", "hop nu", "nu tinh", "ban nu", "con gai"))
+                return true;
+
+            return previousProducts != null &&
+                   previousProducts.Any(x =>
+                       ContainsAny(x.Ten,
+                           "Vision",
+                           "Attila",
+                           "Shark",
+                           "Latte",
+                           "Grande",
+                           "Janus",
+                           "Lead",
+                           "Zip"));
+        }
+
+        private static bool IsFemaleFriendlyCandidate(ProductSummaryDto product)
+        {
+            if (product == null)
+                return false;
+
+            var name = NormalizeText(product.Ten);
+            var category = NormalizeCategory(product.Loai);
+
+            if (ContainsAny(name,
+                "winner",
+                "exciter",
+                "raider",
+                "sonic",
+                "husky",
+                "cbr",
+                "rebel",
+                "axelo",
+                "gd110",
+                "galaxy",
+                "star sr"))
+            {
+                return false;
+            }
+
+            if (category == "côn tay")
+                return false;
+
+            if (category == "xe ga")
+                return true;
+
+            if (ContainsAny(name,
+                "vision",
+                "janus",
+                "latte",
+                "grande",
+                "lead",
+                "zip",
+                "attila",
+                "shark",
+                "elite",
+                "address",
+                "impulse",
+                "angela",
+                "passing"))
+            {
+                return true;
+            }
+
+            return false;
+        }
+        private static bool ContainsAny(string? source, params string[] keywords)
+        {
+            if (string.IsNullOrWhiteSpace(source) || keywords == null || keywords.Length == 0)
+                return false;
+
+            var text = NormalizeText(source);
+
+            foreach (var keyword in keywords)
+            {
+                if (text.Contains(NormalizeText(keyword)))
+                    return true;
+            }
+
+            return false;
+        }
+        private static List<ProductSummaryDto> ApplyAllExclusions(
+    IEnumerable<ProductSummaryDto> source,
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile)
+        {
+            var items = source?.Where(x => x != null).ToList() ?? new List<ProductSummaryDto>();
+
+            var excludedBrands = new HashSet<string>(intent.ExcludedBrands, StringComparer.OrdinalIgnoreCase);
+            excludedBrands.UnionWith(profile.ExcludedBrands);
+
+            var excludedCategories = new HashSet<string>(intent.ExcludedCategories, StringComparer.OrdinalIgnoreCase);
+            excludedCategories.UnionWith(profile.ExcludedCategories);
+
+            var excludedProducts = new HashSet<string>(intent.ExcludedProducts, StringComparer.OrdinalIgnoreCase);
+            excludedProducts.UnionWith(profile.ExcludedProducts);
+
+            return items.Where(x =>
+                !excludedBrands.Contains(x.ThuongHieu ?? string.Empty) &&
+                !excludedCategories.Any(ex => IsSameCategory(x.Loai, ex)) &&
+                !excludedProducts.Contains(x.Ten ?? string.Empty))
+                .ToList();
         }
         private sealed class RefinementSignals
         {

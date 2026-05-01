@@ -117,7 +117,15 @@ namespace Chatbot.API.Services
                 ["tamf"] = "tầm",
                 ["namm"] = "nam",
                 ["nux"] = "nữ",
-                ["nuw"] = "nữ"
+                ["nuw"] = "nữ",
+                ["visison"] = "vision",
+                ["visson"] = "vision",
+                ["visoin"] = "vision",
+                ["air balde"] = "air blade",
+                ["air blad"] = "air blade",
+                ["air blae"] = "air blade",
+                ["airb lade"] = "air blade",
+                ["airbalde"] = "air blade"
             };
 
         private static readonly HashSet<string> HighRiskTokens =
@@ -138,8 +146,32 @@ namespace Chatbot.API.Services
         "goi y",
         "phu hp",
         "phù hp",
-        "phu hơp"
+        "phu hơp",
+        "visison",
+"visson",
+"visoin",
+"air balde",
+"air blad",
+"air blae",
+"airb lade",
+"airbalde"
      };
+        private static readonly HashSet<string> SafeAutoCorrectTokens =
+    new(StringComparer.OrdinalIgnoreCase)
+    {
+        "vison",
+        "visionn",
+        "visison",
+        "visson",
+        "visoin",
+
+        "air blaed",
+        "air balde",
+        "air blad",
+        "air blae",
+        "airb lade",
+        "airbalde"
+    };
         public NormalizationResult Analyze(string input)
         {
             if (string.IsNullOrWhiteSpace(input))
@@ -236,7 +268,9 @@ namespace Chatbot.API.Services
                 "phù hợp",
                 RegexOptions.IgnoreCase);
             var hasChanges = !string.Equals(original, normalized, StringComparison.OrdinalIgnoreCase);
-            var riskyChange = riskyChangedWords.Any();
+            var riskyChange = riskyChangedWords
+    .Any(word => !SafeAutoCorrectTokens.Contains(word));
+
             var needsConfirmation = hasChanges && riskyChange;
 
             return new NormalizationResult

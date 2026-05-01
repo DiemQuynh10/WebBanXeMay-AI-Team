@@ -30,7 +30,10 @@
 
         public bool PrefersMaleStyle { get; set; }
         public bool PrefersFemaleStyle { get; set; }
-
+        public ConversationAction Action { get; set; } = ConversationAction.None;
+        public bool KeepConstraints { get; set; }
+        public bool ExcludePreviousProducts { get; set; }
+        public bool ExcludePreviousBrands { get; set; }
         public HashSet<string> RequestedStyles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
         public string IntentType { get; set; } = "unknown";
@@ -38,6 +41,8 @@
         public string? FollowUpType { get; set; }
 
         public List<string> MentionedProducts { get; set; } = new();
+
+
         public string? ComparisonFeature { get; set; }
 
         public string RouteFlow { get; set; } = "unknown";
@@ -77,6 +82,17 @@
         public bool HasDeterministicProductIntent { get; set; }
         public bool IsNoise { get; set; }
         public bool IsAck { get; set; }
+        public enum ConversationAction
+        {
+            None,
+            FreshRecommendation,
+            RefineRecommendation,
+            ChangeProduct,
+            ChangeBrand,
+            ProductLookup,
+            Compare,
+            OrderLookup
+        }
         public ParsedIntent Clone()
         {
             return new ParsedIntent
@@ -133,6 +149,11 @@
                 IsDirectCompare = IsDirectCompare,
                 IsBrandSwitch = IsBrandSwitch,
 
+                Action = Action,
+                KeepConstraints = KeepConstraints,
+                ExcludePreviousProducts = ExcludePreviousProducts,
+                ExcludePreviousBrands = ExcludePreviousBrands,
+
                 HasFreshConsultationSignal = HasFreshConsultationSignal,
                 HasExpandRecommendationSignal = HasExpandRecommendationSignal,
                 HasNarrowRefinementSignal = HasNarrowRefinementSignal,
@@ -142,7 +163,9 @@
                 LookupField = LookupField,
                 PolicySlot = PolicySlot,
 
-                HasDeterministicProductIntent = HasDeterministicProductIntent
+                HasDeterministicProductIntent = HasDeterministicProductIntent,
+
+
             };
         }
     }

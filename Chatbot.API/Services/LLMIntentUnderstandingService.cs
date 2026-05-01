@@ -22,15 +22,15 @@ namespace Chatbot.API.Services
         };
 
         private static readonly HashSet<string> AllowedFollowUpTypes = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "restart",
-            "refine",
-            "expand",
-            "compare",
-            "lookup_followup",
-            "none"
-        };
-
+{
+    "restart",
+    "refine",
+    "expand",
+    "compare",
+    "lookup_followup",
+    "change_product",
+    "none"
+};
         private readonly IOpenAIService _openAIService;
         private readonly ILogger<LLMIntentUnderstandingService> _logger;
 
@@ -115,6 +115,7 @@ namespace Chatbot.API.Services
             sb.AppendLine("Bạn là bộ phân tích ý định cho chatbot bán xe máy.");
             sb.AppendLine("Nhiệm vụ của bạn là hiểu CÂU HIỆN TẠI dựa trên NGỮ CẢNH HỘI THOẠI trước đó.");
             sb.AppendLine("Bạn CHỈ được phân tích ý định, mức độ nối tiếp ngữ cảnh và các ràng buộc.");
+            sb.AppendLine("LLM chỉ được phân loại action/intent, KHÔNG được tự chọn xe.");
             sb.AppendLine("KHÔNG được tư vấn xe.");
             sb.AppendLine("KHÔNG được bịa giá, tồn kho, thông tin sản phẩm, đơn hàng hoặc chính sách.");
             sb.AppendLine("CHỈ trả về đúng 1 JSON hợp lệ. Không markdown. Không giải thích. Không văn bản ngoài JSON.");
@@ -175,7 +176,13 @@ namespace Chatbot.API.Services
             sb.AppendLine();
 
             sb.AppendLine("Giá trị priceFilterType hợp lệ nếu có: around | under | over | range | exact | null.");
-            sb.AppendLine("Giá trị followUpType hợp lệ nếu có: restart | refine | expand | compare | lookup_followup | none.");
+            sb.AppendLine("Giá trị followUpType hợp lệ nếu có: restart | refine | expand | compare | lookup_followup | change_product | none.");
+            sb.AppendLine("Giá trị action hợp lệ: None | FreshRecommendation | RefineRecommendation | ChangeProduct | ChangeBrand | ProductLookup | Compare | OrderLookup.");
+            sb.AppendLine();
+            sb.AppendLine("Quy tắc action:");
+            sb.AppendLine("- Nếu người dùng nói kiểu 'đổi mẫu khác', 'mẫu khác xem', 'còn mẫu nào khác không', 'khác đi' trong ngữ cảnh tư vấn => action=ChangeProduct.");
+            sb.AppendLine("- Với action=ChangeProduct: keepConstraints=true, excludePreviousProducts=true, excludePreviousBrands=false.");
+            sb.AppendLine("- Không tự chọn xe mới trong JSON. Code phía sau sẽ tự loại xe cũ và gọi API lấy xe thật.");
             sb.AppendLine();
 
             sb.AppendLine("Schema JSON bắt buộc:");
@@ -185,6 +192,10 @@ namespace Chatbot.API.Services
   ""isFollowUp"": true,
   ""resetContext"": false,
   ""followUpType"": ""restart | refine | expand | compare | lookup_followup | none"",
+""action"": ""None | FreshRecommendation | RefineRecommendation | ChangeProduct | ChangeBrand | ProductLookup | Compare | OrderLookup"",
+""keepConstraints"": false,
+""excludePreviousProducts"": false,
+""excludePreviousBrands"": false,
   ""reason"": ""lý do ngắn gọn"",
   ""isDirectLookup"": false,
   ""isFreshSearch"": false,
@@ -492,6 +503,7 @@ namespace Chatbot.API.Services
         {
             parsed.IntentType = NormalizeIntentType(parsed.IntentType);
             parsed.FollowUpType = NormalizeFollowUpType(parsed.FollowUpType);
+            parsed.Action = NormalizeConversationAction(parsed.Action);
             parsed.Reason = NormalizeText(parsed.Reason);
             parsed.ClarificationQuestion = NormalizeText(parsed.ClarificationQuestion);
             parsed.Brand = NormalizeText(parsed.Brand);
@@ -566,7 +578,18 @@ namespace Chatbot.API.Services
             }
 
             var lowerMessage = originalMessage.Trim().ToLowerInvariant();
-
+            if (LooksLikeBrandOnlyOrBrandAvailability(lowerMessage))
+            {
+                parsed.IntentType = "refine";
+                parsed.IsFollowUp = true;
+                parsed.FollowUpType = "refine";
+                parsed.IsDirectLookup = false;
+                parsed.IsFreshSearch = false;
+                parsed.MentionedProducts.Clear();
+                parsed.ComparisonFeature = null;
+                parsed.Brand ??= ExtractBrandFromText(lowerMessage);
+                parsed.Confidence = Math.Max(parsed.Confidence, 0.90);
+            }
             if (LooksLikeGreeting(lowerMessage) &&
                 parsed.IntentType.Equals("unknown", StringComparison.OrdinalIgnoreCase))
             {
@@ -595,6 +618,20 @@ namespace Chatbot.API.Services
                 parsed.FollowUpType = "refine";
                 parsed.Confidence = Math.Max(parsed.Confidence, 0.80);
             }
+            if (string.Equals(parsed.Action, "ChangeProduct", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.IntentType = "refine";
+                parsed.IsFollowUp = true;
+                parsed.FollowUpType = "change_product";
+                parsed.IsDirectLookup = false;
+                parsed.IsFreshSearch = false;
+                parsed.KeepConstraints = true;
+                parsed.ExcludePreviousProducts = true;
+                parsed.ExcludePreviousBrands = false;
+                parsed.ShouldAskClarification = false;
+                parsed.ClarificationQuestion = null;
+                parsed.Confidence = Math.Max(parsed.Confidence, 0.86);
+            }
         }
 
         private static string NormalizeIntentType(string? intentType)
@@ -614,7 +651,27 @@ namespace Chatbot.API.Services
 
             return AllowedFollowUpTypes.Contains(value) ? value : "none";
         }
+        private static string NormalizeConversationAction(string? action)
+        {
+            var value = NormalizeText(action);
 
+            if (string.IsNullOrWhiteSpace(value))
+                return "None";
+
+            var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "None",
+        "FreshRecommendation",
+        "RefineRecommendation",
+        "ChangeProduct",
+        "ChangeBrand",
+        "ProductLookup",
+        "Compare",
+        "OrderLookup"
+    };
+
+            return allowed.Contains(value) ? value : "None";
+        }
         private static string? NormalizePriceFilterType(string? priceFilterType)
         {
             var value = NormalizeText(priceFilterType)?.ToLowerInvariant();
@@ -719,6 +776,41 @@ namespace Chatbot.API.Services
             {
                 return raw.Substring(firstBrace, lastBrace - firstBrace + 1);
             }
+
+            return null;
+        }
+        private static bool LooksLikeBrandOnlyOrBrandAvailability(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            text = text.Trim().ToLowerInvariant();
+
+            string[] brands = { "honda", "yamaha", "suzuki", "sym", "piaggio" };
+
+            if (brands.Contains(text))
+                return true;
+
+            return brands.Any(brand =>
+                text == $"có {brand} không" ||
+                text == $"co {brand} khong" ||
+                text == $"còn {brand} không" ||
+                text == $"con {brand} khong" ||
+                text == $"{brand} thì sao" ||
+                text == $"{brand} thi sao");
+        }
+        private static string? ExtractBrandFromText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+
+            text = text.Trim().ToLowerInvariant();
+
+            if (text.Contains("honda")) return "Honda";
+            if (text.Contains("yamaha")) return "Yamaha";
+            if (text.Contains("suzuki")) return "Suzuki";
+            if (text.Contains("sym")) return "SYM";
+            if (text.Contains("piaggio")) return "Piaggio";
 
             return null;
         }

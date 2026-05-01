@@ -25,6 +25,7 @@ namespace Chatbot.API.Services
             profile.LastSearchProductIds ??= new List<int>();
 
             profile.LastLookupCandidateNames ??= new List<string>();
+            profile.ExcludedProducts ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             return Task.FromResult(profile);
         }
@@ -99,6 +100,7 @@ namespace Chatbot.API.Services
 
             profile.ExcludedCategories.Clear();
             profile.ExcludedBrands.Clear();
+            profile.ExcludedProducts.Clear();
 
             profile.HeightCm = null;
             profile.NeedsLowSeat = false;
@@ -349,7 +351,8 @@ namespace Chatbot.API.Services
 
             foreach (var item in intent.ExcludedBrands)
                 profile.ExcludedBrands.Add(item);
-
+            foreach (var item in intent.ExcludedProducts)
+                profile.ExcludedProducts.Add(item);
             if (intent.HeightCm.HasValue)
                 profile.HeightCm = intent.HeightCm;
 
@@ -487,6 +490,7 @@ namespace Chatbot.API.Services
 
             profile.ExcludedCategories.Clear();
             profile.ExcludedBrands.Clear();
+            profile.ExcludedProducts.Clear();
 
             profile.HeightCm = null;
             profile.NeedsLowSeat = false;
@@ -639,6 +643,7 @@ namespace Chatbot.API.Services
             profile.ExcludedCategories.Clear();
             profile.ExcludedBrands.Clear();
             profile.RequestedStyles.Clear();
+            profile.ExcludedProducts.Clear();
 
             // Gán lại từ intent mới
             if (intent.FilterType != PriceFilterType.None)
@@ -702,6 +707,8 @@ namespace Chatbot.API.Services
 
             foreach (var item in intent.ExcludedBrands)
                 profile.ExcludedBrands.Add(item);
+            foreach (var item in intent.ExcludedProducts)
+                profile.ExcludedProducts.Add(item);
 
             foreach (var style in intent.RequestedStyles)
                 profile.RequestedStyles.Add(style);
@@ -749,7 +756,8 @@ namespace Chatbot.API.Services
 
             if (profile.ExcludedBrands.Count > 0)
                 parts.Add($"không muốn hãng: {string.Join(", ", profile.ExcludedBrands)}");
-
+            if (profile.ExcludedProducts.Count > 0)
+                parts.Add($"không muốn mẫu: {string.Join(", ", profile.ExcludedProducts)}");
             if (profile.HeightCm.HasValue)
                 parts.Add($"chiều cao khoảng {profile.HeightCm.Value}cm");
 

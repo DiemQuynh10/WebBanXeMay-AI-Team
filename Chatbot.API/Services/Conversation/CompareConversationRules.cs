@@ -111,6 +111,8 @@ namespace Chatbot.API.Services.Conversation
 
             if (!profile.HasActiveCompareContext || profile.LastComparedProducts.Count < 2)
                 return false;
+            if (LooksLikeAlternativeRecommendationRequest(message))
+                return false;
 
             var text = message.Trim().ToLowerInvariant();
 
@@ -156,6 +158,39 @@ namespace Chatbot.API.Services.Conversation
                     .Count() < 2;
 
             return hasCompareFeatureOrComparePrice && doesNotNameTwoNewProducts;
+        }
+        private static bool LooksLikeAlternativeRecommendationRequest(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return false;
+
+            var text = message.Trim().ToLowerInvariant();
+
+            bool asksOtherOption =
+                text.Contains("còn xe nào") ||
+                text.Contains("con xe nao") ||
+                text.Contains("xe nào") ||
+                text.Contains("xe nao") ||
+                text.Contains("mẫu nào") ||
+                text.Contains("mau nao") ||
+                text.Contains("con nào") ||
+                text.Contains("con nao") ||
+                text.Contains("xe khác") ||
+                text.Contains("xe khac") ||
+                text.Contains("mẫu khác") ||
+                text.Contains("mau khac");
+
+            bool asksCheaper =
+                text.Contains("rẻ hơn") ||
+                text.Contains("re hon") ||
+                text.Contains("mềm hơn") ||
+                text.Contains("mem hon") ||
+                text.Contains("thấp hơn") ||
+                text.Contains("thap hon") ||
+                text.Contains("ít tiền hơn") ||
+                text.Contains("it tien hon");
+
+            return asksOtherOption && asksCheaper;
         }
     }
 }

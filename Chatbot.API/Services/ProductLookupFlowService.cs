@@ -51,7 +51,16 @@ namespace Chatbot.API.Services
                 ["attila"] = "SYM Attila Venus",
                 ["attila venus"] = "SYM Attila Venus",
                 ["galaxy"] = "SYM Galaxy Sport",
-                ["galaxy sport"] = "SYM Galaxy Sport"
+                ["galaxy sport"] = "SYM Galaxy Sport",
+                ["visison"] = "Honda Vision",
+                ["visson"] = "Honda Vision",
+                ["visoin"] = "Honda Vision",
+
+                ["airbalde"] = "Honda Air Blade",
+                ["air balde"] = "Honda Air Blade",
+                ["air blad"] = "Honda Air Blade",
+                ["air blae"] = "Honda Air Blade",
+                ["airb lade"] = "Honda Air Blade"
             };
 
         public ProductLookupFlowService(
@@ -75,7 +84,11 @@ namespace Chatbot.API.Services
     : InferLookupField(normalizedMessage);
 
             bool hasLookupField = !string.IsNullOrWhiteSpace(effectiveLookupField);
-            bool hasLookupContext = !string.IsNullOrWhiteSpace(profile.LastLookupProductName);
+            bool hasLookupContext =
+      !string.IsNullOrWhiteSpace(profile.LastLookupProductName) ||
+      !string.IsNullOrWhiteSpace(profile.LastResolvedProductName) ||
+      profile.LastMentionedProducts?.Any() == true ||
+      profile.LastRecommendedProducts?.Any() == true;
 
             bool isReferenceLookupFollowUp = IsLookupReferenceLikeMessage(normalizedMessage);
             bool hasExplicitProductSignal = HasExplicitProductSignal(normalizedMessage, intent);
@@ -148,7 +161,14 @@ namespace Chatbot.API.Services
                 string.Equals(intent.RouteFlow, ChatFlowType.ProductLookup, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(intent.IntentType, "product_lookup", StringComparison.OrdinalIgnoreCase);
 
-            if (!routeAlreadyLookup && !intent.IsDirectProductLookup && !isLookupFollowUp)
+            bool hasOnlyProductName =
+     !string.IsNullOrWhiteSpace(DetectProductNameFromText(normalizedMessage)) &&
+     string.IsNullOrWhiteSpace(intent.LookupField);
+
+            if (!routeAlreadyLookup &&
+                !intent.IsDirectProductLookup &&
+                !isLookupFollowUp &&
+                !hasOnlyProductName)
             {
                 return null;
             }
@@ -163,11 +183,21 @@ namespace Chatbot.API.Services
 
             ProductSummaryDto? resolvedProduct = null;
 
-            if (isLookupFollowUp && hasLookupContext)
+            var candidateNames = BuildCandidateNames(intent, profile, normalizedMessage);
+
+            if (isReferenceLookupFollowUp && candidateNames.Count > 0)
+            {
+                foreach (var candidate in candidateNames)
+                {
+                    resolvedProduct = await SearchBestProductByNameAsync(candidate);
+                    if (resolvedProduct != null)
+                        break;
+                }
+            }
+            else if (isLookupFollowUp && hasLookupContext)
             {
                 resolvedProduct = await ResolveFromLookupContextAsync(profile, normalizedMessage);
             }
-            var candidateNames = BuildCandidateNames(intent, profile, normalizedMessage);
             _logger.LogWarning(
     "LOOKUP CANDIDATES => Message={Message}, Candidates={Candidates}, IntentMentioned={Mentioned}, LastLookup={LastLookup}, LastResolved={LastResolved}",
     normalizedMessage,
@@ -199,7 +229,9 @@ namespace Chatbot.API.Services
                     : new List<string> { resolvedProduct.Ten };
 
             await SaveLookupContextAsync(conversationId, resolvedProduct, lookupContextNames);
-
+            _logger.LogWarning(
+    "LOOKUP CONTEXT SAVED => {ProductName}",
+    resolvedProduct.Ten);
             var lookupIntent = intent.Clone();
             lookupIntent.LookupField = effectiveLookupField;
 
@@ -319,14 +351,22 @@ namespace Chatbot.API.Services
 
             if (isReferenceFollowUp)
             {
-                if (profile.LastLookupCandidateNames != null && profile.LastLookupCandidateNames.Count > 0)
-                    candidates.AddRange(profile.LastLookupCandidateNames);
-
+                // Ưu tiên xe vừa lookup / vừa resolve trước
                 if (!string.IsNullOrWhiteSpace(profile.LastResolvedProductName))
                     candidates.Add(profile.LastResolvedProductName);
 
                 if (!string.IsNullOrWhiteSpace(profile.LastLookupProductName))
                     candidates.Add(profile.LastLookupProductName);
+
+                // Sau đó mới tới danh sách candidate cũ
+                if (profile.LastLookupCandidateNames != null && profile.LastLookupCandidateNames.Count > 0)
+                    candidates.AddRange(profile.LastLookupCandidateNames);
+
+                if (profile.LastMentionedProducts != null && profile.LastMentionedProducts.Count > 0)
+                    candidates.AddRange(profile.LastMentionedProducts);
+
+                if (profile.LastRecommendedProducts != null && profile.LastRecommendedProducts.Count > 0)
+                    candidates.AddRange(profile.LastRecommendedProducts);
             }
 
             if (candidates.Count == 0 && !string.IsNullOrWhiteSpace(normalizedMessage))
@@ -387,17 +427,20 @@ namespace Chatbot.API.Services
             if (string.IsNullOrWhiteSpace(message))
                 return false;
 
-            var text = message.Trim().ToLowerInvariant();
+            var text = NormalizeText(message);
 
-            return text.Contains("mẫu đó") ||
-                   text.Contains("con đó") ||
-                   text.Contains("xe đó") ||
-                   text.Contains("mẫu kia") ||
+            return text.Contains("mau nay") ||
+                   text.Contains("con nay") ||
+                   text.Contains("xe nay") ||
+                   text.Contains("mau do") ||
+                   text.Contains("con do") ||
+                   text.Contains("xe do") ||
+                   text.Contains("mau kia") ||
                    text.Contains("con kia") ||
                    text.Contains("xe kia") ||
-                   text.Contains("đầu tiên") ||
-                   text.Contains("thứ 2") ||
-                   text.Contains("thứ hai");
+                   text.Contains("dau tien") ||
+                   text.Contains("thu 2") ||
+                   text.Contains("thu hai");
         }
         private async Task<ProductSummaryDto?> ResolveFromLookupContextAsync(
     CustomerPreferenceProfile profile,
@@ -555,7 +598,8 @@ namespace Chatbot.API.Services
 
                 case "installment":
                     return $"Mình nhận ra bạn đang hỏi về **trả góp** cho **{product.Ten}**. Hiện dữ liệu tra cứu chưa có bảng trả góp chi tiết, nhưng giá xe hiện tại là **{product.Gia:N0} VNĐ**. Nếu bạn muốn, mình có thể giúp bạn ước lượng mức trả trước và số tiền cần chuẩn bị ban đầu.";
-
+                case "category":
+                    return BuildCategoryAnswer(product, normalizedMessage);
                 case "detail":
                     return BuildDetailReply(product);
 
@@ -591,7 +635,18 @@ namespace Chatbot.API.Services
 
             if (text.Contains("cc"))
                 return "cc";
-
+            if (text.Contains("loai xe") ||
+    text.Contains("dong xe") ||
+    text.Contains("xe gi") ||
+    text.Contains("xe ga") ||
+    text.Contains("xe so") ||
+    text.Contains("con tay") ||
+    text.Contains("co phai xe ga") ||
+    text.Contains("co phai xe so") ||
+    text.Contains("co phai xe con tay"))
+            {
+                return "category";
+            }
             return "detail";
         }
 
@@ -599,28 +654,67 @@ namespace Chatbot.API.Services
         {
             var sb = new StringBuilder();
 
-            sb.AppendLine($"**{product.Ten}**");
+            sb.AppendLine($"**{product.Ten}** là mẫu xe thuộc hãng **{product.ThuongHieu}**, dòng **{product.Loai}**.");
+
+            sb.AppendLine();
+            sb.AppendLine("Thông tin chính:");
             sb.AppendLine($"- Giá: **{product.Gia:N0} VNĐ**");
-            sb.AppendLine($"- Hãng: {product.ThuongHieu}");
-            sb.AppendLine($"- Loại xe: {product.Loai}");
+            sb.AppendLine($"- Hãng: **{product.ThuongHieu}**");
+            sb.AppendLine($"- Loại xe: **{product.Loai}**");
 
             if (product.CC.HasValue)
             {
-                sb.AppendLine($"- Dung tích: {product.CC.Value} cc");
+                sb.AppendLine($"- Dung tích: **{product.CC.Value} cc**");
             }
 
             if (product.SoLuong > 0)
             {
-                sb.AppendLine($"- Tồn kho: {product.SoLuong} chiếc");
+                sb.AppendLine($"- Tồn kho: **{product.SoLuong} chiếc**");
             }
             else
             {
                 sb.AppendLine("- Tình trạng: hiện đang hết hàng");
             }
 
+            sb.AppendLine();
+            sb.AppendLine(BuildProductAdvice(product));
+
             return sb.ToString().Trim();
         }
+        private static string BuildProductAdvice(ProductSummaryDto product)
+        {
+            var name = NormalizeText(product.Ten);
+            var type = NormalizeText(product.Loai);
 
+            if (name.Contains("vision"))
+                return "Điểm nổi bật: Honda Vision nhỏ gọn, dễ điều khiển, hợp đi phố, đi học hoặc đi làm hằng ngày. Mẫu này khá phù hợp với khách cần xe nhẹ, tiết kiệm và dễ sử dụng.";
+
+            if (name.Contains("air blade"))
+                return "Điểm nổi bật: Honda Air Blade có kiểu dáng thể thao, cảm giác chạy đầm hơn các mẫu xe nhỏ, phù hợp với người đi làm, thích xe ga khỏe và hiện đại hơn.";
+
+            if (name.Contains("grande"))
+                return "Điểm nổi bật: Yamaha Grande có thiết kế thanh lịch, nhẹ nhàng, hợp khách thích xe ga đẹp, dễ đi và có phong cách mềm mại.";
+
+            if (name.Contains("latte"))
+                return "Điểm nổi bật: Yamaha Latte nhỏ gọn, dễ điều khiển, phù hợp đi phố và đặc biệt hợp với khách ưu tiên xe nhẹ, dáng thanh lịch.";
+
+            if (name.Contains("freego"))
+                return "Điểm nổi bật: Yamaha Freego thực dụng, giá dễ tiếp cận, phù hợp nhu cầu đi lại hằng ngày và khách muốn xe ga trong tầm tiền vừa phải.";
+
+            if (name.Contains("winner"))
+                return "Điểm nổi bật: Honda Winner X hợp với khách thích xe côn tay, kiểu dáng thể thao, máy khỏe và cảm giác lái cá tính hơn xe tay ga.";
+
+            if (type.Contains("tay ga") || type.Contains("xe ga"))
+                return "Điểm nổi bật: mẫu xe này phù hợp đi phố, dễ sử dụng hằng ngày và tiện hơn nếu bạn ưu tiên sự thoải mái.";
+
+            if (type.Contains("xe so"))
+                return "Điểm nổi bật: mẫu xe này thiên về sự bền bỉ, tiết kiệm và chi phí sử dụng thấp.";
+
+            if (type.Contains("con tay"))
+                return "Điểm nổi bật: mẫu xe này hợp với khách thích cảm giác lái thể thao và chủ động hơn khi di chuyển.";
+
+            return "Điểm nổi bật: mẫu xe này phù hợp để cân nhắc nếu bạn muốn xem nhanh giá, tình trạng còn hàng và so sánh thêm với các mẫu cùng tầm.";
+        }
         private static ChatProductCard MapToCard(ProductSummaryDto product)
         {
             return new ChatProductCard
@@ -636,7 +730,42 @@ namespace Chatbot.API.Services
                 Loai = product.Loai
             };
         }
+        private static string BuildCategoryAnswer(ProductSummaryDto product, string message)
+        {
+            var text = NormalizeText(message);
+            var actualType = NormalizeText(product.Loai);
 
+            string? askedType = null;
+            string? askedDisplay = null;
+
+            if (text.Contains("con tay"))
+            {
+                askedType = "con tay";
+                askedDisplay = "xe côn tay";
+            }
+            else if (text.Contains("xe so"))
+            {
+                askedType = "xe so";
+                askedDisplay = "xe số";
+            }
+            else if (text.Contains("xe ga") || text.Contains("tay ga"))
+            {
+                askedType = "tay ga";
+                askedDisplay = "xe ga";
+            }
+
+            if (string.IsNullOrWhiteSpace(askedType))
+                return $"**{product.Ten}** thuộc dòng **{product.Loai}**.";
+
+            bool isMatch =
+                actualType.Contains(askedType) ||
+                (askedType == "tay ga" && actualType.Contains("xe ga"));
+
+            if (isMatch)
+                return $"Đúng rồi, **{product.Ten}** thuộc dòng **{product.Loai}**.";
+
+            return $"Không, **{product.Ten}** không phải {askedDisplay}. Mẫu này thuộc dòng **{product.Loai}**.";
+        }
         private static string NormalizeText(string? text)
         {
             if (string.IsNullOrWhiteSpace(text))

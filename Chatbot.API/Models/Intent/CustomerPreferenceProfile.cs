@@ -15,6 +15,7 @@
 
         public HashSet<string> ExcludedCategories { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> ExcludedBrands { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
         public HashSet<string> ExcludedProducts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
         public int? HeightCm { get; set; }
@@ -78,6 +79,7 @@
         public List<string> BaseRecommendedProducts { get; set; } = new();
         public List<int> BaseRecommendedProductIds { get; set; } = new();
         public List<string>? CurrentRecommendedProducts { get; set; }
+        public List<string> MentionedProductBrands { get; set; } = new();
 
         public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
     }

@@ -59,13 +59,13 @@ namespace Chatbot.API.Services
                 : ExtractPhone(normalizedMessage);
 
             var sameOrderReference = IsSameOrderReferenceFollowUp(normalizedMessage);
+            var orderStatusFollowUp = IsOrderStatusFollowUp(normalizedMessage);
             var otherOrderReference = IsOtherOrderReferenceFollowUp(normalizedMessage);
 
             int? orderId = extractedOrderId;
             string? phone = extractedPhone;
 
-            // Chỉ khi user nói rõ "đơn đó / đơn này / mã đó" mới dùng lại đơn đã tra trước.
-            if (sameOrderReference)
+            if (sameOrderReference || orderStatusFollowUp)
             {
                 orderId ??= profile.LastResolvedOrderId ?? profile.PendingOrderId;
                 phone ??= profile.LastResolvedOrderPhone ?? profile.PendingOrderPhone;
@@ -213,10 +213,52 @@ namespace Chatbot.API.Services
                 ? string.Join("; ", order.Items.Select(i => $"{i.TenSP} x {i.SoLuong}"))
                 : "Không có chi tiết sản phẩm";
 
+            var normalized = NormalizeText(normalizedMessage);
+
+            if (orderStatusFollowUp)
+            {
+                if (normalized.Contains("giao"))
+                {
+                    if (trangThaiDon == "Đang giao")
+                    {
+                        return await SimpleReplyAsync(conversationId, orderId.Value, phone, $"Đơn {order.MaDH} đang được giao bạn nhé.");
+                    }
+                    else if (trangThaiDon == "Hoàn tất")
+                    {
+                        return await SimpleReplyAsync(conversationId, orderId.Value, phone,
+     $"Đơn {order.MaDH} đã giao thành công rồi nhé.");
+                    }
+                    else if (trangThaiDon == "Đã hủy")
+                    {
+                        return await SimpleReplyAsync(conversationId, orderId.Value, phone,
+    $"Đơn {order.MaDH} đã bị hủy nên không giao nữa nhé.");
+                    }
+                    else
+                    {
+
+                        return await SimpleReplyAsync(conversationId, orderId.Value, phone,
+                            $"Hiện đơn {order.MaDH} đang ở trạng thái: {trangThaiDon}.");
+
+                    }
+                }
+
+                if (normalized.Contains("coc"))
+                {
+                    return await SimpleReplyAsync(conversationId, orderId.Value, phone,
+    $"Trạng thái cọc của đơn {order.MaDH}: {trangThaiCoc ?? "Chưa có thông tin"}.");
+                }
+
+                if (normalized.Contains("huy"))
+                {
+                    return await SimpleReplyAsync(conversationId, orderId.Value, phone,
+     $"Trạng thái đơn {order.MaDH}: {trangThaiDon}.");
+                }
+            }
+
             var reply =
-                $"Đơn hàng {order.MaDH} hiện ở trạng thái: {trangThaiDon}. " +
-                $"Tổng tiền: {order.TongTien:N0} VNĐ. " +
-                $"Người nhận: {order.NguoiNhan ?? "Chưa có thông tin"}. ";
+     $"Đơn hàng {order.MaDH} hiện ở trạng thái: {trangThaiDon}. " +
+     $"Tổng tiền: {order.TongTien:N0} VNĐ. " +
+     $"Người nhận: {order.NguoiNhan ?? "Chưa có thông tin"}. ";
 
             if (!string.IsNullOrWhiteSpace(trangThaiCoc))
             {
@@ -251,7 +293,50 @@ namespace Chatbot.API.Services
             profile.UpdatedAtUtc = DateTime.UtcNow;
         }
 
- 
+        private static bool IsOrderStatusFollowUp(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return false;
+
+            var text = NormalizeText(message);
+
+            return text.Contains("giao chua") ||
+                   text.Contains("co giao chua") ||
+                   text.Contains("dang giao chua") ||
+                   text.Contains("giao den dau roi") ||
+                   text.Contains("don den dau roi") ||
+                   text.Contains("don toi dau roi") ||
+                   text.Contains("trang thai sao") ||
+                   text.Contains("tinh trang sao") ||
+                   text.Contains("huy chua") ||
+                   text.Contains("da huy chua") ||
+                   text.Contains("hoan tat chua") ||
+                   text.Contains("xong chua");
+        }
+        private static string NormalizeText(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            var text = value.Trim().ToLowerInvariant();
+
+            text = text
+                .Replace('à', 'a').Replace('á', 'a').Replace('ạ', 'a').Replace('ả', 'a').Replace('ã', 'a')
+                .Replace('â', 'a').Replace('ầ', 'a').Replace('ấ', 'a').Replace('ậ', 'a').Replace('ẩ', 'a').Replace('ẫ', 'a')
+                .Replace('ă', 'a').Replace('ằ', 'a').Replace('ắ', 'a').Replace('ặ', 'a').Replace('ẳ', 'a').Replace('ẵ', 'a')
+                .Replace('è', 'e').Replace('é', 'e').Replace('ẹ', 'e').Replace('ẻ', 'e').Replace('ẽ', 'e')
+                .Replace('ê', 'e').Replace('ề', 'e').Replace('ế', 'e').Replace('ệ', 'e').Replace('ể', 'e').Replace('ễ', 'e')
+                .Replace('ì', 'i').Replace('í', 'i').Replace('ị', 'i').Replace('ỉ', 'i').Replace('ĩ', 'i')
+                .Replace('ò', 'o').Replace('ó', 'o').Replace('ọ', 'o').Replace('ỏ', 'o').Replace('õ', 'o')
+                .Replace('ô', 'o').Replace('ồ', 'o').Replace('ố', 'o').Replace('ộ', 'o').Replace('ổ', 'o').Replace('ỗ', 'o')
+                .Replace('ơ', 'o').Replace('ờ', 'o').Replace('ớ', 'o').Replace('ợ', 'o').Replace('ở', 'o').Replace('ỡ', 'o')
+                .Replace('ù', 'u').Replace('ú', 'u').Replace('ụ', 'u').Replace('ủ', 'u').Replace('ũ', 'u')
+                .Replace('ư', 'u').Replace('ừ', 'u').Replace('ứ', 'u').Replace('ự', 'u').Replace('ử', 'u').Replace('ữ', 'u')
+                .Replace('ỳ', 'y').Replace('ý', 'y').Replace('ỵ', 'y').Replace('ỷ', 'y').Replace('ỹ', 'y')
+                .Replace('đ', 'd');
+
+            return text;
+        }
         private static bool IsSameOrderReferenceFollowUp(string message)
         {
             if (string.IsNullOrWhiteSpace(message))
@@ -346,7 +431,28 @@ namespace Chatbot.API.Services
                 _ => status
             };
         }
+        private async Task<ChatResponse> SimpleReplyAsync(
+      string conversationId,
+      int orderId,
+      string phone,
+      string text)
+        {
+            await _conversationPreferenceService.SaveResolvedOrderContextAsync(
+                conversationId,
+                orderId,
+                phone);
 
+            await _conversationPreferenceService.ClearOrderLookupPendingAsync(conversationId);
+
+            return new ChatResponse
+            {
+                Success = true,
+                UsedAI = false,
+                UsedTool = ToolNames.LookupOrder,
+                ConversationId = conversationId,
+                Reply = text
+            };
+        }
         private static string FormatDepositStatus(string? status)
         {
             return status switch

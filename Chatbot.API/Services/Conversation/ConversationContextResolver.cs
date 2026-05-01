@@ -30,6 +30,19 @@ namespace Chatbot.API.Services.Conversation
 
             EnsureProfileCollections(existingProfile);
             EnsureIntentCollections(parsedIntent);
+            if (IsStrongNonRecommendationIntent(parsedIntent))
+            {
+                var directIntent = parsedIntent.Clone();
+                EnsureIntentCollections(directIntent);
+
+                return new ContextResolutionResult
+                {
+                    EffectiveIntent = directIntent,
+                    ContextDecision = RecommendationContextDecision.None,
+                    ShouldResetContext = false,
+                    ShouldPreserveBudgetOnlyContext = false
+                };
+            }
             if (LooksLikeBudgetRestartWithSameGoal(normalizedMessage, parsedIntent, existingProfile))
             {
                 var restartIntent = parsedIntent.Clone();
@@ -102,10 +115,15 @@ namespace Chatbot.API.Services.Conversation
 
             var effectiveIntent = parsedIntent.Clone();
             EnsureIntentCollections(effectiveIntent);
+            bool isCurrentTurnExplicitFreshGoal =
+     IsExplicitFreshGoal(normalizedMessage, parsedIntent);
+
             bool shouldCarryBudgetBase =
+                !isCurrentTurnExplicitFreshGoal &&
                 ShouldCarryBudgetBase(parsedIntent, normalizedMessage, existingProfile);
 
             bool shouldCarryIdentityBase =
+                !isCurrentTurnExplicitFreshGoal &&
                 ShouldCarryIdentityBase(parsedIntent, normalizedMessage, existingProfile, previousActiveFlow);
 
             ApplyMissingContextFromProfile(
@@ -208,7 +226,29 @@ namespace Chatbot.API.Services.Conversation
                 ShouldPreserveBudgetOnlyContext = shouldPreserveContextForBudgetOnly
             };
         }
+        private static bool IsStrongNonRecommendationIntent(ParsedIntent intent)
+        {
+            if (intent == null)
+                return false;
 
+            if (intent.IsOrderLookup ||
+                string.Equals(intent.IntentType, "order_lookup", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if ((intent.IsDirectProductLookup ||
+                 string.Equals(intent.IntentType, "product_lookup", StringComparison.OrdinalIgnoreCase)) &&
+                intent.MentionedProducts != null &&
+                intent.MentionedProducts.Count > 0)
+                return true;
+
+            if ((intent.IsDirectCompare ||
+                 string.Equals(intent.IntentType, "compare", StringComparison.OrdinalIgnoreCase)) &&
+                intent.MentionedProducts != null &&
+                intent.MentionedProducts.Count >= 2)
+                return true;
+
+            return false;
+        }
         private static string? ResolveExplicitGenderTarget(string message, ParsedIntent? parsedIntent = null)
         {
             if (!string.IsNullOrWhiteSpace(parsedIntent?.Target))
@@ -246,47 +286,92 @@ namespace Chatbot.API.Services.Conversation
 
             return null;
         }
+        private static bool IsExplicitFreshGoal(string normalizedMessage, ParsedIntent parsedIntent)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedMessage) || parsedIntent == null)
+                return false;
+
+            var text = normalizedMessage.Trim().ToLowerInvariant();
+
+            bool hasFreshVerb =
+                ContainsAny(text,
+                    "tư vấn", "tu van",
+                    "gợi ý", "goi y",
+                    "nên mua", "nen mua",
+                    "chọn xe", "chon xe",
+                    "tìm xe", "tim xe",
+                    "muốn mua", "muon mua",
+                    "cần xe", "can xe");
+
+            bool hasNewConstraint =
+                !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
+                !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
+                !string.IsNullOrWhiteSpace(parsedIntent.Target) ||
+                parsedIntent.PriceMin.HasValue ||
+                parsedIntent.PriceMax.HasValue ||
+                parsedIntent.TargetPrice.HasValue ||
+                parsedIntent.ForWork ||
+                parsedIntent.ForSchool ||
+                parsedIntent.ForCity ||
+                parsedIntent.ForTour ||
+                parsedIntent.WantsFuelSaving ||
+                parsedIntent.WantsLargeStorage ||
+                parsedIntent.WantsEasyControl ||
+                parsedIntent.NeedsLowSeat ||
+                parsedIntent.PrefersMaleStyle ||
+                parsedIntent.PrefersFemaleStyle;
+
+            bool hasReferenceSignal =
+                LooksLikeFollowUpReference(normalizedMessage) ||
+                ContainsAny(text,
+                    "còn", "con ", "thì sao", "thi sao",
+                    "vậy còn", "vay con",
+                    "thế còn", "the con",
+                    "mẫu đó", "mau do",
+                    "xe đó", "xe do",
+                    "con đó", "con do");
+
+            return hasFreshVerb && hasNewConstraint && !hasReferenceSignal;
+        }
         private static bool ShouldCarryBudgetBase(
-    ParsedIntent parsedIntent,
-    string normalizedMessage,
-    CustomerPreferenceProfile profile)
+      ParsedIntent parsedIntent,
+      string normalizedMessage,
+      CustomerPreferenceProfile profile)
         {
             if (parsedIntent == null || profile == null)
                 return false;
-
             if (HasAnyBudgetSignal(parsedIntent))
                 return false;
-
             if (LooksLikeHardContextReset(normalizedMessage, parsedIntent))
                 return false;
 
-            bool hasRecommendationContext =
-                profile.HasActiveRecommendationContext &&
-                profile.LastRecommendedProducts != null &&
-                profile.LastRecommendedProducts.Count > 0;
-
-            bool hasLookupContext =
-                !string.IsNullOrWhiteSpace(profile.LastLookupProductName);
-
-            bool hasCompareContext =
-                profile.HasActiveCompareContext &&
-                profile.LastComparedProducts != null &&
-                profile.LastComparedProducts.Count >= 2;
+            var text = normalizedMessage?.Trim().ToLowerInvariant() ?? string.Empty;
 
             bool looksLikeFollowUp =
                 parsedIntent.IsFollowUp ||
                 !string.IsNullOrWhiteSpace(parsedIntent.FollowUpType) ||
                 parsedIntent.HasExpandRecommendationSignal ||
                 parsedIntent.HasNarrowRefinementSignal ||
-               LooksLikeFollowUpReference(normalizedMessage);
+                LooksLikeFollowUpReference(normalizedMessage) ||
+                ContainsAny(text,
+                    "còn", "con ", "thì sao", "thi sao",
+                    "vậy còn", "vay con",
+                    "thế còn", "the con",
+                    "rẻ hơn", "re hon",
+                    "đắt hơn", "dat hon",
+                    "cốp rộng hơn", "cop rong hon",
+                    "tiết kiệm hơn", "tiet kiem hon",
+                    "mẫu khác", "mau khac",
+                    "xe khác", "xe khac",
+                    "khác đi", "khac di");
 
-            return looksLikeFollowUp || hasRecommendationContext || hasLookupContext || hasCompareContext;
+            return looksLikeFollowUp;
         }
         private static bool ShouldCarryIdentityBase(
-    ParsedIntent parsedIntent,
-    string normalizedMessage,
-    CustomerPreferenceProfile profile,
-    string? previousActiveFlow)
+     ParsedIntent parsedIntent,
+     string normalizedMessage,
+     CustomerPreferenceProfile profile,
+     string? previousActiveFlow)
         {
             if (parsedIntent == null || profile == null)
                 return false;
@@ -294,6 +379,7 @@ namespace Chatbot.API.Services.Conversation
             if (LooksLikeHardContextReset(normalizedMessage, parsedIntent))
                 return false;
 
+            // Nếu câu hiện tại đã nói rõ brand/category/target thì không kéo identity cũ
             if (!string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
                 !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
                 !string.IsNullOrWhiteSpace(parsedIntent.Target))
@@ -307,18 +393,36 @@ namespace Chatbot.API.Services.Conversation
             if (hasExplicitGenderTarget)
                 return false;
 
+            bool currentlyInRecommendationFamily =
+                string.Equals(previousActiveFlow, ChatFlowType.Recommendation, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(previousActiveFlow, ChatFlowType.Refinement, StringComparison.OrdinalIgnoreCase) ||
+                profile.HasActiveRecommendationContext;
+
+            if (!currentlyInRecommendationFamily)
+                return false;
+
+            var text = normalizedMessage?.Trim().ToLowerInvariant() ?? string.Empty;
+
             bool looksLikeFollowUp =
                 parsedIntent.IsFollowUp ||
                 !string.IsNullOrWhiteSpace(parsedIntent.FollowUpType) ||
                 parsedIntent.HasExpandRecommendationSignal ||
                 parsedIntent.HasNarrowRefinementSignal ||
-                LooksLikeFollowUpReference(normalizedMessage);
+                LooksLikeFollowUpReference(normalizedMessage) ||
+                ContainsAny(text,
+                    "còn", "con ", "thì sao", "thi sao",
+                    "vậy còn", "vay con",
+                    "thế còn", "the con",
+                    "mẫu khác", "mau khac",
+                    "xe khác", "xe khac",
+                    "khác đi", "khac di",
+                    "rẻ hơn", "re hon",
+                    "cốp rộng", "cop rong",
+                    "tiết kiệm xăng", "tiet kiem xang",
+                    "dễ đi", "de di",
+                    "dễ lái", "de lai");
 
-            bool currentlyInRecommendationFamily =
-                string.Equals(previousActiveFlow, ChatFlowType.Recommendation, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(previousActiveFlow, ChatFlowType.Refinement, StringComparison.OrdinalIgnoreCase);
-
-            return looksLikeFollowUp && currentlyInRecommendationFamily;
+            return looksLikeFollowUp;
         }
         private ParsedIntent EnrichFollowUpIntent(
             ParsedIntent parsedIntent,

@@ -2,6 +2,7 @@
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.ToolApi;
 using Chatbot.API.Services.Interfaces;
+using static Chatbot.API.Models.Intent.ParsedIntent;
 
 namespace Chatbot.API.Services.Conversation
 {
@@ -17,11 +18,19 @@ namespace Chatbot.API.Services.Conversation
             var routing = baseRouting ?? new FlowRoutingResult();
             var text = (normalizedMessage ?? string.Empty).Trim();
 
+            if (conversationProfile?.HasPendingOrderLookup == true)
+            {
+                routing.FlowType = ChatFlowType.OrderLookup;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Forced by pending order lookup state";
+                return routing;
+            }
             bool hasRecommendationContext = HasRecommendationContext(conversationProfile);
             bool hasCompareContext = HasCompareContext(conversationProfile);
             bool hasLookupContext = HasLookupContext(conversationProfile);
 
-            // 1) Trust explicit intent first.
             if (ShouldForceOrderLookup(effectiveIntent))
             {
                 routing.FlowType = ChatFlowType.OrderLookup;
@@ -31,7 +40,26 @@ namespace Chatbot.API.Services.Conversation
                 routing.Reason = "Forced by explicit order lookup intent";
                 return routing;
             }
+            if (LooksLikeAlternativeRecommendationRequest(text) && hasRecommendationContext)
+            {
+                routing.FlowType = ChatFlowType.Refinement;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Forced alternative recommendation before compare";
+                return routing;
+            }
+            if (LooksLikeAlternativeRecommendationRequest(text) && hasCompareContext)
+            {
+                PrepareAlternativeRecommendationIntent(effectiveIntent, conversationProfile);
 
+                routing.FlowType = ChatFlowType.Recommendation;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = true;
+                routing.Reason = "Forced alternative recommendation from compare context";
+                return routing;
+            }
             if (ShouldForceDirectCompare(effectiveIntent))
             {
                 routing.FlowType = ChatFlowType.Compare;
@@ -72,7 +100,25 @@ namespace Chatbot.API.Services.Conversation
                 routing.Reason = "Forced by order lookup reference follow-up";
                 return routing;
             }
-
+            if (ShouldForceSearchFromIntent(effectiveIntent))
+            {
+                routing.FlowType = ChatFlowType.ProductSearch;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Forced by explicit product search intent";
+                return routing;
+            }
+            if (effectiveIntent.Action == ConversationAction.ChangeProduct ||
+    string.Equals(effectiveIntent.FollowUpType, "change_product", StringComparison.OrdinalIgnoreCase))
+            {
+                routing.FlowType = ChatFlowType.Refinement;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Forced by ChangeProduct action";
+                return routing;
+            }
             // 2) Then trust resolved conversation decision.
             switch (contextDecision)
             {
@@ -226,23 +272,45 @@ namespace Chatbot.API.Services.Conversation
                                         .Distinct(StringComparer.OrdinalIgnoreCase)
                                         .Count() >= 2;
 
-            return (intent.IsDirectCompare && namesTwoProducts) ||
+            if (!namesTwoProducts)
+                return false;
+
+            return intent.IsDirectCompare ||
                    string.Equals(intent.IntentType, "compare", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(intent.RouteFlow, ChatFlowType.Compare, StringComparison.OrdinalIgnoreCase);
         }
-
         private static bool ShouldForceDirectProductLookup(ParsedIntent? intent)
         {
             if (intent == null) return false;
 
-            return intent.IsDirectProductLookup ||
-                   string.Equals(intent.IntentType, "product_lookup", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(intent.RouteFlow, ChatFlowType.ProductLookup, StringComparison.OrdinalIgnoreCase);
+            bool hasProduct =
+                intent.MentionedProducts != null &&
+                intent.MentionedProducts
+                    .Any(x => !string.IsNullOrWhiteSpace(x));
+
+            bool hasLookupField =
+                !string.IsNullOrWhiteSpace(intent.LookupField);
+
+            return hasProduct &&
+                   (
+                       intent.IsDirectProductLookup ||
+                       string.Equals(intent.IntentType, "product_lookup", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(intent.RouteFlow, ChatFlowType.ProductLookup, StringComparison.OrdinalIgnoreCase) ||
+                       hasLookupField
+                   );
         }
 
         private static bool ShouldForceRecommendationFromIntent(ParsedIntent? intent)
         {
             if (intent == null) return false;
+
+            if (ShouldForceOrderLookup(intent) ||
+                ShouldForceDirectCompare(intent) ||
+                ShouldForceDirectProductLookup(intent) ||
+                ShouldForceSearchFromIntent(intent))
+            {
+                return false;
+            }
 
             return string.Equals(intent.IntentType, "recommend", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(intent.RouteFlow, ChatFlowType.Recommendation, StringComparison.OrdinalIgnoreCase);
@@ -286,7 +354,8 @@ namespace Chatbot.API.Services.Conversation
         {
             if (!hasCompareContext)
                 return false;
-
+            if (LooksLikeAlternativeRecommendationRequest(message))
+                return false;
             if (ShouldForceRecommendationFromIntent(effectiveIntent) ||
                 ShouldForceSearchFromIntent(effectiveIntent) ||
                 ShouldForceDirectProductLookup(effectiveIntent))
@@ -309,29 +378,39 @@ namespace Chatbot.API.Services.Conversation
         }
         private static bool IsLookupReferenceFollowUp(string text)
         {
-            text = (text ?? string.Empty).Trim().ToLowerInvariant();
+            text = NormalizeText(text);
 
-            return text.Contains("con đầu tiên") ||
-                   text.Contains("mẫu đầu tiên") ||
-                   text.Contains("xe đầu tiên") ||
-                   text.Contains("mẫu đó") ||
-                   text.Contains("con đó") ||
-                   text.Contains("xe đó") ||
-                   text.Contains("mẫu kia") ||
+            return text.Contains("con nay") ||
+                   text.Contains("mau nay") ||
+                   text.Contains("xe nay") ||
+                   text.Contains("con do") ||
+                   text.Contains("mau do") ||
+                   text.Contains("xe do") ||
                    text.Contains("con kia") ||
-                   text.Contains("xe kia");
+                   text.Contains("mau kia") ||
+                   text.Contains("xe kia") ||
+                   text.Contains("con dau tien") ||
+                   text.Contains("mau dau tien") ||
+                   text.Contains("xe dau tien");
         }
 
         private static bool IsOrderReferenceFollowUp(string text)
         {
-            text = (text ?? string.Empty).Trim().ToLowerInvariant();
+            text = NormalizeText(text);
 
-            return text.Contains("đơn kia") ||
-                   text.Contains("don kia") ||
-                   text.Contains("đơn đó") ||
+            return text.Contains("don kia") ||
                    text.Contains("don do") ||
-                   text.Contains("mã kia") ||
-                   text.Contains("ma kia");
+                   text.Contains("don nay") ||
+                   text.Contains("ma kia") ||
+                   text.Contains("ma do") ||
+                   text.Contains("ma nay") ||
+                   text.Contains("co giao chua") ||
+                   text.Contains("giao chua") ||
+                   text.Contains("dang giao chua") ||
+                   text.Contains("trang thai sao") ||
+                   text.Contains("tinh trang sao") ||
+                   text.Contains("don toi dau roi") ||
+                   text.Contains("don den dau roi");
         }
         private static bool ShouldUseRecommendationRefinement(
             bool hasRecommendationContext,
@@ -340,7 +419,8 @@ namespace Chatbot.API.Services.Conversation
         {
             if (!hasRecommendationContext)
                 return false;
-
+            if (LooksLikeExplicitFreshRecommendationRequest(message, effectiveIntent))
+                return false;
             if (ShouldForceDirectCompare(effectiveIntent) ||
                 ShouldForceDirectProductLookup(effectiveIntent) ||
                 ShouldForceSearchFromIntent(effectiveIntent))
@@ -368,8 +448,8 @@ namespace Chatbot.API.Services.Conversation
                 effectiveIntent.PrefersFemaleStyle ||
                 (effectiveIntent.RequestedStyles != null && effectiveIntent.RequestedStyles.Count > 0) ||
                 (effectiveIntent.ExcludedBrands != null && effectiveIntent.ExcludedBrands.Count > 0) ||
-                (effectiveIntent.ExcludedCategories != null && effectiveIntent.ExcludedCategories.Count > 0);
-
+                (effectiveIntent.ExcludedCategories != null && effectiveIntent.ExcludedCategories.Count > 0)
+                || LooksLikeAlternativeRecommendationRequest(message);
             if (!hasRefinementSignals)
                 return false;
 
@@ -389,6 +469,54 @@ namespace Chatbot.API.Services.Conversation
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Count() >= minimumCount;
         }
+        private static bool LooksLikeExplicitFreshRecommendationRequest(string message, ParsedIntent intent)
+        {
+            if (string.IsNullOrWhiteSpace(message) || intent == null)
+                return false;
+
+            var text = NormalizeText(message);
+
+            bool hasFreshVerb =
+                text.Contains("tu van") ||
+                text.Contains("goi y") ||
+                text.Contains("nen mua") ||
+                text.Contains("chon xe") ||
+                text.Contains("tim xe") ||
+                text.Contains("muon mua") ||
+                text.Contains("can xe");
+
+            bool hasConstraint =
+                !string.IsNullOrWhiteSpace(intent.Brand) ||
+                !string.IsNullOrWhiteSpace(intent.Category) ||
+                !string.IsNullOrWhiteSpace(intent.Target) ||
+                intent.PriceMin.HasValue ||
+                intent.PriceMax.HasValue ||
+                intent.TargetPrice.HasValue ||
+                intent.ForWork ||
+                intent.ForSchool ||
+                intent.ForCity ||
+                intent.ForTour ||
+                intent.WantsFuelSaving ||
+                intent.WantsLargeStorage ||
+                intent.WantsEasyControl ||
+                intent.NeedsLowSeat ||
+                intent.PrefersMaleStyle ||
+                intent.PrefersFemaleStyle;
+
+            bool hasReferenceSignal =
+                text.Contains("con ") ||
+                text.Contains("con nay") ||
+                text.Contains("con do") ||
+                text.Contains("mau nay") ||
+                text.Contains("mau do") ||
+                text.Contains("xe nay") ||
+                text.Contains("xe do") ||
+                text.Contains("thi sao") ||
+                text.Contains("vay con") ||
+                text.Contains("the con");
+
+            return hasFreshVerb && hasConstraint && !hasReferenceSignal;
+        }
 
         private static bool LooksLikeNewStandaloneRequest(string message, ParsedIntent intent)
         {
@@ -398,31 +526,52 @@ namespace Chatbot.API.Services.Conversation
             if (ShouldForceOrderLookup(intent) ||
                 ShouldForceDirectCompare(intent) ||
                 ShouldForceDirectProductLookup(intent) ||
-                ShouldForceRecommendationFromIntent(intent) ||
                 ShouldForceSearchFromIntent(intent))
             {
                 return true;
             }
 
-            var text = message.Trim().ToLowerInvariant();
+            if (LooksLikeExplicitFreshRecommendationRequest(message, intent))
+                return true;
+
+            var text = NormalizeText(message);
 
             bool hasRestartSignal =
-                text.Contains("tư vấn") ||
-                text.Contains("tu van") ||
-                text.Contains("gợi ý") ||
-                text.Contains("goi y") ||
-                text.StartsWith("xe ") ||
-                text.StartsWith("tìm xe") ||
-                text.StartsWith("tim xe") ||
-                text.StartsWith("mua xe") ||
-                text.StartsWith("so sánh") ||
-                text.StartsWith("so sanh") ||
-                text.StartsWith("đơn hàng") ||
-                text.StartsWith("don hang");
+                text.Contains("doi chu de") ||
+                text.Contains("bo cai truoc") ||
+                text.Contains("quay lai tu dau") ||
+                text.Contains("reset") ||
+                text.StartsWith("don hang") ||
+                text.StartsWith("so sanh");
 
             return hasRestartSignal && !intent.IsFollowUp;
         }
+        private static bool LooksLikeAlternativeRecommendationRequest(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return false;
 
+            var text = NormalizeText(message);
+
+            bool asksOtherOption =
+                text.Contains("con xe nao") ||
+                text.Contains("xe nao") ||
+                text.Contains("mau nao") ||
+                text.Contains("con nao") ||
+                text.Contains("xe khac") ||
+                text.Contains("mau khac") ||
+                text.Contains("con khac") ||
+                text.Contains("lua chon khac");
+
+            bool asksCheaper =
+                text.Contains("re hon") ||
+                text.Contains("mem hon") ||
+                text.Contains("gia thap hon") ||
+                text.Contains("thap hon") ||
+                text.Contains("it tien hon");
+
+            return asksOtherOption && asksCheaper;
+        }
         private static bool LooksLikeExplicitCompareQuestion(string message, ParsedIntent intent)
         {
             if (string.IsNullOrWhiteSpace(message))
@@ -431,23 +580,26 @@ namespace Chatbot.API.Services.Conversation
             if (HasAnyNamedProducts(intent, minimumCount: 2))
                 return true;
 
-            var text = message.Trim().ToLowerInvariant();
+            var text = NormalizeText(message);
+            if (LooksLikeAlternativeRecommendationRequest(message))
+                return false;
 
             bool hasCompareMarker =
-                text.Contains("so sánh") ||
                 text.Contains("so sanh") ||
-                text.Contains("cái nào") ||
-                text.Contains("xe nào") ||
-                text.Contains("mẫu nào") ||
-                text.Contains("ổn hơn") ||
+                text.Contains("so voi") ||
+                text.Contains("khac nhau") ||
+                text.Contains("cai nao") ||
+                text.Contains("xe nao") ||
+                text.Contains("mau nao") ||
+                text.Contains("on hon") ||
                 text.Contains("tot hon") ||
-                text.Contains("tốt hơn") ||
-                text.Contains("hợp hơn") ||
                 text.Contains("hop hon") ||
-                text.Contains("nhỉnh hơn") ||
-                text.Contains("hon") ||
-                text.Contains("khác nhau") ||
-                text.Contains("khac nhau");
+                text.Contains("nhinh hon") ||
+                text.Contains("re hon") ||
+                text.Contains("dat hon") ||
+                text.Contains("rong hon") ||
+                text.Contains("thap hon") ||
+                text.Contains("nhe hon");
 
             return hasCompareMarker;
         }
@@ -524,6 +676,67 @@ namespace Chatbot.API.Services.Conversation
                 text.Contains("khoang");
 
             return hasStructuredConstraint || hasTextConstraint;
+        }
+        private static string NormalizeText(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            var text = value.Trim().ToLowerInvariant();
+
+            text = text
+                .Replace('à', 'a').Replace('á', 'a').Replace('ạ', 'a').Replace('ả', 'a').Replace('ã', 'a')
+                .Replace('â', 'a').Replace('ầ', 'a').Replace('ấ', 'a').Replace('ậ', 'a').Replace('ẩ', 'a').Replace('ẫ', 'a')
+                .Replace('ă', 'a').Replace('ằ', 'a').Replace('ắ', 'a').Replace('ặ', 'a').Replace('ẳ', 'a').Replace('ẵ', 'a')
+                .Replace('è', 'e').Replace('é', 'e').Replace('ẹ', 'e').Replace('ẻ', 'e').Replace('ẽ', 'e')
+                .Replace('ê', 'e').Replace('ề', 'e').Replace('ế', 'e').Replace('ệ', 'e').Replace('ể', 'e').Replace('ễ', 'e')
+                .Replace('ì', 'i').Replace('í', 'i').Replace('ị', 'i').Replace('ỉ', 'i').Replace('ĩ', 'i')
+                .Replace('ò', 'o').Replace('ó', 'o').Replace('ọ', 'o').Replace('ỏ', 'o').Replace('õ', 'o')
+                .Replace('ô', 'o').Replace('ồ', 'o').Replace('ố', 'o').Replace('ộ', 'o').Replace('ổ', 'o').Replace('ỗ', 'o')
+                .Replace('ơ', 'o').Replace('ờ', 'o').Replace('ớ', 'o').Replace('ợ', 'o').Replace('ở', 'o').Replace('ỡ', 'o')
+                .Replace('ù', 'u').Replace('ú', 'u').Replace('ụ', 'u').Replace('ủ', 'u').Replace('ũ', 'u')
+                .Replace('ư', 'u').Replace('ừ', 'u').Replace('ứ', 'u').Replace('ự', 'u').Replace('ử', 'u').Replace('ữ', 'u')
+                .Replace('ỳ', 'y').Replace('ý', 'y').Replace('ỵ', 'y').Replace('ỷ', 'y').Replace('ỹ', 'y')
+                .Replace('đ', 'd');
+
+            return text;
+        }
+        private static void PrepareAlternativeRecommendationIntent(
+    ParsedIntent intent,
+    CustomerPreferenceProfile? profile)
+        {
+            if (intent == null)
+                return;
+
+            intent.IntentType = "recommend";
+            intent.RouteFlow = ChatFlowType.Recommendation;
+            intent.IsDirectCompare = false;
+            intent.IsFollowUp = true;
+            intent.FollowUpType = "alternative";
+            intent.HasExpandRecommendationSignal = true;
+            intent.HasNarrowRefinementSignal = false;
+            intent.ComparisonFeature = "price";
+            intent.ExcludePreviousProducts = true;
+
+            intent.MentionedProducts?.Clear();
+
+            if (profile?.LastComparedProducts != null)
+            {
+                foreach (var productName in profile.LastComparedProducts)
+                {
+                    if (!string.IsNullOrWhiteSpace(productName))
+                        intent.ExcludedProducts.Add(productName.Trim());
+                }
+            }
+
+            if (profile?.LastRecommendedProducts != null)
+            {
+                foreach (var productName in profile.LastRecommendedProducts)
+                {
+                    if (!string.IsNullOrWhiteSpace(productName))
+                        intent.ExcludedProducts.Add(productName.Trim());
+                }
+            }
         }
     }
 }

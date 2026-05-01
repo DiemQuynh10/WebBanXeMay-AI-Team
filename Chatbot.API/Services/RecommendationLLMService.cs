@@ -126,6 +126,8 @@ namespace Chatbot.API.Services
             sb.AppendLine("10. Reason phải là lý do tư vấn tự nhiên, cụ thể theo nhu cầu, không nói chung chung.");
             sb.AppendLine("11. Reason không được bịa thông số không có trong candidate.");
             sb.AppendLine("12. Nếu chỉ có 1 xe thật sự hợp, trả 1 recommendation. Không cần cố đủ 3.");
+            sb.AppendLine("13. Tuyệt đối không chọn lại các hãng hoặc loại xe mà người dùng vừa loại bỏ (ExcludedBrands, ExcludedCategories).");
+            sb.AppendLine("14. Nếu danh sách candidate còn chứa các xe bị loại, phải bỏ qua khi chọn recommendation.");
 
             sb.AppendLine("Tóm tắt ngữ cảnh cần ưu tiên:");
             sb.AppendLine($"- Tin nhắn hiện tại: {message}");

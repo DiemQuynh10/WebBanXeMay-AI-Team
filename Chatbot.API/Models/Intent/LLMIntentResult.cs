@@ -35,6 +35,10 @@
         public bool WantsEasyControl { get; set; }
         public bool NeedsLowSeat { get; set; }
 
+        public string? Action { get; set; }
+        public bool KeepConstraints { get; set; }
+        public bool ExcludePreviousProducts { get; set; }
+        public bool ExcludePreviousBrands { get; set; }
         public int? HeightCm { get; set; }
 
         public List<string> MentionedProducts { get; set; } = new();

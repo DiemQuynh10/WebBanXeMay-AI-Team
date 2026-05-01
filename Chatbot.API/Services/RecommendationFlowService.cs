@@ -8,6 +8,7 @@ using Chatbot.API.Models.ToolApi;
 using Chatbot.API.Services.Interfaces;
 using Chatbot.API.Tools;
 using Microsoft.Extensions.Options;
+using static Chatbot.API.Models.Intent.ParsedIntent;
 
 namespace Chatbot.API.Services
 {
@@ -60,8 +61,15 @@ namespace Chatbot.API.Services
                     normalizedMessage,
                     effectiveIntent,
                     profile);
-
             var requestedBrand = FirstNonEmpty(effectiveIntent.Brand, profile.PreferredBrand);
+
+            if (!string.IsNullOrWhiteSpace(requestedBrand) &&
+                effectiveIntent.ExcludedBrands.Contains(requestedBrand))
+            {
+                requestedBrand = null;
+                effectiveIntent.Brand = null;
+            }
+
             var effectiveCategory = FirstNonEmpty(effectiveIntent.Category, profile.PreferredCategory);
             var (minPrice, maxPrice) = ResolveRecommendationPriceRange(effectiveIntent, profile);
 
@@ -102,6 +110,20 @@ namespace Chatbot.API.Services
 
             if (items.Count == 0)
             {
+                bool hasExcludedBrand = effectiveIntent.ExcludedBrands.Any();
+
+                if (hasExcludedBrand)
+                {
+                    return new ChatResponse
+                    {
+                        Success = true,
+                        ConversationId = conversationId,
+                        UsedAI = false,
+                        UsedTool = ToolNames.GetProductsByFilters,
+                        Reply = "Hiện tại sau khi loại các hãng bạn không muốn, mình chưa tìm được mẫu nào phù hợp. Bạn có thể nới điều kiện hoặc cho mình thêm tiêu chí nhé."
+                    };
+                }
+
                 return new ChatResponse
                 {
                     Success = true,
@@ -114,7 +136,6 @@ namespace Chatbot.API.Services
                         effectiveCategory)
                 };
             }
-
             items = ApplyPreferenceAwareFiltering(
                 items,
                 effectiveIntent,
@@ -150,11 +171,11 @@ namespace Chatbot.API.Services
 
             // ❗ LUÔN CHẠY GUARD LẠI SAU LLM
             var ranked = EnforceFinalRecommendationGuards(
-                rankedAfterLlm,
-                effectiveIntent,
-                effectiveCategory,
-                normalizedMessage);
-
+    rankedAfterLlm,
+    effectiveIntent,
+    profile,
+    effectiveCategory,
+    normalizedMessage);
             // Chỉ dùng rule reorder khi LLM fail hoặc không đổi thứ tự
             if (ranked == null || ranked.Count == 0)
             {
@@ -167,17 +188,27 @@ namespace Chatbot.API.Services
             ranked = EnsureDiversity(ranked, requestedBrand);
 
             ranked = EnforceFinalRecommendationGuards(
-                ranked,
-                effectiveIntent,
-                effectiveCategory,
-                normalizedMessage);
+    ranked,
+    effectiveIntent,
+    profile,
+    effectiveCategory,
+    normalizedMessage);
             if (ranked.Count < 3)
             {
-                var backup = EnforceFinalRecommendationGuards(
-                    rankedByRule,
-                    effectiveIntent,
-                    effectiveCategory,
-                    normalizedMessage);
+                var backup = ApplyExclusions(rankedByRule, effectiveIntent, profile);
+
+                backup = EnforceFinalRecommendationGuards(
+    backup,
+    effectiveIntent,
+    profile,
+    effectiveCategory,
+    normalizedMessage);
+
+                var strictBackup = ProductPriceFilterHelper.ApplyStrictPriceFilter(backup, effectiveIntent);
+                if (strictBackup.Count > 0)
+                {
+                    backup = strictBackup;
+                }
 
                 foreach (var item in backup)
                 {
@@ -188,27 +219,34 @@ namespace Chatbot.API.Services
                         ranked.Add(item);
                 }
             }
-            if (LooksLikeUsageOnlyRequest(effectiveIntent, profile))
-            {
-                ranked = ranked.Take(3).ToList();
-            }
-            else
-            {
-                ranked = ranked.Take(3).ToList();
-            }
+            ranked = FinalizeRecommendationRanking(
+     ranked,
+     rankedByRule,
+     effectiveIntent,
+     intent,
+     profile,
+     effectiveCategory,
+     normalizedMessage);
 
             if (ranked.Count == 0)
             {
+                bool isChangeProduct =
+                    effectiveIntent.Action == ConversationAction.ChangeProduct ||
+                    string.Equals(effectiveIntent.FollowUpType, "change_product", StringComparison.OrdinalIgnoreCase) ||
+                    effectiveIntent.ExcludePreviousProducts;
+
                 return new ChatResponse
                 {
                     Success = true,
                     ConversationId = conversationId,
                     UsedAI = false,
                     UsedTool = ToolNames.GetProductsByFilters,
-                    Reply = _replyStyleService.BuildRecommendationNoMatchReply(
-                        effectiveIntent,
-                        profile,
-                        effectiveCategory)
+                    Reply = isChangeProduct
+                        ? "Mình chưa tìm được mẫu khác đúng hoàn toàn các tiêu chí cũ. Bạn có thể nới nhẹ ngân sách hoặc bỏ bớt một điều kiện để mình lọc tiếp nhé."
+                        : _replyStyleService.BuildRecommendationNoMatchReply(
+                            effectiveIntent,
+                            profile,
+                            effectiveCategory)
                 };
             }
 
@@ -244,15 +282,16 @@ namespace Chatbot.API.Services
     item =>
     {
         if (llmReasonMap.TryGetValue(item.Id, out var llmReason) &&
-            !string.IsNullOrWhiteSpace(llmReason))
+    !string.IsNullOrWhiteSpace(llmReason) &&
+    IsSafeLlmReasonForProduct(item, llmReason, ranked))
         {
             return new List<string> { llmReason.Trim().TrimEnd('.') };
         }
 
         return new List<string>
-        {
-            BuildNaturalRecommendationReason(item, effectiveIntent, profile, normalizedMessage)
-        };
+{
+    BuildNaturalRecommendationReason(item, effectiveIntent, profile, normalizedMessage)
+};
     });
 
             var reply = await RewriteIfEnabledAsync(normalizedMessage, draftReply);
@@ -291,7 +330,7 @@ namespace Chatbot.API.Services
      effective);
 
             var text = NormalizeText(normalizedMessage);
-
+            ApplyInlineExcludedBrandGuard(text, effective);
             bool currentTurnHasCategory = ContainsAny(text,
                 "xe so", "xe số",
                 "xe ga",
@@ -301,13 +340,19 @@ namespace Chatbot.API.Services
             bool currentTurnHasBrand = ContainsAny(text,
                 "honda", "yamaha", "suzuki", "sym", "piaggio");
 
-            effective.Brand = shouldIgnoreOldProfile || (currentTurnHasCategory && !currentTurnHasBrand)
-                ? effective.Brand
-                : FirstNonEmpty(effective.Brand, profile.PreferredBrand);
+            effective.Brand =
+     effective.HasFreshConsultationSignal ||
+     shouldIgnoreOldProfile ||
+     (currentTurnHasCategory && !currentTurnHasBrand)
+         ? effective.Brand
+         : FirstNonEmpty(effective.Brand, profile.PreferredBrand);
 
-            effective.Category = shouldIgnoreOldProfile || shouldIgnoreOldCategory
-                ? effective.Category
-                : FirstNonEmpty(effective.Category, profile.PreferredCategory);
+            effective.Category =
+     effective.HasFreshConsultationSignal ||
+     shouldIgnoreOldProfile ||
+     shouldIgnoreOldCategory
+         ? effective.Category
+         : FirstNonEmpty(effective.Category, profile.PreferredCategory);
 
             effective.Target = shouldIgnoreOldProfile
                 ? effective.Target
@@ -349,17 +394,26 @@ namespace Chatbot.API.Services
                     StringComparer.OrdinalIgnoreCase);
             }
 
-            if (effective.ExcludedBrands.Count == 0 && profile.ExcludedBrands.Count > 0)
+            if (ShouldCarryExcludedBrands(normalizedMessage, effective, profile))
             {
                 effective.ExcludedBrands = new HashSet<string>(
                     profile.ExcludedBrands.Where(x => !string.IsNullOrWhiteSpace(x)),
                     StringComparer.OrdinalIgnoreCase);
             }
 
-            if (effective.ExcludedCategories.Count == 0 && profile.ExcludedCategories.Count > 0)
+            if (ShouldCarryExcludedCategories(normalizedMessage, effective, profile))
             {
                 effective.ExcludedCategories = new HashSet<string>(
                     profile.ExcludedCategories.Where(x => !string.IsNullOrWhiteSpace(x)),
+                    StringComparer.OrdinalIgnoreCase);
+            }
+
+            if (!effective.HasFreshConsultationSignal &&
+                effective.ExcludedProducts.Count == 0 &&
+                profile.ExcludedProducts.Count > 0)
+            {
+                effective.ExcludedProducts = new HashSet<string>(
+                    profile.ExcludedProducts.Where(x => !string.IsNullOrWhiteSpace(x)),
                     StringComparer.OrdinalIgnoreCase);
             }
             if (!string.IsNullOrWhiteSpace(effective.Target))
@@ -376,7 +430,77 @@ namespace Chatbot.API.Services
                     effective.PrefersMaleStyle = true;
                 }
             }
+            if (LooksLikeCheaperFollowUp(normalizedMessage) &&
+    HasFemaleFriendlyPreviousRecommendation(profile))
+            {
+                effective.PrefersFemaleStyle = true;
+                effective.PrefersMaleStyle = false;
 
+                if (string.IsNullOrWhiteSpace(effective.Target))
+                    effective.Target = "nữ";
+            }
+            bool isChangeProduct =
+    intent.Action == ConversationAction.ChangeProduct ||
+    string.Equals(intent.FollowUpType, "change_product", StringComparison.OrdinalIgnoreCase) ||
+    intent.ExcludePreviousProducts;
+
+            if (isChangeProduct)
+            {
+                effective.IntentType = "refine";
+                effective.IsFollowUp = true;
+                effective.FollowUpType = "change_product";
+                effective.Action = ConversationAction.ChangeProduct;
+                effective.KeepConstraints = true;
+                effective.ExcludePreviousProducts = true;
+
+                effective.ExcludedProducts ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var productName in profile.LastRecommendedProducts ?? new List<string>())
+                {
+                    if (!string.IsNullOrWhiteSpace(productName))
+                        effective.ExcludedProducts.Add(productName.Trim());
+                }
+
+                foreach (var productName in profile.CurrentRecommendedProducts ?? new List<string>())
+                {
+                    if (!string.IsNullOrWhiteSpace(productName))
+                        effective.ExcludedProducts.Add(productName.Trim());
+                }
+            }
+
+            if (intent.IsFollowUp &&
+     string.Equals(intent.FollowUpType, "other", StringComparison.OrdinalIgnoreCase))
+            {
+                effective.ExcludedProducts ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                effective.ExcludedBrands ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var productName in profile.LastRecommendedProducts ?? new List<string>())
+                {
+                    if (!string.IsNullOrWhiteSpace(productName))
+                    {
+                        effective.ExcludedProducts.Add(productName.Trim());
+
+                        var brand = ExtractBrandFromProductName(productName);
+                        if (!string.IsNullOrWhiteSpace(brand))
+                            effective.ExcludedBrands.Add(brand);
+                    }
+                }
+            }
+
+            if (intent.IsFollowUp &&
+     string.Equals(intent.FollowUpType, "other_brand", StringComparison.OrdinalIgnoreCase))
+            {
+                effective.Brand = null;
+
+                effective.ExcludedBrands ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var productName in profile.LastRecommendedProducts ?? new List<string>())
+                {
+                    var brand = ExtractBrandFromProductName(productName);
+                    if (!string.IsNullOrWhiteSpace(brand))
+                        effective.ExcludedBrands.Add(brand);
+                }
+            }
             return effective;
         }
 
@@ -457,6 +581,41 @@ namespace Chatbot.API.Services
             LogCandidateBucket(conversationId, "strict", requestedBrand, effectiveCategory, minPrice, maxPrice, strict.Count);
             buckets.Add(strict);
 
+            bool isChangeProduct =
+    intent.Action == ConversationAction.ChangeProduct ||
+    string.Equals(intent.FollowUpType, "change_product", StringComparison.OrdinalIgnoreCase) ||
+    intent.ExcludePreviousProducts;
+
+            if (isChangeProduct)
+            {
+                var (relaxedMinPrice, relaxedMaxPrice) = RelaxPriceRangeForChangeProduct(minPrice, maxPrice);
+
+                bool priceWasRelaxed =
+                    relaxedMinPrice != minPrice ||
+                    relaxedMaxPrice != maxPrice;
+
+                if (priceWasRelaxed)
+                {
+                    var relaxedByPrice = await GetCandidatesAsync(
+                        requestedBrand,
+                        effectiveCategory,
+                        relaxedMinPrice,
+                        relaxedMaxPrice,
+                        take: 30);
+
+                    LogCandidateBucket(
+                        conversationId,
+                        "change_product_relaxed_price",
+                        requestedBrand,
+                        effectiveCategory,
+                        relaxedMinPrice,
+                        relaxedMaxPrice,
+                        relaxedByPrice.Count);
+
+                    if (relaxedByPrice.Count > 0)
+                        buckets.Add(relaxedByPrice);
+                }
+            }
             if (strict.Count == 0 && !string.IsNullOrWhiteSpace(effectiveCategory))
             {
                 var noCategory = await GetCandidatesAsync(
@@ -558,11 +717,19 @@ namespace Chatbot.API.Services
         {
             if (items.Count == 0)
                 return items;
-
             var strictPriceFiltered = ProductPriceFilterHelper.ApplyStrictPriceFilter(items, intent);
+
             if (strictPriceFiltered.Count > 0)
             {
                 items = strictPriceFiltered;
+            }
+            else if (intent.Action == ConversationAction.ChangeProduct ||
+                     string.Equals(intent.FollowUpType, "change_product", StringComparison.OrdinalIgnoreCase) ||
+                     intent.ExcludePreviousProducts)
+            {
+                _logger.LogInformation(
+                    "Skip strict price empty result for ChangeProduct. Keep relaxed candidates. ConversationId={ConversationId}",
+                    conversationId);
             }
             else
             {
@@ -572,7 +739,6 @@ namespace Chatbot.API.Services
                     requestedBrand,
                     effectiveCategory);
             }
-
             items = ApplyExclusions(items, intent, profile);
 
             items = ApplyCategoryGuard(
@@ -744,9 +910,9 @@ namespace Chatbot.API.Services
         }
 
         private static List<ProductSummaryDto> ApplyExclusions(
-            List<ProductSummaryDto> items,
-            ParsedIntent intent,
-            CustomerPreferenceProfile profile)
+     List<ProductSummaryDto> items,
+     ParsedIntent intent,
+     CustomerPreferenceProfile profile)
         {
             var excludedBrands = new HashSet<string>(intent.ExcludedBrands, StringComparer.OrdinalIgnoreCase);
             excludedBrands.UnionWith(profile.ExcludedBrands);
@@ -754,15 +920,26 @@ namespace Chatbot.API.Services
             var excludedCategories = new HashSet<string>(intent.ExcludedCategories, StringComparer.OrdinalIgnoreCase);
             excludedCategories.UnionWith(profile.ExcludedCategories);
 
-            if (excludedBrands.Count == 0 && excludedCategories.Count == 0)
+            var excludedProducts = new HashSet<string>(intent.ExcludedProducts, StringComparer.OrdinalIgnoreCase);
+            excludedProducts.UnionWith(profile.ExcludedProducts);
+
+            if (excludedBrands.Count == 0 &&
+                excludedCategories.Count == 0 &&
+                excludedProducts.Count == 0)
+            {
                 return items;
+            }
 
             var filtered = items.Where(item =>
                 !excludedBrands.Contains(item.ThuongHieu ?? string.Empty) &&
-                !excludedCategories.Contains(item.Loai ?? string.Empty))
+                !excludedCategories.Any(ex => string.Equals(
+                    NormalizeCategory(item.Loai),
+                    NormalizeCategory(ex),
+                    StringComparison.OrdinalIgnoreCase)) &&
+                !excludedProducts.Contains(item.Ten ?? string.Empty))
                 .ToList();
 
-            return filtered.Count > 0 ? filtered : items;
+            return filtered;
         }
         private static List<ProductSummaryDto> ApplyConversationAwareReorder(
     IReadOnlyList<ProductSummaryDto> products,
@@ -839,9 +1016,10 @@ namespace Chatbot.API.Services
             }
 
             if (!string.IsNullOrWhiteSpace(profile.PreferredBrand) &&
-                string.Equals(brand, profile.PreferredBrand, StringComparison.OrdinalIgnoreCase))
+     string.Equals(brand, profile.PreferredBrand, StringComparison.OrdinalIgnoreCase) &&
+     !intent.ExcludedBrands.Contains(profile.PreferredBrand))
             {
-                score += 20;
+                score += 10;
             }
 
             if (!explicitCategoryChange &&
@@ -892,13 +1070,16 @@ namespace Chatbot.API.Services
                     if (product.Gia >= referencePrice.Value - 4_000_000m)
                         score += 12;
                 }
+                if (ContainsAny(name, "50"))
+                    score -= 25;
             }
 
             if (!explicitBrandChange &&
-                !string.IsNullOrWhiteSpace(profile.PreferredBrand) &&
-                string.Equals(brand, profile.PreferredBrand, StringComparison.OrdinalIgnoreCase))
+     !string.IsNullOrWhiteSpace(profile.PreferredBrand) &&
+     string.Equals(brand, profile.PreferredBrand, StringComparison.OrdinalIgnoreCase) &&
+     !intent.ExcludedBrands.Contains(profile.PreferredBrand))
             {
-                score += 10;
+                score += 5;
             }
             bool hasPriceAnchor =
     intent.TargetPrice.HasValue ||
@@ -1052,6 +1233,57 @@ namespace Chatbot.API.Services
                 !string.IsNullOrWhiteSpace(k) &&
                 text.Contains(k, StringComparison.OrdinalIgnoreCase));
         }
+        private static bool ShouldCarryExcludedBrands(
+    string normalizedMessage,
+    ParsedIntent effective,
+    CustomerPreferenceProfile profile)
+        {
+            if (effective == null || profile == null)
+                return false;
+
+            if (effective.ExcludedBrands.Count > 0)
+                return false;
+
+            if (profile.ExcludedBrands == null || profile.ExcludedBrands.Count == 0)
+                return false;
+
+            var text = NormalizeText(normalizedMessage);
+
+            bool userExplicitlyPickedBrand =
+                !string.IsNullOrWhiteSpace(effective.Brand) ||
+                ContainsAny(text, "honda", "yamaha", "suzuki", "sym", "piaggio");
+
+            if (userExplicitlyPickedBrand)
+                return false;
+
+            return true;
+        }
+
+        private static bool ShouldCarryExcludedCategories(
+            string normalizedMessage,
+            ParsedIntent effective,
+            CustomerPreferenceProfile profile)
+        {
+            if (effective == null || profile == null)
+                return false;
+
+            if (effective.ExcludedCategories.Count > 0)
+                return false;
+
+            if (profile.ExcludedCategories == null || profile.ExcludedCategories.Count == 0)
+                return false;
+
+            var text = NormalizeText(normalizedMessage);
+
+            bool userExplicitlyPickedCategory =
+                !string.IsNullOrWhiteSpace(effective.Category) ||
+                ContainsAny(text, "xe ga", "xe so", "xe số", "tay ga", "con tay", "côn tay");
+
+            if (userExplicitlyPickedCategory)
+                return false;
+
+            return true;
+        }
         private static bool ShouldIgnoreOldCategoryForFreshTargetAsk(
     string normalizedMessage,
     ParsedIntent intent)
@@ -1105,6 +1337,53 @@ namespace Chatbot.API.Services
                     "hợp");
 
             return looksLikeFreshAsk;
+        }
+        private static bool IsSafeLlmReasonForProduct(
+    ProductSummaryDto currentProduct,
+    string reason,
+    IReadOnlyList<ProductSummaryDto> currentProducts)
+        {
+            if (currentProduct == null || string.IsNullOrWhiteSpace(reason))
+                return false;
+
+            var normalizedReason = NormalizeText(reason);
+            var currentName = NormalizeText(currentProduct.Ten);
+
+            foreach (var product in currentProducts)
+            {
+                if (product == null || product.Id == currentProduct.Id)
+                    continue;
+
+                var otherName = NormalizeText(product.Ten);
+                if (string.IsNullOrWhiteSpace(otherName))
+                    continue;
+
+                if (normalizedReason.Contains(otherName))
+                    return false;
+
+                var otherCoreName = RemoveBrandPrefix(otherName);
+                if (!string.IsNullOrWhiteSpace(otherCoreName) &&
+                    otherCoreName.Length >= 4 &&
+                    normalizedReason.Contains(otherCoreName))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static string RemoveBrandPrefix(string productName)
+        {
+            var text = NormalizeText(productName);
+
+            foreach (var brand in new[] { "honda", "yamaha", "suzuki", "piaggio", "sym" })
+            {
+                if (text.StartsWith(brand + " "))
+                    return text.Substring(brand.Length).Trim();
+            }
+
+            return text;
         }
         private static string BuildNaturalRecommendationReason(
     ProductSummaryDto item,
@@ -1380,7 +1659,24 @@ namespace Chatbot.API.Services
 
             return (minPrice, maxPrice);
         }
+        private static (decimal? minPrice, decimal? maxPrice) RelaxPriceRangeForChangeProduct(
+     decimal? minPrice,
+     decimal? maxPrice)
+        {
+            if (!minPrice.HasValue && !maxPrice.HasValue)
+                return (minPrice, maxPrice);
 
+            decimal? relaxedMin = minPrice;
+            decimal? relaxedMax = maxPrice;
+
+            if (relaxedMin.HasValue)
+                relaxedMin = Math.Max(0, relaxedMin.Value - 2_000_000m);
+
+            if (relaxedMax.HasValue)
+                relaxedMax = relaxedMax.Value + 2_000_000m;
+
+            return (relaxedMin, relaxedMax);
+        }
         private async Task<List<ProductSummaryDto>> GetCandidatesAsync(
             string? requestedBrand,
             string? effectiveCategory,
@@ -1492,6 +1788,73 @@ namespace Chatbot.API.Services
             }
 
             return rankedByRule.Take(3).ToList();
+        }
+        private static void ApplyInlineExcludedBrandGuard(string text, ParsedIntent intent)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            var brands = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["honda"] = "Honda",
+                ["yamaha"] = "Yamaha",
+                ["suzuki"] = "Suzuki",
+                ["sym"] = "SYM",
+                ["piaggio"] = "Piaggio"
+            };
+
+            foreach (var pair in brands)
+            {
+                var normalizedBrand = pair.Key;
+                var displayBrand = pair.Value;
+
+                bool hasNegativeBrand =
+                    ContainsAny(text,
+                        $"khong {normalizedBrand}",
+                        $"ko {normalizedBrand}",
+                        $"k {normalizedBrand}",
+                        $"khong thich {normalizedBrand}",
+                        $"khong muon {normalizedBrand}",
+                        $"khong lay {normalizedBrand}",
+                        $"khong chon {normalizedBrand}",
+                        $"khong phai {normalizedBrand}",
+                        $"tru {normalizedBrand}",
+                        $"ngoai tru {normalizedBrand}",
+                        $"mien khong {normalizedBrand}",
+                        $"mien khong la {normalizedBrand}");
+
+                if (!hasNegativeBrand)
+                    continue;
+
+                intent.ExcludedBrands.Add(displayBrand);
+
+                if (string.Equals(intent.Brand, displayBrand, StringComparison.OrdinalIgnoreCase))
+                    intent.Brand = null;
+            }
+        }
+        private static string? ExtractBrandFromProductName(string? productName)
+        {
+            if (string.IsNullOrWhiteSpace(productName))
+                return null;
+
+            var text = NormalizeText(productName);
+
+            if (text.StartsWith("honda "))
+                return "Honda";
+
+            if (text.StartsWith("yamaha "))
+                return "Yamaha";
+
+            if (text.StartsWith("suzuki "))
+                return "Suzuki";
+
+            if (text.StartsWith("sym "))
+                return "SYM";
+
+            if (text.StartsWith("piaggio "))
+                return "Piaggio";
+
+            return null;
         }
         private static RecommendationBuckets BucketRecommendations(IReadOnlyList<ProductSummaryDto> products)
         {
@@ -1622,17 +1985,71 @@ namespace Chatbot.API.Services
 
             return lines;
         }
+        private static List<ProductSummaryDto> FinalizeRecommendationRanking(
+    IReadOnlyList<ProductSummaryDto> ranked,
+    IReadOnlyList<ProductSummaryDto> rankedByRule,
+    ParsedIntent effectiveIntent,
+    ParsedIntent originalIntent,
+    CustomerPreferenceProfile profile,
+    string? effectiveCategory,
+    string normalizedMessage)
+        {
+            var result = ranked?.ToList() ?? new List<ProductSummaryDto>();
+
+            result = EnforceFinalRecommendationGuards(
+                result,
+                effectiveIntent,
+                profile,
+                effectiveCategory,
+                normalizedMessage);
+
+            result = RemoveRepeatedProductsForOtherFollowUp(
+                result,
+                originalIntent,
+                profile,
+                normalizedMessage);
+
+            if (result.Count == 0)
+            {
+                result = ApplyExclusions(
+                    rankedByRule?.ToList() ?? new List<ProductSummaryDto>(),
+                    effectiveIntent,
+                    profile);
+
+                result = EnforceFinalRecommendationGuards(
+                    result,
+                    effectiveIntent,
+                    profile,
+                    effectiveCategory,
+                    normalizedMessage);
+
+                result = RemoveRepeatedProductsForOtherFollowUp(
+                    result,
+                    originalIntent,
+                    profile,
+                    normalizedMessage);
+            }
+
+            result = EnforceFinalRecommendationGuards(
+                result,
+                effectiveIntent,
+                profile,
+                effectiveCategory,
+                normalizedMessage);
+
+            return result.Take(3).ToList();
+        }
         private static List<ProductSummaryDto> EnforceFinalRecommendationGuards(
-      IReadOnlyList<ProductSummaryDto> products,
-      ParsedIntent intent,
-      string? effectiveCategory,
-      string normalizedMessage)
+    IReadOnlyList<ProductSummaryDto> products,
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile,
+    string? effectiveCategory,
+    string normalizedMessage)
         {
             if (products == null || products.Count == 0)
                 return new List<ProductSummaryDto>();
 
             var desiredCategory = NormalizeCategory(effectiveCategory ?? intent.Category);
-
             var result = products.ToList();
 
             if (!string.IsNullOrWhiteSpace(desiredCategory))
@@ -1678,7 +2095,157 @@ namespace Chatbot.API.Services
                     result = practical;
             }
 
+            if (ShouldApplyFemaleFriendlyGuard(intent, profile, normalizedMessage))
+            {
+                var femaleFriendly = result
+                    .Where(IsFemaleFriendlyCandidate)
+                    .ToList();
+
+                result = femaleFriendly;
+            }
+
             return result;
+        }
+        private static bool ShouldApplyFemaleFriendlyGuard(
+     ParsedIntent intent,
+     CustomerPreferenceProfile profile,
+     string normalizedMessage)
+        {
+            var text = NormalizeText(normalizedMessage);
+
+            bool wantsFemale =
+                intent.PrefersFemaleStyle ||
+                profile.PrefersFemaleStyle ||
+                (!string.IsNullOrWhiteSpace(intent.Target) &&
+                 NormalizeText(intent.Target).Contains("nu")) ||
+                (!string.IsNullOrWhiteSpace(profile.Target) &&
+                 NormalizeText(profile.Target).Contains("nu")) ||
+                ContainsAny(text,
+                    "cho nu",
+                    "xe nu",
+                    "hop nu",
+                    "nu tinh",
+                    "ban nu",
+                    "con gai");
+
+            bool isCheaperFollowUp =
+                ContainsAny(text,
+                    "re hon",
+                    "mem hon",
+                    "thap hon",
+                    "it tien hon",
+                    "xuong");
+
+            bool previousListLooksFemale =
+                isCheaperFollowUp &&
+                HasFemaleFriendlyPreviousRecommendation(profile);
+
+            bool explicitlySporty =
+                intent.PrefersMaleStyle ||
+                profile.PrefersMaleStyle ||
+                ContainsAny(text,
+                    "con tay",
+                    "the thao",
+                    "ca tinh",
+                    "manh",
+                    "toc do",
+                    "winner",
+                    "exciter",
+                    "raider",
+                    "sonic",
+                    "axelo",
+                    "gd110");
+
+            return (wantsFemale || previousListLooksFemale) && !explicitlySporty;
+        }
+        private static bool HasFemaleFriendlyPreviousRecommendation(CustomerPreferenceProfile profile)
+        {
+            var previousNames = new List<string>();
+
+            if (profile.LastRecommendedProducts != null)
+                previousNames.AddRange(profile.LastRecommendedProducts);
+
+            if (profile.CurrentRecommendedProducts != null)
+                previousNames.AddRange(profile.CurrentRecommendedProducts);
+
+            if (previousNames.Count == 0)
+                return false;
+
+            return previousNames.Any(name =>
+                ContainsAny(name,
+                    "vision",
+                    "attila",
+                    "shark",
+                    "latte",
+                    "grande",
+                    "janus",
+                    "lead",
+                    "zip",
+                    "elite",
+                    "address",
+                    "impulse"));
+        }
+
+        private static bool IsFemaleFriendlyCandidate(ProductSummaryDto product)
+        {
+            if (product == null)
+                return false;
+
+            var name = NormalizeText(product.Ten);
+            var category = NormalizeCategory(product.Loai);
+
+            if (ContainsAny(name,
+     "winner",
+     "exciter",
+     "raider",
+     "sonic",
+     "husky",
+     "cbr",
+     "rebel",
+     "axelo",
+     "gd110",
+     "galaxy",
+     "star sr"))
+            {
+                return false;
+            }
+
+            if (category == "con tay")
+                return false;
+
+            // Ưu tiên mạnh xe ga
+            if (category == "xe ga")
+                return true;
+
+            // Chỉ cho phép MỘT SỐ xe số thực sự phù hợp nữ
+            if (category == "xe so")
+            {
+                if (ContainsAny(name,
+     "wave",
+     "sirius"))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+            if (ContainsAny(name,
+                "vision",
+                "janus",
+                "latte",
+                "grande",
+                "lead",
+                "zip",
+                "attila",
+                "shark",
+                "elite",
+                "address",
+                "impulse"))
+            {
+                return true;
+            }
+
+            return false;
         }
         private static bool ShouldIgnoreOldProfileForFreshPriceAsk(
     string normalizedMessage,
@@ -1722,6 +2289,49 @@ namespace Chatbot.API.Services
         {
             var name = product.Ten ?? string.Empty;
             return ContainsAny(name, "Air Blade", "Burgman", "Address", "NVX", "PCX");
+        }
+        private static bool LooksLikeOtherProductRequest(string normalizedMessage, ParsedIntent intent)
+        {
+            var text = NormalizeText(normalizedMessage);
+
+            if (intent.IsFollowUp &&
+                string.Equals(intent.FollowUpType, "other", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return ContainsAny(text,
+                "xe khac",
+                "mau khac",
+                "con khac",
+                "khac di",
+                "doi xe khac",
+                "chon xe khac",
+                "goi y xe khac",
+                "tu van xe khac");
+        }
+        private static List<ProductSummaryDto> RemoveRepeatedProductsForOtherFollowUp(
+       IReadOnlyList<ProductSummaryDto> products,
+       ParsedIntent intent,
+       CustomerPreferenceProfile profile,
+       string normalizedMessage)
+        {
+            if (products == null || products.Count == 0)
+                return new List<ProductSummaryDto>();
+
+            if (!LooksLikeOtherProductRequest(normalizedMessage, intent))
+                return products.ToList();
+
+            var oldNames = new HashSet<string>(
+                profile.LastRecommendedProducts ?? new List<string>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            if (oldNames.Count == 0)
+                return products.ToList();
+
+            return products
+                .Where(x => !oldNames.Contains(x.Ten ?? string.Empty))
+                .ToList();
         }
         private sealed class RecommendationBuckets
         {

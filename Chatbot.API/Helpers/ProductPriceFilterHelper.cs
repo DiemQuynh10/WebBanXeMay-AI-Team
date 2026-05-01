@@ -45,19 +45,9 @@ namespace Chatbot.API.Helpers
                 var target = intent.TargetPrice.Value;
                 var delta = GetAroundDelta(target);
 
-                var filtered = query
+                return query
                     .Where(x => x.Gia >= target - delta && x.Gia <= target + delta)
                     .ToList();
-
-                if (filtered.Count == 0)
-                {
-                    var relaxedDelta = delta + 2_000_000m;
-                    filtered = items
-                        .Where(x => x.Gia >= target - relaxedDelta && x.Gia <= target + relaxedDelta)
-                        .ToList();
-                }
-
-                return filtered;
             }
 
             return query.ToList();
@@ -66,7 +56,7 @@ namespace Chatbot.API.Helpers
         public static decimal GetAroundDelta(decimal target)
         {
             if (target <= 20_000_000m) return 2_000_000m;
-            if (target <= 35_000_000m) return 3_000_000m;
+            if (target <= 35_000_000m) return 4_000_000m;
             if (target <= 50_000_000m) return 4_000_000m;
             return 5_000_000m;
         }

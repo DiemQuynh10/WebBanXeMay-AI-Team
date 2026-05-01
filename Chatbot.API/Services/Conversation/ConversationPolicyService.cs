@@ -31,6 +31,10 @@ namespace Chatbot.API.Services.Conversation
             {
                 return (parsedIntent.Clone(), RecommendationContextDecision.None);
             }
+            if (IsStrongStandaloneIntent(parsedIntent))
+            {
+                return (parsedIntent.Clone(), RecommendationContextDecision.None);
+            }
             var contextResolution = _conversationContextResolver.Resolve(
                 normalizedMessage,
                 parsedIntent,
@@ -67,6 +71,8 @@ namespace Chatbot.API.Services.Conversation
                 return false;
 
             if (effectiveIntent == null)
+                return false;
+            if (LooksLikeAlternativeRecommendationRequest(normalizedMessage))
                 return false;
 
             if (effectiveIntent.IsDirectCompare)
@@ -158,10 +164,10 @@ namespace Chatbot.API.Services.Conversation
             }
         }
         private static bool ShouldOverrideToExpandFromCurrentGoal(
-            string normalizedMessage,
-            ParsedIntent parsedIntent,
-            CustomerPreferenceProfile? existingProfile,
-            RecommendationContextDecision currentDecision)
+    string normalizedMessage,
+    ParsedIntent parsedIntent,
+    CustomerPreferenceProfile? existingProfile,
+    RecommendationContextDecision currentDecision)
         {
             if (currentDecision != RecommendationContextDecision.StartFreshRecommendation)
                 return false;
@@ -175,6 +181,43 @@ namespace Chatbot.API.Services.Conversation
 
             var text = (normalizedMessage ?? string.Empty).Trim().ToLowerInvariant();
 
+            bool isExplicitNewRecommendation =
+                ContainsAny(text,
+                    "tư vấn", "tu van",
+                    "gợi ý", "goi y",
+                    "nên mua", "nen mua",
+                    "chọn xe", "chon xe",
+                    "tìm xe", "tim xe",
+                    "muốn mua", "muon mua",
+                    "cần xe", "can xe");
+
+            bool hasReferenceFollowUpSignal =
+                text.StartsWith("còn ") ||
+                text.StartsWith("con ") ||
+                text.Contains("thì sao") ||
+                text.Contains("thi sao") ||
+                text.Contains("vậy còn") ||
+                text.Contains("vay con") ||
+                text.Contains("thế còn") ||
+                text.Contains("the con") ||
+                text.Contains("mẫu đó") ||
+                text.Contains("mau do") ||
+                text.Contains("xe đó") ||
+                text.Contains("xe do") ||
+                text.Contains("con đó") ||
+                text.Contains("con do") ||
+                text.Contains("mẫu khác") ||
+                text.Contains("mau khac") ||
+                text.Contains("xe khác") ||
+                text.Contains("xe khac") ||
+                text.Contains("khác đi") ||
+                text.Contains("khac di");
+
+            // Nếu user nói rõ "tư vấn/gợi ý..." thì coi là goal mới,
+            // không ép thành expand chỉ vì đang có context cũ.
+            if (isExplicitNewRecommendation && !hasReferenceFollowUpSignal)
+                return false;
+
             bool hasNewStructuredFilter =
                 !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
                 !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
@@ -182,7 +225,7 @@ namespace Chatbot.API.Services.Conversation
                 parsedIntent.PriceMax.HasValue ||
                 parsedIntent.TargetPrice.HasValue ||
                 parsedIntent.IsBrandSwitch ||
-                parsedIntent.IntentType == "brand_switch";
+                string.Equals(parsedIntent.IntentType, "brand_switch", StringComparison.OrdinalIgnoreCase);
 
             if (!hasNewStructuredFilter)
                 return false;
@@ -196,80 +239,132 @@ namespace Chatbot.API.Services.Conversation
                 parsedIntent.WantsFuelSaving ||
                 parsedIntent.WantsLargeStorage ||
                 parsedIntent.WantsEasyControl ||
-                parsedIntent.NeedsLowSeat;
+                parsedIntent.NeedsLowSeat ||
+                parsedIntent.PrefersMaleStyle ||
+                parsedIntent.PrefersFemaleStyle;
 
-            if (!introducesNewGoal)
+            if (!introducesNewGoal && hasReferenceFollowUpSignal)
                 return true;
 
-            bool looksLikeShortFollowUp =
-                text.Contains("thì sao") ||
-                text.Contains("thi sao") ||
-                text.Contains("còn") ||
-                text.Contains("con ") ||
-                text.Contains("đổi sang") ||
-                text.Contains("doi sang");
-
-            return looksLikeShortFollowUp;
+            return introducesNewGoal && hasReferenceFollowUpSignal;
         }
 
         private static ParsedIntent MergeExpandFollowUpIntent(
-            ParsedIntent parsedIntent,
-            ParsedIntent effectiveIntent,
-            CustomerPreferenceProfile profile)
+     ParsedIntent parsedIntent,
+     ParsedIntent effectiveIntent,
+     CustomerPreferenceProfile profile)
         {
             var merged = effectiveIntent.Clone();
 
-            if (string.IsNullOrWhiteSpace(merged.Target))
-                merged.Target = profile.Target;
+            bool currentTurnHasPrice =
+                parsedIntent.FilterType != PriceFilterType.None ||
+                parsedIntent.PriceMin.HasValue ||
+                parsedIntent.PriceMax.HasValue ||
+                parsedIntent.TargetPrice.HasValue;
 
-            if (!merged.ForWork)
-                merged.ForWork = profile.ForWork;
+            bool currentTurnHasIdentity =
+                !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
+                !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
+                !string.IsNullOrWhiteSpace(parsedIntent.Target) ||
+                parsedIntent.PrefersMaleStyle ||
+                parsedIntent.PrefersFemaleStyle;
 
-            if (!merged.ForSchool)
-                merged.ForSchool = profile.ForSchool;
+            bool currentTurnHasUseCase =
+                parsedIntent.ForWork ||
+                parsedIntent.ForSchool ||
+                parsedIntent.ForCity ||
+                parsedIntent.ForTour ||
+                parsedIntent.WantsFuelSaving ||
+                parsedIntent.WantsLargeStorage ||
+                parsedIntent.WantsEasyControl ||
+                parsedIntent.NeedsLowSeat ||
+                parsedIntent.HeightCm.HasValue;
 
-            if (!merged.ForCity)
-                merged.ForCity = profile.ForCity;
+            // Chỉ giữ target/giới tính cũ nếu câu hiện tại không nói identity mới
+            if (!currentTurnHasIdentity)
+            {
+                if (string.IsNullOrWhiteSpace(merged.Target))
+                    merged.Target = profile.Target;
 
-            if (!merged.ForTour)
-                merged.ForTour = profile.ForTour;
+                if (!merged.PrefersMaleStyle)
+                    merged.PrefersMaleStyle = profile.PrefersMaleStyle;
 
-            if (!merged.PriceMin.HasValue)
-                merged.PriceMin = profile.PriceMin;
+                if (!merged.PrefersFemaleStyle)
+                    merged.PrefersFemaleStyle = profile.PrefersFemaleStyle;
+            }
 
-            if (!merged.PriceMax.HasValue)
-                merged.PriceMax = profile.PriceMax;
+            // Chỉ giữ giá cũ nếu câu hiện tại không có giá mới
+            if (!currentTurnHasPrice)
+            {
+                if (!merged.PriceMin.HasValue)
+                    merged.PriceMin = profile.PriceMin;
 
-            if (!merged.TargetPrice.HasValue)
-                merged.TargetPrice = profile.TargetPrice;
+                if (!merged.PriceMax.HasValue)
+                    merged.PriceMax = profile.PriceMax;
 
-            if (merged.FilterType == PriceFilterType.None)
-                merged.FilterType = profile.FilterType;
+                if (!merged.TargetPrice.HasValue)
+                    merged.TargetPrice = profile.TargetPrice;
 
-            if (!merged.WantsFuelSaving)
-                merged.WantsFuelSaving = profile.WantsFuelSaving;
+                if (merged.FilterType == PriceFilterType.None)
+                    merged.FilterType = profile.FilterType;
+            }
+            else
+            {
+                ApplyCurrentTurnPriceOverride(parsedIntent, merged);
+            }
 
-            if (!merged.WantsLargeStorage)
-                merged.WantsLargeStorage = profile.WantsLargeStorage;
+            // Chỉ giữ use-case cũ nếu câu hiện tại không nói use-case mới
+            if (!currentTurnHasUseCase)
+            {
+                if (!merged.ForWork)
+                    merged.ForWork = profile.ForWork;
 
-            if (!merged.WantsEasyControl)
-                merged.WantsEasyControl = profile.WantsEasyControl;
+                if (!merged.ForSchool)
+                    merged.ForSchool = profile.ForSchool;
 
-            if (!merged.NeedsLowSeat)
-                merged.NeedsLowSeat = profile.NeedsLowSeat;
+                if (!merged.ForCity)
+                    merged.ForCity = profile.ForCity;
 
-            if (!merged.HeightCm.HasValue)
-                merged.HeightCm = profile.HeightCm;
+                if (!merged.ForTour)
+                    merged.ForTour = profile.ForTour;
 
-            if (!merged.PrefersMaleStyle)
-                merged.PrefersMaleStyle = profile.PrefersMaleStyle;
+                if (!merged.WantsFuelSaving)
+                    merged.WantsFuelSaving = profile.WantsFuelSaving;
 
-            if (!merged.PrefersFemaleStyle)
-                merged.PrefersFemaleStyle = profile.PrefersFemaleStyle;
+                if (!merged.WantsLargeStorage)
+                    merged.WantsLargeStorage = profile.WantsLargeStorage;
+
+                if (!merged.WantsEasyControl)
+                    merged.WantsEasyControl = profile.WantsEasyControl;
+
+                if (!merged.NeedsLowSeat)
+                    merged.NeedsLowSeat = profile.NeedsLowSeat;
+
+                if (!merged.HeightCm.HasValue)
+                    merged.HeightCm = profile.HeightCm;
+            }
 
             return merged;
         }
+        private static bool LooksLikeAlternativeRecommendationRequest(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return false;
 
+            var text = message.Trim().ToLowerInvariant();
+
+            return
+                (text.Contains("xe nào") || text.Contains("xe nao") ||
+                 text.Contains("mẫu nào") || text.Contains("mau nao") ||
+                 text.Contains("con nào") || text.Contains("con nao") ||
+                 text.Contains("xe khác") || text.Contains("xe khac") ||
+                 text.Contains("mẫu khác") || text.Contains("mau khac"))
+                &&
+                (text.Contains("rẻ hơn") || text.Contains("re hon") ||
+                 text.Contains("mềm hơn") || text.Contains("mem hon") ||
+                 text.Contains("thấp hơn") || text.Contains("thap hon") ||
+                 text.Contains("ít tiền hơn") || text.Contains("it tien hon"));
+        }
         private static ParsedIntent SanitizeFreshRecommendationIntent(
             ParsedIntent parsedIntent,
             ParsedIntent effectiveIntent)
@@ -450,6 +545,48 @@ namespace Chatbot.API.Services.Conversation
 
             return (hasRecommendationVerb && hasFreshConstraint && !isClassicShortFollowUp)
                    || hasStrongFreshPattern;
+        }
+        private static bool IsStrongStandaloneIntent(ParsedIntent intent)
+        {
+            if (intent == null)
+                return false;
+
+            if (intent.IsOrderLookup ||
+                string.Equals(intent.IntentType, "order_lookup", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if ((intent.IsDirectProductLookup ||
+                 string.Equals(intent.IntentType, "product_lookup", StringComparison.OrdinalIgnoreCase)) &&
+                intent.MentionedProducts != null &&
+                intent.MentionedProducts.Count > 0)
+                return true;
+
+            if ((intent.IsDirectCompare ||
+                 string.Equals(intent.IntentType, "compare", StringComparison.OrdinalIgnoreCase)) &&
+                intent.MentionedProducts != null &&
+                intent.MentionedProducts
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Count() >= 2)
+                return true;
+
+            return false;
+        }
+        private static bool ContainsAny(string text, params string[] candidates)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            foreach (var candidate in candidates)
+            {
+                if (!string.IsNullOrWhiteSpace(candidate) &&
+                    text.Contains(candidate, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

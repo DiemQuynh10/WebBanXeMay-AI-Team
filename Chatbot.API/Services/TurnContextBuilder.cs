@@ -14,11 +14,11 @@ namespace Chatbot.API.Services.Conversation
         }
 
         public Task<TurnContextBuildResult> BuildAsync(
-            string conversationId,
-            string normalizedMessage,
-            ParsedIntent parsedIntent,
-            CustomerPreferenceProfile existingProfile,
-            ConversationState state)
+    string conversationId,
+    string normalizedMessage,
+    ParsedIntent parsedIntent,
+    CustomerPreferenceProfile existingProfile,
+    ConversationState state)
         {
             var (effectiveIntent, contextDecision) = _conversationPolicyService.ResolveEffectiveIntent(
                 conversationId,
@@ -26,10 +26,19 @@ namespace Chatbot.API.Services.Conversation
                 parsedIntent,
                 existingProfile);
 
-            var goalContinuity = ResolveGoalContinuity(effectiveIntent, existingProfile, state, normalizedMessage);
+            var goalContinuity = ResolveGoalContinuity(
+                effectiveIntent,
+                existingProfile,
+                state,
+                normalizedMessage);
+
             var resolvedReference = ResolveReference(existingProfile, state);
 
-            effectiveIntent = ApplyGoalContinuityAdjustments(
+            // Chỉ chỉnh những case thật sự an toàn:
+            // - order lookup: xóa context xe
+            // - product lookup rõ ràng: xóa context tư vấn
+            // - follow-up refine/continue: chỉ đánh dấu, không tự kéo hết constraint cũ
+            effectiveIntent = ApplySafeGoalContinuityAdjustments(
                 effectiveIntent,
                 goalContinuity,
                 normalizedMessage,
@@ -48,12 +57,15 @@ namespace Chatbot.API.Services.Conversation
                 ResolvedReference = resolvedReference
             };
 
-            result.IsGoalSwitch = string.Equals(result.GoalContinuity, "new_goal", StringComparison.OrdinalIgnoreCase);
+            result.IsGoalSwitch = string.Equals(
+                result.GoalContinuity,
+                "new_goal",
+                StringComparison.OrdinalIgnoreCase);
 
             result.CarryForwardFields = ResolveCarryForwardFields(
-     result.GoalContinuity,
-     existingProfile,
-     state);
+                result.GoalContinuity,
+                existingProfile,
+                state);
 
             return Task.FromResult(result);
         }
@@ -431,123 +443,85 @@ namespace Chatbot.API.Services.Conversation
 
             return hasFreshConsultationPhrase && strongSignals >= 1;
         }
-        private static ParsedIntent ApplyGoalContinuityAdjustments(
-    ParsedIntent effectiveIntent,
-    string? goalContinuity,
-    string normalizedMessage,
-    CustomerPreferenceProfile profile,
-    ConversationState state,
-    string? resolvedReference)
+        private static ParsedIntent ApplySafeGoalContinuityAdjustments(
+     ParsedIntent effectiveIntent,
+     string? goalContinuity,
+     string normalizedMessage,
+     CustomerPreferenceProfile profile,
+     ConversationState state,
+     string? resolvedReference)
         {
             if (effectiveIntent == null)
                 return new ParsedIntent();
 
-
             var adjusted = CloneIntent(effectiveIntent);
-            var constraints = state.Constraints ?? new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-            if (IsVeryShortReferenceLikeMessage(normalizedMessage) &&
-    !string.IsNullOrWhiteSpace(resolvedReference) &&
-    !adjusted.IsOrderLookup)
+
+            // 1. Đơn hàng là domain riêng, tuyệt đối không kéo context xe sang
+            if (adjusted.IsOrderLookup)
+                return ResetForOrderLookup(adjusted);
+
+            // 2. Lookup sản phẩm rõ ràng thì không kéo nhu cầu tư vấn cũ
+            if (adjusted.IsDirectProductLookup)
             {
                 adjusted = ResetForProductLookup(adjusted);
-                adjusted.IsDirectProductLookup = true;
-                adjusted.IntentType = "product_lookup";
+                return adjusted;
+            }
+
+            // 3. Chỉ dùng reference cũ cho câu thật sự nói lửng kiểu "xe đó", "con kia"
+            if (IsVeryShortReferenceLikeMessage(normalizedMessage) &&
+                !string.IsNullOrWhiteSpace(resolvedReference) &&
+                !adjusted.IsDirectCompare &&
+                !adjusted.IsOrderLookup)
+            {
                 adjusted.MentionedProducts ??= new List<string>();
 
-                if (!adjusted.MentionedProducts.Any(x => string.Equals(x, resolvedReference, StringComparison.OrdinalIgnoreCase)))
+                if (!adjusted.MentionedProducts.Any(x =>
+                        string.Equals(x, resolvedReference, StringComparison.OrdinalIgnoreCase)))
                 {
                     adjusted.MentionedProducts.Insert(0, resolvedReference);
                 }
 
-                return adjusted;
-            }
-            if (adjusted.IsOrderLookup)
-                return ResetForOrderLookup(adjusted);
-
-            if (adjusted.IsDirectProductLookup)
-            {
-                adjusted = ResetForProductLookup(adjusted);
-
-                if (!string.IsNullOrWhiteSpace(resolvedReference))
+                if (!adjusted.IsDirectProductLookup &&
+                    string.IsNullOrWhiteSpace(adjusted.IntentType))
                 {
-                    adjusted.MentionedProducts ??= new List<string>();
-                    if (!adjusted.MentionedProducts.Any(x => string.Equals(x, resolvedReference, StringComparison.OrdinalIgnoreCase)))
-                        adjusted.MentionedProducts.Insert(0, resolvedReference);
+                    adjusted.IntentType = "product_lookup";
                 }
 
                 return adjusted;
             }
-            if (string.Equals(goalContinuity, "refine", StringComparison.OrdinalIgnoreCase))
+
+            // 4. Refine/continue chỉ đánh dấu follow-up.
+            // Không tự carry brand/category/price ở đây nữa.
+            // Việc merge constraint đã để ConversationPolicyService + ConversationPreferenceService xử lý.
+            if (string.Equals(goalContinuity, "refine", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(goalContinuity, "continue", StringComparison.OrdinalIgnoreCase))
             {
-                CarryForwardCoreConstraints(adjusted, profile, constraints);
-                NormalizeRefinementPriceConstraints(adjusted);
-                adjusted.Brand ??= profile.PreferredBrand ?? GetConstraint(constraints, "brand");
-                adjusted.Category ??= profile.PreferredCategory ?? GetConstraint(constraints, "category");
-                adjusted.Target ??= profile.Target ?? GetConstraint(constraints, "target");
-
-                adjusted.PriceMin ??= profile.PriceMin ?? TryParseDecimal(GetConstraint(constraints, "priceMin"));
-                adjusted.PriceMax ??= profile.PriceMax ?? TryParseDecimal(GetConstraint(constraints, "priceMax"));
-                adjusted.TargetPrice ??= profile.TargetPrice ?? TryParseDecimal(GetConstraint(constraints, "targetPrice"));
-
-                if (adjusted.FilterType == PriceFilterType.None)
-                {
-                    var filterTypeText = GetConstraint(constraints, "filterType");
-                    if (Enum.TryParse<PriceFilterType>(filterTypeText, true, out var filterType))
-                        adjusted.FilterType = filterType;
-                }
-
-                CarryForwardUsageFlags(adjusted, profile, constraints);
+                adjusted.IsFollowUp = true;
 
                 if (!adjusted.IsDirectProductLookup &&
                     !adjusted.IsDirectCompare &&
-                    !adjusted.IsOrderLookup)
+                    !adjusted.IsOrderLookup &&
+                    !adjusted.IsProductSearch)
                 {
-                    adjusted.IsOpenRecommendation = true;
-                    adjusted.IntentType ??= "recommend";
+                    adjusted.IntentType = string.IsNullOrWhiteSpace(adjusted.IntentType) ||
+                                          string.Equals(adjusted.IntentType, "unknown", StringComparison.OrdinalIgnoreCase)
+                        ? "refine"
+                        : adjusted.IntentType;
                 }
-            }
 
-            if (string.Equals(goalContinuity, "continue", StringComparison.OrdinalIgnoreCase))
-            {
-                CarryForwardCoreConstraints(adjusted, profile, constraints);
-                CarryForwardUsageFlags(adjusted, profile, constraints);
-
-                if (IsVeryShortReferenceLikeMessage(normalizedMessage) &&
-    !string.IsNullOrWhiteSpace(resolvedReference) &&
-    !adjusted.IsDirectProductLookup &&
-    !adjusted.IsDirectCompare &&
-    !adjusted.IsOrderLookup)
-                {
-                    adjusted.MentionedProducts ??= new List<string>();
-                    if (!adjusted.MentionedProducts.Any(x => string.Equals(x, resolvedReference, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        adjusted.MentionedProducts.Insert(0, resolvedReference);
-                    }
-                }
+                return adjusted;
             }
 
             if (string.Equals(goalContinuity, "pivot", StringComparison.OrdinalIgnoreCase))
             {
-                CarryForwardSoftConstraints(adjusted, profile, constraints);
-
-                adjusted.MentionedProducts ??= new List<string>();
-                if (!string.IsNullOrWhiteSpace(resolvedReference) &&
-                    adjusted.MentionedProducts.Count == 0)
-                {
-                    adjusted.MentionedProducts.Add(resolvedReference);
-                }
+                adjusted.IsFollowUp = false;
+                return adjusted;
             }
 
             if (string.Equals(goalContinuity, "new_goal", StringComparison.OrdinalIgnoreCase))
             {
-                if (IsVeryShortReferenceLikeMessage(normalizedMessage) && !string.IsNullOrWhiteSpace(resolvedReference))
-                {
-                    adjusted.MentionedProducts ??= new List<string>();
-                    if (!adjusted.MentionedProducts.Any(x => string.Equals(x, resolvedReference, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        adjusted.MentionedProducts.Insert(0, resolvedReference);
-                    }
-                }
+                adjusted.IsFollowUp = false;
+                return adjusted;
             }
 
             return adjusted;
@@ -610,26 +584,6 @@ namespace Chatbot.API.Services.Conversation
                     : new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             };
         }
-        private static void CarryForwardCoreConstraints(
-    ParsedIntent adjusted,
-    CustomerPreferenceProfile profile,
-    Dictionary<string, string?> constraints)
-        {
-            adjusted.Brand ??= profile.PreferredBrand ?? GetConstraint(constraints, "brand");
-            adjusted.Category ??= profile.PreferredCategory ?? GetConstraint(constraints, "category");
-            adjusted.Target ??= profile.Target ?? GetConstraint(constraints, "target");
-
-            adjusted.PriceMin ??= profile.PriceMin ?? TryParseDecimal(GetConstraint(constraints, "priceMin"));
-            adjusted.PriceMax ??= profile.PriceMax ?? TryParseDecimal(GetConstraint(constraints, "priceMax"));
-            adjusted.TargetPrice ??= profile.TargetPrice ?? TryParseDecimal(GetConstraint(constraints, "targetPrice"));
-
-            if (adjusted.FilterType == PriceFilterType.None)
-            {
-                var filterTypeText = GetConstraint(constraints, "filterType");
-                if (Enum.TryParse<PriceFilterType>(filterTypeText, true, out var filterType))
-                    adjusted.FilterType = filterType;
-            }
-        }
         private static ParsedIntent ResetForProductLookup(ParsedIntent adjusted)
         {
             adjusted.Target = null;
@@ -680,67 +634,6 @@ namespace Chatbot.API.Services.Conversation
             adjusted.RequestedStyles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             return adjusted;
-        }
-        private static void CarryForwardSoftConstraints(
-     ParsedIntent adjusted,
-     CustomerPreferenceProfile profile,
-     Dictionary<string, string?> constraints)
-        {
-            if (string.IsNullOrWhiteSpace(adjusted.Target))
-                adjusted.Target = profile.Target ?? GetConstraint(constraints, "target");
-
-            if (!adjusted.PriceMin.HasValue)
-                adjusted.PriceMin = profile.PriceMin ?? TryParseDecimal(GetConstraint(constraints, "priceMin"));
-
-            if (!adjusted.PriceMax.HasValue)
-                adjusted.PriceMax = profile.PriceMax ?? TryParseDecimal(GetConstraint(constraints, "priceMax"));
-
-            if (!adjusted.TargetPrice.HasValue)
-                adjusted.TargetPrice = profile.TargetPrice ?? TryParseDecimal(GetConstraint(constraints, "targetPrice"));
-
-            if (adjusted.FilterType == PriceFilterType.None)
-            {
-                var filterTypeText = GetConstraint(constraints, "filterType");
-                if (Enum.TryParse<PriceFilterType>(filterTypeText, true, out var filterType))
-                    adjusted.FilterType = filterType;
-            }
-
-            adjusted.PrefersMaleStyle |= profile.PrefersMaleStyle || TryParseBool(GetConstraint(constraints, "prefersMaleStyle"));
-            adjusted.PrefersFemaleStyle |= profile.PrefersFemaleStyle || TryParseBool(GetConstraint(constraints, "prefersFemaleStyle"));
-        }
-
-        private static void CarryForwardUsageFlags(
-            ParsedIntent adjusted,
-            CustomerPreferenceProfile profile,
-            Dictionary<string, string?> constraints)
-        {
-            adjusted.ForWork |= profile.ForWork || TryParseBool(GetConstraint(constraints, "forWork"));
-            adjusted.ForSchool |= profile.ForSchool || TryParseBool(GetConstraint(constraints, "forSchool"));
-            adjusted.ForCity |= profile.ForCity || TryParseBool(GetConstraint(constraints, "forCity"));
-            adjusted.ForTour |= profile.ForTour || TryParseBool(GetConstraint(constraints, "forTour"));
-
-            adjusted.WantsFuelSaving |= profile.WantsFuelSaving || TryParseBool(GetConstraint(constraints, "wantsFuelSaving"));
-            adjusted.WantsLargeStorage |= profile.WantsLargeStorage || TryParseBool(GetConstraint(constraints, "wantsLargeStorage"));
-            adjusted.WantsEasyControl |= profile.WantsEasyControl || TryParseBool(GetConstraint(constraints, "wantsEasyControl"));
-            adjusted.NeedsLowSeat |= profile.NeedsLowSeat || TryParseBool(GetConstraint(constraints, "needsLowSeat"));
-
-            adjusted.PrefersMaleStyle |= profile.PrefersMaleStyle || TryParseBool(GetConstraint(constraints, "prefersMaleStyle"));
-            adjusted.PrefersFemaleStyle |= profile.PrefersFemaleStyle || TryParseBool(GetConstraint(constraints, "prefersFemaleStyle"));
-        }
-
-        private static string? GetConstraint(Dictionary<string, string?> constraints, string key)
-        {
-            return constraints.TryGetValue(key, out var value) ? value : null;
-        }
-
-        private static decimal? TryParseDecimal(string? text)
-        {
-            return decimal.TryParse(text, out var value) ? value : null;
-        }
-
-        private static bool TryParseBool(string? text)
-        {
-            return bool.TryParse(text, out var value) && value;
         }
         private static bool HasReferenceSignal(string text)
         {
@@ -807,46 +700,7 @@ namespace Chatbot.API.Services.Conversation
                        text.Contains("thu hai")
                    );
         }
-        private static void NormalizeRefinementPriceConstraints(ParsedIntent adjusted)
-        {
-            if (adjusted == null)
-                return;
-
-            // Nếu user vừa nói "dưới X" / MaxOnly
-            // thì không giữ PriceMin cũ hoặc TargetPrice cũ nữa
-            if (adjusted.FilterType == PriceFilterType.MaxOnly && adjusted.PriceMax.HasValue)
-            {
-                adjusted.PriceMin = null;
-                adjusted.TargetPrice = null;
-                return;
-            }
-
-            // Nếu user vừa nói "trên X" / MinOnly
-            // thì không giữ PriceMax cũ hoặc TargetPrice cũ nữa
-            if (adjusted.FilterType == PriceFilterType.MinOnly && adjusted.PriceMin.HasValue)
-            {
-                adjusted.PriceMax = null;
-                adjusted.TargetPrice = null;
-                return;
-            }
-
-            // Nếu user vừa nói "khoảng X" / Around
-            // thì không giữ min/max cũ
-            if (adjusted.FilterType == PriceFilterType.Around && adjusted.TargetPrice.HasValue)
-            {
-                adjusted.PriceMin = null;
-                adjusted.PriceMax = null;
-                return;
-            }
-
-            // Nếu user đã đưa range mới rõ ràng thì bỏ target cũ
-            if (adjusted.FilterType == PriceFilterType.Range &&
-                adjusted.PriceMin.HasValue &&
-                adjusted.PriceMax.HasValue)
-            {
-                adjusted.TargetPrice = null;
-            }
-        }
+   
     }
 
 

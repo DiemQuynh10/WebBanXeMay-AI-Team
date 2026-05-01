@@ -234,11 +234,14 @@ namespace Chatbot.API.Services
 
             if (intent.ExcludedBrands.Any())
             {
+                var brands = string.Join(", ", intent.ExcludedBrands);
+
                 return Pick(
-                    $"Trong nhóm đang xét, sau khi bỏ {string.Join(", ", intent.ExcludedBrands)} thì hiện chưa còn mẫu nào phù hợp.",
-                    $"Sau khi loại {string.Join(", ", intent.ExcludedBrands)} khỏi nhóm hiện tại thì chưa còn mẫu nào thật sự phù hợp.",
-                    $"Nếu bỏ {string.Join(", ", intent.ExcludedBrands)} thì hiện nhóm này không còn mẫu nào phù hợp nữa."
-                );
+                    $"Trước đó bạn có nói không muốn {brands}, nên trong nhóm hiện tại mình không còn mẫu nào phù hợp nữa.",
+                    $"Vì bạn đang loại {brands}, nên hiện tại danh sách không còn mẫu nào phù hợp.",
+                    $"Do bạn đã loại {brands} khỏi lựa chọn, nên hiện mình chưa còn mẫu nào trong nhóm này."
+                )
+                + " Nếu bạn muốn xem lại hãng này, mình có thể gợi ý lại cho bạn nhé.";
             }
 
             if (intent.ExcludedCategories.Any())
@@ -542,32 +545,19 @@ namespace Chatbot.API.Services
                         "Mình thử mở rộng sang một vài mẫu khác phù hợp hơn cho bạn:");
             }
 
-            if (intent.ExcludedBrands.Any())
-            {
-                var excluded = string.Join(", ", intent.ExcludedBrands);
-                return count <= 1
-                    ? Pick(
-                        $"Sau khi bỏ {excluded} thì hiện mình nghiêng nhất về mẫu sau:",
-                        $"Nếu loại {excluded} khỏi nhóm đang xét thì hiện có 1 mẫu nổi bật hơn cả:",
-                        $"Sau khi bỏ {excluded} thì hiện mẫu này là phương án đáng xem nhất:")
-                    : Pick(
-                        $"Sau khi bỏ {excluded} thì mình thấy các mẫu này đáng cân nhắc hơn:",
-                        $"Nếu loại {excluded} khỏi nhóm hiện tại thì mình nghiêng về các mẫu này:",
-                        $"Sau khi bỏ {excluded} thì các mẫu này nổi bật hơn:");
-            }
+            var excludedText = BuildExcludedText(intent);
 
-            if (intent.ExcludedCategories.Any())
+            if (!string.IsNullOrWhiteSpace(excludedText))
             {
-                var excluded = string.Join(", ", intent.ExcludedCategories);
                 return count <= 1
                     ? Pick(
-                        $"Sau khi bỏ nhóm {excluded} thì hiện mình nghiêng nhất về mẫu sau:",
-                        $"Nếu loại nhóm {excluded} khỏi tập đang xét thì hiện có 1 mẫu nổi bật hơn cả:",
-                        $"Sau khi bỏ nhóm {excluded} thì hiện mẫu này là phương án đáng xem nhất:")
+                        $"Sau khi bỏ {excludedText} thì hiện mình nghiêng nhất về mẫu sau:",
+                        $"Sau khi loại {excludedText} khỏi nhóm hiện tại thì hiện có 1 mẫu nổi bật hơn cả:",
+                        $"Sau khi bỏ {excludedText} thì hiện mẫu này là phương án đáng xem nhất:")
                     : Pick(
-                        $"Sau khi bỏ nhóm {excluded} thì mình thấy các mẫu này đáng cân nhắc hơn:",
-                        $"Nếu loại nhóm {excluded} khỏi tập hiện tại thì mình nghiêng về các mẫu này:",
-                        $"Sau khi bỏ nhóm {excluded} thì các mẫu này nổi bật hơn:");
+                        $"Sau khi bỏ {excludedText} thì mình thấy các mẫu này đáng cân nhắc hơn:",
+                       $"Sau khi loại {excludedText} khỏi nhóm hiện tại thì mình nghiêng về các mẫu này:",
+                        $"Sau khi bỏ {excludedText} thì các mẫu này nổi bật hơn:");
             }
 
             if (count <= 1)
@@ -917,21 +907,28 @@ namespace Chatbot.API.Services
         }
 
         public string BuildClusteredRecommendationReply(
-       IReadOnlyList<ProductSummaryDto> ranked,
-       ParsedIntent intent,
-       CustomerPreferenceProfile profile,
-       ProductSummaryDto? anchor,
-       List<string> bucketNarratives,
-       string normalizedMessage,
-       Func<ProductSummaryDto, List<string>> getReasons)
+      IReadOnlyList<ProductSummaryDto> ranked,
+      ParsedIntent intent,
+      CustomerPreferenceProfile profile,
+      ProductSummaryDto? anchor,
+      List<string> bucketNarratives,
+      string normalizedMessage,
+      Func<ProductSummaryDto, List<string>> getReasons)
         {
             var lead = BuildRecommendationLead(intent, profile, anchor, normalizedMessage);
+            var contextSummary = BuildContextSummary(intent, profile, normalizedMessage);
 
             var sb = new StringBuilder();
 
             if (!string.IsNullOrWhiteSpace(lead))
             {
                 sb.AppendLine(lead);
+                sb.AppendLine();
+            }
+
+            if (!string.IsNullOrWhiteSpace(contextSummary))
+            {
+                sb.AppendLine(contextSummary);
                 sb.AppendLine();
             }
 
@@ -978,13 +975,12 @@ namespace Chatbot.API.Services
             if (reasons == null || reasons.Count == 0)
             {
                 var fallbacks = new[]
- {
-    "đi phố khá ổn, dễ dùng hằng ngày",
-    "khá bền, dùng lâu ít phải lo",
-    "hợp để đi làm hoặc đi học",
-    "chi phí sử dụng dễ chịu",
-    "gọn nhẹ, dễ chạy trong phố",
-    "nhiều người chọn vì đi ổn định"
+  {
+    "giá dễ tiếp cận, phù hợp đi lại hằng ngày",
+    "gọn nhẹ, dễ điều khiển trong phố",
+    "chi phí sử dụng hợp lý, dễ dùng lâu dài",
+    "phù hợp đi làm hoặc đi học hằng ngày",
+    "mức giá dễ cân nhắc trong nhóm này"
 };
 
                 return fallbacks[new Random().Next(fallbacks.Length)];
@@ -1037,12 +1033,21 @@ namespace Chatbot.API.Services
                 return fallbacks[new Random().Next(fallbacks.Length)];
             }
 
-            return string.Join(", ", cleaned);
+            return cleaned.Count == 1
+     ? cleaned[0]
+     : $"{cleaned[0]}, đồng thời {cleaned[1]}";
         }
         private static string BuildRecommendationFollowUp(ParsedIntent intent, CustomerPreferenceProfile profile)
         {
             var desiredCategory = NormalizeCategory(intent.Category ?? profile.PreferredCategory);
-
+            if (intent.PriceMax.HasValue || intent.TargetPrice.HasValue || profile.PriceMax.HasValue || profile.TargetPrice.HasValue)
+            {
+                return Pick(
+                    "Bạn muốn ưu tiên rẻ nhất hay chọn mẫu ổn định lâu dài hơn?",
+                    "Bạn muốn tiết kiệm tối đa hay chọn xe cân bằng, đáng dùng hơn?",
+                    "Bạn muốn mình lọc tiếp theo hãng hay theo tiêu chí dễ đi, tiết kiệm xăng?"
+                );
+            }
             if (desiredCategory == "xe ga")
             {
                 return Pick(
@@ -1236,9 +1241,8 @@ namespace Chatbot.API.Services
 
             if (hasPriceAnchor && hasGenderContext)
             {
-                return $"Nếu vẫn bám theo nhu cầu trước đó và mức giá này, mình đang nghiêng hơn về {anchorName}.";
+                return $"Mình đang nghiêng hơn về {anchorName}, vì mẫu này cân bằng nhất giữa mức giá và nhu cầu sử dụng.";
             }
-
             if (hasPriceAnchor)
             {
                 return Pick(
@@ -1324,6 +1328,96 @@ namespace Chatbot.API.Services
                    || text.Contains("nen chon")
                    || text.Contains("chon xe nao")
                    || text.Contains("chon mau nao");
+        }
+        private static string BuildExcludedText(ParsedIntent intent, CustomerPreferenceProfile? profile = null)
+        {
+            var parts = new List<string>();
+
+            var brands = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var b in intent.ExcludedBrands)
+                brands.Add(b);
+
+            if (profile?.ExcludedBrands != null)
+            {
+                foreach (var b in profile.ExcludedBrands)
+                    brands.Add(b);
+            }
+
+            var categories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in intent.ExcludedCategories)
+                categories.Add(DisplayCategory(c));
+
+            if (profile?.ExcludedCategories != null)
+            {
+                foreach (var c in profile.ExcludedCategories)
+                    categories.Add(DisplayCategory(c));
+            }
+
+            if (brands.Any())
+                parts.AddRange(brands);
+
+            if (categories.Any())
+                parts.AddRange(categories);
+
+            return parts.Count == 0 ? string.Empty : string.Join(", ", parts);
+        }
+        private static string BuildContextSummary(
+     ParsedIntent intent,
+     CustomerPreferenceProfile profile,
+     string normalizedMessage)
+        {
+            var parts = new List<string>();
+            var text = NormalizeText(normalizedMessage);
+
+            bool female =
+                intent.PrefersFemaleStyle ||
+                profile.PrefersFemaleStyle ||
+                ContainsAny(text, "cho nu", "cho nữ", "xe nu", "xe nữ", "hop nu", "hợp nữ");
+
+            bool male =
+                intent.PrefersMaleStyle ||
+                profile.PrefersMaleStyle ||
+                ContainsAny(text, "cho nam", "xe nam", "hop nam", "hợp nam");
+
+            if (female)
+                parts.Add("xe hợp với nữ");
+            else if (male)
+                parts.Add("xe hợp với nam");
+
+            var category = DisplayCategory(intent.Category ?? profile.PreferredCategory);
+            if (!string.IsNullOrWhiteSpace(category))
+                parts.Add(category);
+
+            if (intent.FilterType == PriceFilterType.Around && intent.TargetPrice.HasValue)
+            {
+                parts.Add($"khoảng {intent.TargetPrice.Value:N0} VNĐ");
+            }
+            else if (intent.FilterType == PriceFilterType.MaxOnly && intent.PriceMax.HasValue)
+            {
+                parts.Add($"dưới {intent.PriceMax.Value:N0} VNĐ");
+            }
+            else if (intent.PriceMin.HasValue && intent.PriceMax.HasValue)
+            {
+                parts.Add($"từ {intent.PriceMin.Value:N0} đến {intent.PriceMax.Value:N0} VNĐ");
+            }
+            else if (intent.TargetPrice.HasValue)
+            {
+                parts.Add($"khoảng {intent.TargetPrice.Value:N0} VNĐ");
+            }
+
+            if (intent.WantsFuelSaving || profile.WantsFuelSaving)
+                parts.Add("ưu tiên tiết kiệm xăng");
+
+            if (intent.WantsLargeStorage || profile.WantsLargeStorage)
+                parts.Add("ưu tiên cốp rộng");
+
+            if (intent.WantsEasyControl || intent.NeedsLowSeat || profile.WantsEasyControl || profile.NeedsLowSeat)
+                parts.Add("ưu tiên dễ đi");
+
+            if (parts.Count == 0)
+                return string.Empty;
+
+            return $"Mình đang dựa trên tiêu chí: {string.Join(", ", parts)}.";
         }
         private static string Normalize(string? input)
         {
