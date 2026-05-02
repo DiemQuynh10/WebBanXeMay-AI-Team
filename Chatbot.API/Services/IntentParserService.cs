@@ -665,6 +665,15 @@ namespace Chatbot.API.Services
 
                 return;
             }
+            if (LooksLikePickBestRequest(text))
+            {
+                result.IntentType = "followup";
+                result.IsFollowUp = true;
+                result.FollowUpType = "pick_best";
+                result.RouteFlow = ChatFlowType.RecommendationFollowUp;
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
             if (IsFollowUpCompareQuestion(text))
             {
                 result.IntentType = "followup";
@@ -771,7 +780,7 @@ namespace Chatbot.API.Services
                 result.HasDeterministicProductIntent = true;
                 return;
             }
-
+         
             if (IsRecommendationFollowUpIntent(text, result))
             {
                 result.IntentType = "followup";
@@ -829,7 +838,34 @@ namespace Chatbot.API.Services
                 result.IsFollowUp = false;
             }
         }
-
+        private static bool LooksLikePickBestRequest(string text)
+        {
+            return ContainsAny(text,
+                "chon giup 1 xe",
+                "chon giup mot xe",
+                "chon cho toi 1 xe",
+                "chon cho minh 1 xe",
+                "chon 1 xe tot nhat",
+                "chon mot xe tot nhat",
+                "chon ra 1 mau",
+                "chon ra mot mau",
+                "chon ra 1 xe",
+                "chon ra mot xe",
+                "chon 1 mau phu hop nhat",
+                "chon mot mau phu hop nhat",
+                "chon ra 1 mau phu hop nhat",
+                "chon ra mot mau phu hop nhat",
+                "xe nao tot nhat",
+                "xe nao dang mua nhat",
+                "mau nao tot nhat",
+                "mau nao dang mua nhat",
+                "mau nao phu hop nhat",
+                "xe nao phu hop nhat",
+                "chot giup 1 xe",
+                "chot giup mot xe",
+                "nen chon xe nao",
+                "nen mua xe nao");
+        }
         private static void ParseRouteFlow(string text, ParsedIntent result)
         {
             if (result.IsGreeting)
@@ -1102,9 +1138,7 @@ namespace Chatbot.API.Services
                 "xe nao di xa tot hon",
                 "xe nao di tot hon",
                 "xe nao di xe tot hon",
-                "xe nao dang mua hon",
-                "nen chon xe nao",
-                "chon xe nao");
+                "xe nao dang mua hon");
         }
         private static void ParseTarget(string text, ParsedIntent result)
         {

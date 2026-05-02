@@ -36,6 +36,34 @@ namespace Chatbot.API.Services.Conversation
     $"ExcludedBrands={string.Join(",", effectiveIntent.ExcludedBrands)} | " +
     $"ExcludedProducts={string.Join(",", effectiveIntent.ExcludedProducts)} | " +
     $"MentionedProducts={string.Join(",", effectiveIntent.MentionedProducts)}");
+            if (string.Equals(effectiveIntent.FollowUpType, "pick_best", StringComparison.OrdinalIgnoreCase))
+            {
+                bool hasAnyProductContext =
+                    hasRecommendationContext ||
+                    hasCompareContext ||
+                    (conversationProfile?.CurrentRecommendedProducts?.Count > 0) ||
+                    (conversationProfile?.BaseRecommendedProducts?.Count > 0) ||
+                    (conversationProfile?.LastRecommendedProducts?.Count > 0) ||
+                    (conversationProfile?.LastMentionedProducts?.Count > 0) ||
+                    (conversationProfile?.LastComparedProducts?.Count > 0);
+
+                if (hasAnyProductContext)
+                {
+                    routing.FlowType = ChatFlowType.RecommendationFollowUp;
+                    routing.ShouldUseDeterministicFlow = true;
+                    routing.ShouldUseAiFallback = false;
+                    routing.ShouldUseRag = false;
+                    routing.Reason = "Pick best from active product context";
+                    return routing;
+                }
+
+                routing.FlowType = ChatFlowType.Unknown;
+                routing.ShouldUseDeterministicFlow = false;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Pick best requested but no active context";
+                return routing;
+            }
             if (string.Equals(effectiveIntent.FollowUpType, "restart_recommendation", StringComparison.OrdinalIgnoreCase))
             {
                 effectiveIntent.IntentType = "recommend";
@@ -176,7 +204,7 @@ namespace Chatbot.API.Services.Conversation
                 effectiveIntent.IsFollowUp = true;
                 effectiveIntent.FollowUpType = "pick_best";
 
-                routing.FlowType = ChatFlowType.Recommendation;
+                routing.FlowType = ChatFlowType.RecommendationFollowUp;
                 routing.ShouldUseDeterministicFlow = true;
                 routing.ShouldUseAiFallback = false;
                 routing.ShouldUseRag = false;
@@ -573,9 +601,11 @@ namespace Chatbot.API.Services.Conversation
         {
             if (!hasCompareContext)
                 return false;
-            // Nếu user đang loại trừ hãng/sản phẩm/dòng xe thì KHÔNG được giữ compare context cũ.
-            // Ví dụ: sau khi so sánh Vision và Air Blade, user nói "không yamaha"
-            // đây là câu mơ hồ hoặc refine, không phải compare follow-up.
+            if (string.Equals(effectiveIntent.FollowUpType, "pick_best", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(effectiveIntent.FollowUpType, "rerank_previous_list", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
             if (HasExclusionConstraint(effectiveIntent) ||
                 string.Equals(effectiveIntent.FollowUpType, "exclude", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(effectiveIntent.FollowUpType, "exclude_product", StringComparison.OrdinalIgnoreCase) ||

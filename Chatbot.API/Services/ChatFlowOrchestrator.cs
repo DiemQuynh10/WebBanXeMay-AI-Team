@@ -32,6 +32,7 @@ namespace Chatbot.API.Services
         private readonly IOrderLookupFlowService _orderLookupFlowService;
         private readonly IConversationStateService _conversationStateService;
         private readonly ITurnContextBuilder _turnContextBuilder;
+        private readonly IRecommendationFollowUpService _recommendationFollowUpService;
         public ChatFlowOrchestrator(
     ILogger<ChatFlowOrchestrator> logger,
     IClarificationStateService clarificationStateService,
@@ -50,6 +51,7 @@ namespace Chatbot.API.Services
     IOrderLookupFlowService orderLookupFlowService,
     IOpenAIService openAIService,
     IConversationStateService conversationStateService,
+    IRecommendationFollowUpService recommendationFollowUpService,
     ITurnContextBuilder turnContextBuilder)
         {
             _logger = logger;
@@ -69,6 +71,7 @@ namespace Chatbot.API.Services
             _orderLookupFlowService = orderLookupFlowService;
             _openAIService = openAIService;
             _conversationStateService = conversationStateService;
+            _recommendationFollowUpService = recommendationFollowUpService;
             _turnContextBuilder = turnContextBuilder;
         }
 
@@ -640,7 +643,16 @@ namespace Chatbot.API.Services
                     context.EffectiveIntent,
                     context.ExistingProfile);
             }
+            if (string.Equals(flowType, ChatFlowType.RecommendationFollowUp, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation("Executing RECOMMENDATION_FOLLOW_UP flow");
 
+                return await _recommendationFollowUpService.HandleAsync(
+                    context.ConversationId,
+                    context.NormalizedMessage,
+                    context.EffectiveIntent,
+                    context.ExistingProfile);
+            }
             if (string.Equals(flowType, ChatFlowType.Recommendation, StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogInformation("Executing RECOMMENDATION flow");

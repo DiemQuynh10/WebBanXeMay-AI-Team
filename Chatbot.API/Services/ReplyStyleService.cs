@@ -762,7 +762,12 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
             decimal? maxPrice)
         {
             var filterText = BuildFilterText(brand, category, minPrice, maxPrice);
-
+            if (string.Equals(filterText, "tiêu chí hiện tại", StringComparison.OrdinalIgnoreCase))
+            {
+                return count == 1
+                    ? "Mình tìm thấy 1 mẫu xe hiện có trong cửa hàng:"
+                    : $"Mình tìm thấy {count} mẫu xe hiện có trong cửa hàng, bạn có thể xem nhanh:";
+            }
             if (count == 1)
             {
                 return Pick(
@@ -779,6 +784,10 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
 
         private static string BuildSearchHint(string? brand, string? category)
         {
+            if (string.IsNullOrWhiteSpace(brand) && string.IsNullOrWhiteSpace(category))
+            {
+                return "Bạn muốn mình lọc tiếp theo hãng, loại xe hoặc tầm giá nào không?";
+            }
             if (string.IsNullOrWhiteSpace(brand))
             {
                 return Pick(
@@ -1291,10 +1300,10 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
             }
 
             return Pick(
-                "Mình lọc nhanh theo nhu cầu bạn nói thì có vài mẫu khá hợp.",
-                "Mình chọn ra vài mẫu dễ cân nhắc trước cho bạn.",
-                "Mấy mẫu dưới đây khá hợp để bạn tham khảo trước."
-            );
+    "Mình lọc được vài mẫu khá sát nhu cầu của bạn:",
+    "Mình chọn ra một vài mẫu đáng cân nhắc để bạn xem trước:",
+    "Dựa trên nhu cầu bạn nói, mình gợi ý trước vài mẫu phù hợp:"
+);
         }
         private static bool ContainsAny(string? text, params string[] keywords)
         {

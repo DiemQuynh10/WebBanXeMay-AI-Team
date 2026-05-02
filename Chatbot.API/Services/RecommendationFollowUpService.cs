@@ -31,7 +31,10 @@ namespace Chatbot.API.Services
     ParsedIntent intent,
     CustomerPreferenceProfile profile)
         {
-            if (!profile.HasActiveRecommendationContext)
+            bool isPickBest =
+    string.Equals(intent.FollowUpType, "pick_best", StringComparison.OrdinalIgnoreCase);
+
+            if (!profile.HasActiveRecommendationContext && !isPickBest)
             {
                 _logger.LogInformation(
                     "Follow-up rerank skipped because recommendation context is inactive. ConversationId: {ConversationId}",
@@ -41,9 +44,15 @@ namespace Chatbot.API.Services
             }
 
             var sourceNames =
-     (profile.CurrentRecommendedProducts != null && profile.CurrentRecommendedProducts.Count > 0)
+     profile.CurrentRecommendedProducts != null && profile.CurrentRecommendedProducts.Count > 0
          ? profile.CurrentRecommendedProducts
-         : profile.BaseRecommendedProducts;
+         : profile.BaseRecommendedProducts != null && profile.BaseRecommendedProducts.Count > 0
+             ? profile.BaseRecommendedProducts
+             : profile.LastRecommendedProducts != null && profile.LastRecommendedProducts.Count > 0
+                 ? profile.LastRecommendedProducts
+                 : profile.LastMentionedProducts != null && profile.LastMentionedProducts.Count > 0
+                     ? profile.LastMentionedProducts
+                     : profile.LastComparedProducts;
 
             if (sourceNames == null || sourceNames.Count == 0)
             {
@@ -65,7 +74,7 @@ namespace Chatbot.API.Services
                 string.Join(", ", allowedNames));
 
             var products = new List<ProductSummaryDto>();
-
+           
             foreach (var name in allowedNames)
             {
                 var result = await _toolClient.SearchProductsAsync(name, 3);
@@ -228,6 +237,56 @@ namespace Chatbot.API.Services
             if (reranked == null || reranked.Count == 0)
             {
                 return null;
+            }
+            if (string.Equals(intent.FollowUpType, "pick_best", StringComparison.OrdinalIgnoreCase))
+            {
+                var best = reranked.First();
+
+                await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
+                    conversationId,
+                    new List<ProductSummaryDto> { best },
+                    "pick_best");
+
+                string reason;
+
+                // 🔥 Detect tiêu chí chính từ intent + message
+                bool isFemale =
+                    intent.PrefersFemaleStyle ||
+                    (!string.IsNullOrWhiteSpace(intent.Target) &&
+                     (intent.Target.Contains("nữ") || intent.Target.Contains("nu"))) ||
+                    normalizedMessage.Contains("nu");
+
+                if (isFemale)
+                {
+                    reason = $"{best.Ten} hợp nữ hơn trong nhóm này vì dáng xe gọn, dễ điều khiển và phù hợp đi phố.";
+                }
+                else if (normalizedMessage.Contains("tiet kiem"))
+                {
+                    reason = $"{best.Ten} tiết kiệm xăng và chi phí sử dụng tốt hơn trong nhóm này.";
+                }
+                else if (normalizedMessage.Contains("manh") || normalizedMessage.Contains("khoe"))
+                {
+                    reason = $"{best.Ten} có động cơ mạnh hơn và cảm giác lái đầm hơn.";
+                }
+                else
+                {
+                    reason = $"{best.Ten} đang cân bằng tốt giữa giá, độ dễ dùng và nhu cầu hằng ngày.";
+                }
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    Reply =
+                        $"Nếu phải chọn 1 mẫu phù hợp nhất trong nhóm vừa gợi ý, mình sẽ chốt **{best.Ten}**.\n\n" +
+                        $"Lý do: {reason} (giá khoảng **{best.Gia:N0} VNĐ**).\n\n" +
+                        $"Bạn có thể bấm xem chi tiết mẫu này để kiểm tra thêm trước khi quyết định.",
+                    Products = new List<ChatProductCard>
+    {
+        ChatProductCardMapper.Map(best)
+    }
+                };
             }
 
             var reply = BuildReply(reranked, intent, normalizedMessage, _productRecommendationService);

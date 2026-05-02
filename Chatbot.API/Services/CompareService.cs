@@ -178,11 +178,64 @@ namespace Chatbot.API.Services
             latestProfile.ActiveFlow = ChatFlowType.Compare;
             latestProfile.HasActiveRecommendationContext = false;
             latestProfile.UpdatedAtUtc = DateTime.UtcNow;
-
             var resolvedFeatureForMulti =
-     ResolveComparisonFeature(intent, normalizedMessage)
-     ?? DetectFeature(normalizedMessage)
-     ?? InferFeatureFromMessageOnly(normalizedMessage);
+      ResolveComparisonFeature(intent, normalizedMessage)
+      ?? DetectFeature(normalizedMessage)
+      ?? InferFeatureFromMessageOnly(normalizedMessage);
+
+            if (matchedProducts.Count >= 3 &&
+                !string.IsNullOrWhiteSpace(resolvedFeatureForMulti))
+            {
+                var ranked = matchedProducts
+                    .Select(p => ScoreForCompare(p, resolvedFeatureForMulti, intent, profile, normalizedMessage))
+                    .OrderByDescending(x => x.Score)
+                    .ToList();
+
+                profile.LastComparisonFeature = resolvedFeatureForMulti;
+                intent.ComparisonFeature = resolvedFeatureForMulti;
+
+                await _conversationPreferenceService.SetComparedProductsAsync(
+                    conversationId,
+                    ranked.Select(x => x.Product.Ten!).ToList());
+
+                var winner = ranked.First();
+
+                var lines = new List<string>
+    {
+        $"Mình xét nhanh {matchedProducts.Count} mẫu vừa tư vấn theo tiêu chí **{BuildFeatureLabel(resolvedFeatureForMulti)}**:",
+        ""
+    };
+
+                foreach (var item in ranked)
+                {
+                    lines.Add($"- **{item.Product.Ten}**: {item.Score:0.0}/10" +
+                              (item.Reasons.Any() ? $" — {string.Join(", ", item.Reasons)}." : "."));
+                }
+
+                lines.Add("");
+                lines.Add($"→ Nếu chọn theo tiêu chí này, mình nghiêng về **{winner.Product.Ten}** nhất.");
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    Reply = string.Join("\n", lines),
+                    Products = ranked.Select(x => ChatProductCardMapper.Map(x.Product)).ToList()
+                };
+            }
+
+            if (wantsCompareAll && matchedProducts.Count >= 3)
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    Reply = BuildCompareAllReply(matchedProducts, normalizedMessage),
+                    Products = matchedProducts.Select(ChatProductCardMapper.Map).ToList()
+                };
+            }
 
             if (matchedProducts.Count >= 3 &&
                 !string.IsNullOrWhiteSpace(resolvedFeatureForMulti))
@@ -322,10 +375,12 @@ namespace Chatbot.API.Services
             var text = NormalizeText(message);
 
             bool hasCompareSignal =
-                text.Contains("so sanh") ||
-                text.Contains("uu nhuoc") ||
-                text.Contains("khac nhau") ||
-                text.Contains("tot hon");
+               text.Contains("so sanh") ||
+text.Contains("uu nhuoc") ||
+text.Contains("uu diem") ||
+text.Contains("nhuoc diem") ||
+text.Contains("khac nhau") ||
+text.Contains("tot hon");
 
             bool hasAllSignal =
                 text.Contains("tat ca") ||
@@ -338,6 +393,16 @@ namespace Chatbot.API.Services
                 text.Contains("ben tren") ||
                 text.Contains("vua dua") ||
                 text.Contains("vua goi y") ||
+                text.Contains("cac mau xe tren") ||
+text.Contains("cac mau tren") ||
+text.Contains("cac xe tren") ||
+text.Contains("nhung mau xe tren") ||
+text.Contains("nhung mau tren") ||
+text.Contains("may mau tren") ||
+text.Contains("cac mau vua goi y") ||
+text.Contains("cac xe vua goi y") ||
+text.Contains("cac mau vua tu van") ||
+text.Contains("cac xe vua tu van")||
                 text.Contains("vua roi");
 
             return hasCompareSignal && hasAllSignal;
@@ -529,9 +594,12 @@ namespace Chatbot.API.Services
 
             if (featureFollowUp && !HasExplicitProductNameInMessage(message))
             {
-                return distinct.Take(5).ToList();
+                return distinct.Take(6).ToList();
             }
-
+            if (intent?.MentionedProducts != null && intent.MentionedProducts.Count >= 3)
+            {
+                return distinct.Take(6).ToList();
+            }
             return distinct.Take(2).ToList();
         }
 
@@ -732,6 +800,20 @@ namespace Chatbot.API.Services
                 return "work_fit";
             if (text.Contains("di hoc") || text.Contains("sinh vien"))
                 return "school_fit";
+            if (text.Contains("di pho") || text.Contains("do thi") || text.Contains("noi thanh"))
+                return "city_fit";
+
+            if (text.Contains("di xa") || text.Contains("duong dai") || text.Contains("phuot"))
+                return "distance_fit";
+
+            if (text.Contains("ben") || text.Contains("it hong") || text.Contains("de bao duong") || text.Contains("phu tung"))
+                return "durability";
+
+            if (text.Contains("dang mua") || text.Contains("gia tri") || text.Contains("kinh te") || text.Contains("hop tien"))
+                return "value";
+
+            if (text.Contains("di em") || text.Contains("ngoi em") || text.Contains("em ai") || text.Contains("thoai mai"))
+                return "ride_comfort";
             if (text.Contains("boc") ||
     text.Contains("may khoe") ||
     text.Contains("manh hon") ||
@@ -1052,6 +1134,8 @@ namespace Chatbot.API.Services
             bool wantsDistance = feature == "distance_fit";
             bool wantsDurability = feature == "durability";
             bool wantsValue = feature == "value";
+            bool wantsDesign = feature == "design_fit";
+            bool wantsComfort = feature == "ride_comfort";
 
             if (wantsFemale)
             {
@@ -1142,7 +1226,35 @@ namespace Chatbot.API.Services
                     reasons.Add("lợi thế về độ phổ biến và dùng lâu dài");
                 }
             }
+            if (wantsDesign)
+            {
+                if (ContainsAny(product.Ten, "Vision", "Latte", "Grande", "Janus", "Zip", "Attila", "Shark"))
+                {
+                    score += 1.8;
+                    reasons.Add("kiểu dáng gọn và dễ hợp nhiều người");
+                }
 
+                if (ContainsAny(product.Ten, "Winner", "Exciter", "Raider"))
+                {
+                    score += 1.4;
+                    reasons.Add("dáng thể thao, cá tính hơn");
+                }
+            }
+
+            if (wantsComfort)
+            {
+                if (ContainsAny(product.Ten, "Air Blade", "Freego", "Lead", "Latte", "Grande", "PCX", "SH"))
+                {
+                    score += 1.8;
+                    reasons.Add("cảm giác ngồi và đi hằng ngày thoải mái hơn");
+                }
+
+                if (ContainsAny(product.Ten, "Winner", "Exciter", "Raider"))
+                {
+                    score -= 0.8;
+                    reasons.Add("thiên thể thao hơn là êm ái");
+                }
+            }
             if (wantsValue)
             {
                 if (product.Gia <= 35_000_000m)
@@ -1511,14 +1623,16 @@ namespace Chatbot.API.Services
         }
         private static readonly Dictionary<string, string[]> FeatureKeywordMap = new()
         {
-            ["female_fit"] = new[] { "nu", "nhe", "de di", "thap", "phu hop nu", "hop nu" },
-            ["storage"] = new[] { "cop", "dung do", "mang do" },
-            ["fuel_saving"] = new[] { "tiet kiem xang", "hao xang", "an xang", "it hao xang" },
-            ["power"] = new[] { "manh", "yeu", "boc", "tang toc", "may khoe" },
-            ["city_fit"] = new[] { "di pho", "di trong pho", "do thi" },
-            ["distance_fit"] = new[] { "di xa", "phuot", "duong dai" },
-            ["durability"] = new[] { "ben", "lau hong", "it hong", "ben hon" },
-            ["value"] = new[] { "dang mua", "gia tri", "nen mua", "tot hon", "on hon" }
+            ["female_fit"] = new[] { "nu", "cho nu", "xe nu", "hop nu", "nu tinh", "nhe", "de di", "thap" },
+            ["storage"] = new[] { "cop", "cop rong", "dung do", "mang do", "chua do" },
+            ["fuel_saving"] = new[] { "tiet kiem xang", "hao xang", "it hao xang", "an xang" },
+            ["power"] = new[] { "manh", "khoe", "may khoe", "boc", "tang toc" },
+            ["city_fit"] = new[] { "di pho", "do thi", "noi thanh", "linh hoat" },
+            ["distance_fit"] = new[] { "di xa", "duong dai", "phuot", "di tour" },
+            ["durability"] = new[] { "ben", "it hong", "de bao duong", "phu tung" },
+            ["value"] = new[] { "dang mua", "gia tri", "kinh te", "hop tien", "on hon", "tot hon" },
+            ["design_fit"] = new[] { "dep", "kieu dang", "thanh lich", "tre trung", "ca tinh" },
+            ["ride_comfort"] = new[] { "di em", "ngoi em", "em ai", "thoai mai" }
         };
         private static bool LooksLikeComparePriceFollowUp(
     string message,
@@ -1693,6 +1807,12 @@ namespace Chatbot.API.Services
                 "low_seat" => "dễ chống chân",
                 "work_fit" => "đi làm",
                 "school_fit" => "đi học",
+                "city_fit" => "đi phố",
+                "distance_fit" => "đi xa",
+                "durability" => "độ bền / dễ bảo dưỡng",
+                "value" => "đáng mua trong tầm giá",
+                "design_fit" => "kiểu dáng",
+                "ride_comfort" => "độ êm / thoải mái",
                 _ => "tiêu chí hiện tại"
             };
         }
