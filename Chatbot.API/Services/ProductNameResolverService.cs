@@ -28,8 +28,10 @@ namespace Chatbot.API.Services
             var normalizedText = Normalize(text);
             if (string.IsNullOrWhiteSpace(normalizedText))
                 return new List<string>();
+
             if (LooksLikeInventoryListSearch(normalizedText))
                 return new List<string>();
+
             var products = await GetAllProductsAsync();
             if (products.Count == 0)
                 return new List<string>();
@@ -40,18 +42,24 @@ namespace Chatbot.API.Services
                     Product = p,
                     Score = ScoreProduct(normalizedText, p)
                 })
-                .Where(x => x.Score > 0)
+                .Where(x => x.Score >= 80)
                 .OrderByDescending(x => x.Score)
                 .ThenBy(x => x.Product.Gia)
+                .ToList();
+
+            if (scored.Count == 0)
+                return new List<string>();
+
+            var bestScore = scored[0].Score;
+
+            return scored
+                .Where(x => x.Score >= bestScore - 10)
                 .Take(take)
                 .Select(x => x.Product.Ten)
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
-
-            return scored;
         }
-
         private async Task<List<ProductSummaryDto>> GetAllProductsAsync()
         {
             if (_cache.TryGetValue(CacheKey, out List<ProductSummaryDto>? cached) && cached != null)

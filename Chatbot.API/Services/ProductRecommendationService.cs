@@ -86,16 +86,69 @@ namespace Chatbot.API.Services
             }
             var filteredProducts = products.ToList();
 
-            // Loại bỏ brand bị exclude
-            if (intent.ExcludedBrands != null && intent.ExcludedBrands.Any())
+            var effectiveFilterType = intent.FilterType != PriceFilterType.None
+                ? intent.FilterType
+                : profile.FilterType;
+
+            var effectivePriceMax = intent.PriceMax ?? profile.PriceMax;
+            var effectivePriceMin = intent.PriceMin ?? profile.PriceMin;
+
+            if (effectiveFilterType == PriceFilterType.MaxOnly)
+            {
+                if (effectivePriceMax.HasValue)
+                {
+                    filteredProducts = filteredProducts
+                        .Where(p => p.Gia <= effectivePriceMax.Value)
+                        .ToList();
+                }
+            }
+            else if (effectiveFilterType == PriceFilterType.MinOnly)
+            {
+                if (effectivePriceMin.HasValue)
+                {
+                    filteredProducts = filteredProducts
+                        .Where(p => p.Gia >= effectivePriceMin.Value)
+                        .ToList();
+                }
+            }
+            else if (effectiveFilterType == PriceFilterType.Range ||
+                     effectiveFilterType == PriceFilterType.Around)
+            {
+                if (effectivePriceMax.HasValue)
+                {
+                    filteredProducts = filteredProducts
+                        .Where(p => p.Gia <= effectivePriceMax.Value)
+                        .ToList();
+                }
+
+                if (effectivePriceMin.HasValue)
+                {
+                    filteredProducts = filteredProducts
+                        .Where(p => p.Gia >= effectivePriceMin.Value)
+                        .ToList();
+                }
+            }
+            var excludedBrands = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (intent.ExcludedBrands != null)
+            {
+                foreach (var brand in intent.ExcludedBrands.Where(x => !string.IsNullOrWhiteSpace(x)))
+                    excludedBrands.Add(brand.Trim());
+            }
+
+            if (profile?.ExcludedBrands != null)
+            {
+                foreach (var brand in profile.ExcludedBrands.Where(x => !string.IsNullOrWhiteSpace(x)))
+                    excludedBrands.Add(brand.Trim());
+            }
+
+            if (excludedBrands.Any())
             {
                 filteredProducts = filteredProducts
-                    .Where(p => !intent.ExcludedBrands.Any(ex =>
+                    .Where(p => !excludedBrands.Any(ex =>
                         string.Equals(p.ThuongHieu, ex, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
             }
-
-            // Loại bỏ category bị exclude
             if (intent.ExcludedCategories != null && intent.ExcludedCategories.Any())
             {
                 filteredProducts = filteredProducts
@@ -105,6 +158,54 @@ namespace Chatbot.API.Services
             }
             var message = Normalize(normalizedMessage);
             var requestProfile = BuildRequestProfile(intent, profile, message);
+            bool removeFuelHungry =
+    LooksLikeRemoveFuelHungryRequest(message);
+
+            bool pickBestOnly =
+                LooksLikePickBestOnlyRequest(message);
+
+            var previousNames = GetPreviousRecommendedProductNames(profile);
+
+            if ((removeFuelHungry || pickBestOnly) && previousNames.Count > 0)
+            {
+                var narrowed = filteredProducts
+                    .Where(p => !string.IsNullOrWhiteSpace(p.Ten) &&
+                                previousNames.Contains(p.Ten.Trim()))
+                    .ToList();
+
+                if (narrowed.Count > 0)
+                {
+                    filteredProducts = narrowed;
+                }
+            }
+
+            if (removeFuelHungry)
+            {
+                var fuelEfficient = filteredProducts
+                    .Where(IsFuelEfficientProduct)
+                    .ToList();
+                fuelEfficient = fuelEfficient
+    .Where(p => !ContainsAny(p.Ten, "zip"))
+    .ToList();
+                if (fuelEfficient.Count > 0)
+                {
+                    filteredProducts = fuelEfficient;
+                }
+
+                intent.WantsFuelSaving = true;
+                intent.ComparisonFeature ??= "fuel_saving";
+            }
+
+            if (pickBestOnly)
+            {
+                take = 1;
+
+                if (string.IsNullOrWhiteSpace(intent.ComparisonFeature) &&
+                    !string.IsNullOrWhiteSpace(profile.LastComparisonFeature))
+                {
+                    intent.ComparisonFeature = profile.LastComparisonFeature;
+                }
+            }
 
             var rankedCandidates = filteredProducts
                 .Select(p =>
@@ -137,9 +238,19 @@ namespace Chatbot.API.Services
                 return new List<ProductSummaryDto>();
             }
 
+            var finalTake = take;
+
+            if (!pickBestOnly &&
+                (requestProfile.PrefersFemaleStyle ||
+                 requestProfile.WantsFuelSaving ||
+                 requestProfile.NeedsCompactFit))
+            {
+                finalTake = Math.Max(finalTake, 3);
+            }
+
             var selected = requestProfile.IsOpenConsultation
-                ? SelectDiverseProducts(rankedCandidates, Math.Max(1, take))
-                : rankedCandidates.Take(Math.Max(1, take)).ToList();
+                ? SelectDiverseProducts(rankedCandidates, Math.Max(1, finalTake))
+                : rankedCandidates.Take(Math.Max(1, finalTake)).ToList();
             Console.WriteLine(
     $"[ProductRecommendationService] SelectedProducts={string.Join(", ", selected.Select(x => x.Product.Ten))}");
             return selected
@@ -223,6 +334,7 @@ namespace Chatbot.API.Services
             return intent.ComparisonFeature switch
             {
                 "storage" => ScoreStorageFeature(product),
+                "power" => ScorePowerFeature(product),
                 "low_seat" => ScoreLowSeatFeature(product),
                 "female_fit" => ScoreFemaleFitFeature(product),
                 "fuel_saving" => ScoreFuelSavingFeature(product),
@@ -296,7 +408,34 @@ namespace Chatbot.API.Services
             }
             return score;
         }
+        private static int ScorePowerFeature(ProductContext product)
+        {
+            var score = 0;
 
+            if (ContainsAny(product.Name, "pcx", "air blade", "sh", "vario"))
+                score += 30;
+
+            if (ContainsAny(product.Name, "winner", "exciter", "raider", "cbr", "rebel"))
+                score += 36;
+
+            if (ContainsAny(product.Name, "vision", "zip", "janus", "latte", "grande", "liberty"))
+                score -= 12;
+
+            if (product.EngineCc.HasValue)
+            {
+                if (product.EngineCc.Value >= 150)
+                    score += 16;
+                else if (product.EngineCc.Value >= 125)
+                    score += 8;
+                else
+                    score -= 6;
+            }
+
+            if (ContainsAny(product.Tags, "manh me", "dam chac", "the thao"))
+                score += 10;
+
+            return score;
+        }
         private static int ScoreFuelSavingFeature(ProductContext product)
         {
             var score = 0;
@@ -311,7 +450,14 @@ namespace Chatbot.API.Services
 
             if (ContainsAny(product.Name, "winner", "exciter"))
                 score -= 10;
+            if (ContainsAny(product.Name, "vision"))
+                score += 20;
 
+            if (ContainsAny(product.Name, "freego"))
+                score += 14;
+
+            if (ContainsAny(product.Name, "zip"))
+                score += 8;
             if (product.VehicleType == VehicleType.Manual)
                 score -= 6;
 
@@ -905,10 +1051,25 @@ namespace Chatbot.API.Services
 
         private static int ScoreByExtraNeeds(ProductContext product, RequestProfile profile)
         {
+
             var score = 0;
 
             if (profile.WantsFuelSaving)
             {
+                if (ContainsAny(product.Name, "vision"))
+                {
+                    score += 18;
+                }
+
+                if (ContainsAny(product.Name, "freego"))
+                {
+                    score += 12;
+                }
+
+                if (ContainsAny(product.Name, "zip"))
+                {
+                    score += 8;
+                }
                 if (ContainsAny(product.Tags, "tiet kiem", "it ton xang"))
                 {
                     score += FuelSavingBonus;
@@ -1365,10 +1526,37 @@ namespace Chatbot.API.Services
             {
                 target = Normalize(conversationProfile.Target);
             }
+            var excludedBrandSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            if (string.IsNullOrWhiteSpace(preferredBrand) && !string.IsNullOrWhiteSpace(conversationProfile.PreferredBrand))
+            if (intent.ExcludedBrands != null)
+            {
+                foreach (var brand in intent.ExcludedBrands.Where(x => !string.IsNullOrWhiteSpace(x)))
+                    excludedBrandSet.Add(Normalize(brand));
+            }
+
+            if (conversationProfile.ExcludedBrands != null)
+            {
+                foreach (var brand in conversationProfile.ExcludedBrands.Where(x => !string.IsNullOrWhiteSpace(x)))
+                    excludedBrandSet.Add(Normalize(brand));
+            }
+
+            if (intent.ExcludedBrands != null)
+            {
+                foreach (var b in intent.ExcludedBrands)
+                    excludedBrandSet.Add(Normalize(b));
+            }
+
+            if (string.IsNullOrWhiteSpace(preferredBrand) &&
+                !string.IsNullOrWhiteSpace(conversationProfile.PreferredBrand) &&
+                !excludedBrandSet.Contains(Normalize(conversationProfile.PreferredBrand)))
             {
                 preferredBrand = Normalize(conversationProfile.PreferredBrand);
+            }
+
+            if (!string.IsNullOrWhiteSpace(preferredBrand) &&
+                excludedBrandSet.Contains(preferredBrand))
+            {
+                preferredBrand = null;
             }
 
             var dislikesManual =
@@ -2234,7 +2422,103 @@ namespace Chatbot.API.Services
 
             return result;
         }
+        private static bool LooksLikeRemoveFuelHungryRequest(string message)
+        {
+            var text = Normalize(message);
 
+            bool mentionsFuelHungry =
+                text.Contains("hao xang") ||
+                text.Contains("ton xang") ||
+                text.Contains("an xang") ||
+                text.Contains("ngon xang");
+
+            bool wantsRemove =
+                text.Contains("bo") ||
+                text.Contains("loai") ||
+                text.Contains("ne") ||
+                text.Contains("khong chon") ||
+                text.Contains("khong lay");
+
+            return mentionsFuelHungry && wantsRemove;
+        }
+
+        private static bool LooksLikePickBestOnlyRequest(string message)
+        {
+            var text = Normalize(message);
+
+            return
+                text.Contains("chon 1") ||
+                text.Contains("chon mot") ||
+                text.Contains("1 xe tot nhat") ||
+                text.Contains("mot xe tot nhat") ||
+                text.Contains("xe tot nhat") ||
+                text.Contains("mau tot nhat") ||
+                text.Contains("chot 1") ||
+                text.Contains("chot mot");
+        }
+
+        private static HashSet<string> GetPreviousRecommendedProductNames(CustomerPreferenceProfile profile)
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (profile == null)
+                return names;
+
+            void AddRange(IEnumerable<string>? source)
+            {
+                if (source == null)
+                    return;
+
+                foreach (var name in source)
+                {
+                    if (!string.IsNullOrWhiteSpace(name))
+                        names.Add(name.Trim());
+                }
+            }
+
+            AddRange(profile.CurrentRecommendedProducts);
+            AddRange(profile.LastRecommendedProducts);
+            AddRange(profile.BaseRecommendedProducts);
+            AddRange(profile.LastMentionedProducts);
+            AddRange(profile.LastComparedProducts);
+            return names;
+        }
+
+        private static bool IsFuelEfficientProduct(ProductSummaryDto product)
+        {
+            var name = Normalize(product.Ten);
+            var tags = Normalize(product.Tags);
+            var category = Normalize(product.Loai);
+
+            if (tags.Contains("tiet kiem") ||
+                tags.Contains("it ton xang") ||
+                tags.Contains("fuel saving"))
+            {
+                return true;
+            }
+
+            if (ContainsAny(name,
+                "vision",
+                "freego",
+                "janus",
+                "zip",
+                "address",
+                "lead",
+                "wave",
+                "future",
+                "sirius"))
+            {
+                return true;
+            }
+
+            if (product.CC.HasValue && product.CC.Value <= 125 &&
+                !ContainsAny(name, "winner", "exciter", "raider", "sh", "pcx"))
+            {
+                return true;
+            }
+
+            return category.Contains("ga") && product.CC.HasValue && product.CC.Value <= 125;
+        }
         private sealed class ScoredCandidate
         {
             public ProductSummaryDto Product { get; set; } = new ProductSummaryDto();

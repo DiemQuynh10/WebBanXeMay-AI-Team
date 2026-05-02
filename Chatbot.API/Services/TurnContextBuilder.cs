@@ -78,7 +78,8 @@ namespace Chatbot.API.Services.Conversation
             var text = message.Trim().ToLowerInvariant();
 
             bool hasReferenceSignal =
-                text.Contains("còn ") ||
+                text.Contains("còn mẫu đó") ||
+text.Contains("con mau do") ||
                 text.Contains("thì sao") ||
                 text.Contains("thế còn") ||
                 text.Contains("vậy còn") ||
@@ -410,7 +411,8 @@ namespace Chatbot.API.Services.Conversation
                 return false;
 
             bool hasReferenceMarker =
-                text.Contains("còn ") ||
+               text.Contains("còn mẫu đó") ||
+text.Contains("con mau do") ||
                 text.Contains("thì sao") ||
                 text.Contains("mẫu đó") ||
                 text.Contains("con đó") ||
@@ -640,8 +642,7 @@ namespace Chatbot.API.Services.Conversation
             if (string.IsNullOrWhiteSpace(text))
                 return false;
 
-            return text.Contains("con ") ||
-                   text.Contains("thi sao") ||
+            return  text.Contains("thi sao") ||
                    text.Contains("vay con") ||
                    text.Contains("the con") ||
                    text.Contains("mau do") ||

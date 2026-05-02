@@ -128,7 +128,7 @@ namespace Chatbot.API.Services.Conversation
                     return RecommendationContextDecision.ExpandFromCurrentGoal;
                 }
 
-                return RecommendationContextDecision.StartFreshRecommendation;
+                return RecommendationContextDecision.New;
             }
 
             if (ShouldOverrideToExpandFromCurrentGoal(

@@ -96,11 +96,8 @@ namespace Chatbot.API.Services
             if (text.Length < 60)
                 return true;
 
-            // Nếu là câu rất ngắn gọn, no-match hoặc ngoài miền, thường không cần rewrite
             if (text.StartsWith("Mình hiện chỉ hỗ trợ", StringComparison.OrdinalIgnoreCase) ||
-                text.StartsWith("Mình chưa hiểu ý bạn", StringComparison.OrdinalIgnoreCase) ||
-                text.StartsWith("Hiện chưa có mẫu nào", StringComparison.OrdinalIgnoreCase) ||
-                text.StartsWith("Trong nhóm mình vừa gợi ý, hiện chưa", StringComparison.OrdinalIgnoreCase))
+     text.StartsWith("Mình chưa hiểu ý bạn", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -151,6 +148,10 @@ namespace Chatbot.API.Services
             sb.AppendLine("- Tránh lặp các khung như 'mẫu này', 'lựa chọn này' quá nhiều.");
             sb.AppendLine("- Nếu user đang hỏi tiếp theo ngữ cảnh, giọng văn nên nối mạch tự nhiên.");
             sb.AppendLine("- Không cần quá văn vẻ. Không được bịa thêm ý.");
+            sb.AppendLine("- Tránh giọng mô tả catalog như 'lý tưởng', 'nổi bật với', 'chất lượng', nếu bản nháp không có.");
+            sb.AppendLine("- Với tư vấn xe, hãy ưu tiên giọng nói đời thường: dễ đi, hợp đi phố, tiết kiệm, gọn, bám ngân sách.");
+            sb.AppendLine("- Nếu có câu 'Mình sẽ giữ hướng...', có thể viết mềm hơn thành 'Mình sẽ bám theo...' hoặc 'Mình dựa trên...'.");
+            sb.AppendLine("- Nếu có nhiều dòng sản phẩm, không mở đầu cả 3 dòng bằng cùng một cấu trúc.");
             sb.AppendLine();
 
             sb.AppendLine($"Tin nhắn người dùng: {userMessage}");
@@ -325,9 +326,15 @@ namespace Chatbot.API.Services
                 return "refinement";
 
             if (text.Contains("Mình thấy", StringComparison.OrdinalIgnoreCase) ||
-                text.Contains("Trong tầm", StringComparison.OrdinalIgnoreCase) ||
-                text.Contains("Hiện mình nghiêng hơn về", StringComparison.OrdinalIgnoreCase))
+     text.Contains("Trong tầm", StringComparison.OrdinalIgnoreCase) ||
+     text.Contains("Hiện mình nghiêng hơn về", StringComparison.OrdinalIgnoreCase) ||
+     text.Contains("Nếu ưu tiên", StringComparison.OrdinalIgnoreCase) ||
+     text.Contains("Nếu chọn nhanh", StringComparison.OrdinalIgnoreCase) ||
+     text.Contains("Mình sẽ giữ hướng", StringComparison.OrdinalIgnoreCase) ||
+     text.Contains("Mình sẽ bám theo", StringComparison.OrdinalIgnoreCase))
+            {
                 return "recommendation";
+            }
 
             if (text.Contains("hiện chưa có mẫu nào", StringComparison.OrdinalIgnoreCase) ||
                 text.Contains("chưa còn mẫu nào", StringComparison.OrdinalIgnoreCase) ||

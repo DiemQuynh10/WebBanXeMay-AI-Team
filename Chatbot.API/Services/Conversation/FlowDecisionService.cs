@@ -30,7 +30,39 @@ namespace Chatbot.API.Services.Conversation
             bool hasRecommendationContext = HasRecommendationContext(conversationProfile);
             bool hasCompareContext = HasCompareContext(conversationProfile);
             bool hasLookupContext = HasLookupContext(conversationProfile);
+            Console.WriteLine(
+    $"[FLOW DECISION INPUT] Text={text} | IntentType={effectiveIntent.IntentType} | RouteFlow={effectiveIntent.RouteFlow} | FollowUpType={effectiveIntent.FollowUpType} | " +
+    $"HasCompareContext={hasCompareContext} | " +
+    $"ExcludedBrands={string.Join(",", effectiveIntent.ExcludedBrands)} | " +
+    $"ExcludedProducts={string.Join(",", effectiveIntent.ExcludedProducts)} | " +
+    $"MentionedProducts={string.Join(",", effectiveIntent.MentionedProducts)}");
+            if (string.Equals(effectiveIntent.FollowUpType, "restart_recommendation", StringComparison.OrdinalIgnoreCase))
+            {
+                effectiveIntent.IntentType = "recommend";
+                effectiveIntent.RouteFlow = ChatFlowType.Recommendation;
+                effectiveIntent.IsFollowUp = false;
+                effectiveIntent.IsDirectCompare = false;
+                effectiveIntent.IsOpenRecommendation = true;
 
+                conversationProfile.HasActiveCompareContext = false;
+                conversationProfile.LastComparedProducts?.Clear();
+                conversationProfile.LastComparisonFeature = null;
+
+                conversationProfile.HasActiveRecommendationContext = false;
+                conversationProfile.LastRecommendedProducts?.Clear();
+                conversationProfile.CurrentRecommendedProducts?.Clear();
+                conversationProfile.BaseRecommendedProducts?.Clear();
+                conversationProfile.PreferredBrand = null;
+                conversationProfile.PreferredCategory = null;
+                conversationProfile.Target = null;
+
+                routing.FlowType = ChatFlowType.Recommendation;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = true;
+                routing.Reason = "Restart recommendation with cleared old recommendation context";
+                return routing;
+            }
             if (ShouldForceOrderLookup(effectiveIntent))
             {
                 routing.FlowType = ChatFlowType.OrderLookup;
@@ -49,6 +81,16 @@ namespace Chatbot.API.Services.Conversation
                 routing.Reason = "Forced alternative recommendation before compare";
                 return routing;
             }
+            if (hasCompareContext &&
+    string.Equals(effectiveIntent.FollowUpType, "compare_feature", StringComparison.OrdinalIgnoreCase))
+            {
+                routing.FlowType = ChatFlowType.Compare;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Forced compare feature follow-up";
+                return routing;
+            }
             if (LooksLikeAlternativeRecommendationRequest(text) && hasCompareContext)
             {
                 PrepareAlternativeRecommendationIntent(effectiveIntent, conversationProfile);
@@ -60,6 +102,88 @@ namespace Chatbot.API.Services.Conversation
                 routing.Reason = "Forced alternative recommendation from compare context";
                 return routing;
             }
+            if (IsProductCategoryQuestion(text, effectiveIntent))
+            {
+                effectiveIntent.IntentType = "product_lookup";
+                effectiveIntent.IsDirectProductLookup = true;
+                effectiveIntent.IsDirectCompare = false;
+                effectiveIntent.LookupField = "category";
+
+                return RouteTo(
+                    ChatFlowType.ProductLookup,
+                    "Forced by product category question");
+            }
+            if (hasCompareContext &&
+      HasExclusionConstraint(effectiveIntent) &&
+      string.Equals(effectiveIntent.FollowUpType, "exclude", StringComparison.OrdinalIgnoreCase))
+            {
+                return new FlowRoutingResult
+                {
+                    FlowType = ChatFlowType.Unknown,
+                    ShouldUseDeterministicFlow = false,
+                    ShouldUseAiFallback = false,
+                    ShouldUseRag = false,
+                    Reason = "Ambiguous exclusion while compare context is active"
+                };
+            }
+            if (string.Equals(effectiveIntent.FollowUpType, "compare_missing_product", StringComparison.OrdinalIgnoreCase))
+            {
+                // Case 1: user vừa trả lời sản phẩm thứ 2
+                if (hasCompareContext &&
+                    effectiveIntent.MentionedProducts.Count == 1)
+                {
+                    var existingProducts = conversationProfile?.LastComparedProducts ?? new List<string>();
+
+                    var combinedProducts = existingProducts
+                        .Concat(effectiveIntent.MentionedProducts)
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    if (combinedProducts.Count >= 2)
+                    {
+                        effectiveIntent.MentionedProducts = combinedProducts;
+
+                        return new FlowRoutingResult
+                        {
+                            FlowType = ChatFlowType.Compare,
+                            ShouldUseDeterministicFlow = true,
+                            ShouldUseAiFallback = false,
+                            ShouldUseRag = false,
+                            Reason = "Recovered compare from missing product follow-up"
+                        };
+                    }
+                }
+
+                // Case 2: thiếu sản phẩm → hỏi lại
+                return new FlowRoutingResult
+                {
+                    FlowType = ChatFlowType.Unknown,
+                    ShouldUseDeterministicFlow = false,
+                    ShouldUseAiFallback = false,
+                    ShouldUseRag = false,
+                    Reason = "Compare missing second product"
+                };
+            }
+            if (LooksLikePickOneRequest(text) &&
+     hasCompareContext &&
+     conversationProfile?.LastComparedProducts != null &&
+     conversationProfile.LastComparedProducts.Count >= 2)
+            {
+                effectiveIntent.IntentType = "recommend";
+                effectiveIntent.RouteFlow = ChatFlowType.Recommendation;
+                effectiveIntent.IsDirectCompare = false;
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.FollowUpType = "pick_best";
+
+                routing.FlowType = ChatFlowType.Recommendation;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Pick one from active compare context";
+                return routing;
+            }
+            effectiveIntent.IsOpenRecommendation = false;
             if (ShouldForceDirectCompare(effectiveIntent))
             {
                 routing.FlowType = ChatFlowType.Compare;
@@ -68,6 +192,39 @@ namespace Chatbot.API.Services.Conversation
                 routing.ShouldUseRag = false;
                 routing.Reason = "Forced by explicit compare intent";
                 return routing;
+            }
+            if (hasCompareContext &&
+     effectiveIntent.MentionedProducts.Count == 1 &&
+     string.IsNullOrWhiteSpace(effectiveIntent.FollowUpType) &&
+     !effectiveIntent.IsDirectProductLookup &&
+     string.IsNullOrWhiteSpace(effectiveIntent.LookupField))
+            {
+                var existingProducts = conversationProfile?.LastComparedProducts ?? new List<string>();
+
+                var combinedProducts = existingProducts
+                    .Concat(effectiveIntent.MentionedProducts)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (combinedProducts.Count >= 2)
+                {
+                    effectiveIntent.MentionedProducts = combinedProducts;
+                    effectiveIntent.IntentType = "compare";
+                    effectiveIntent.IsDirectCompare = true;
+                    effectiveIntent.IsDirectProductLookup = false;
+                    effectiveIntent.LookupField = null;
+                    effectiveIntent.RouteFlow = ChatFlowType.Compare;
+
+                    return new FlowRoutingResult
+                    {
+                        FlowType = ChatFlowType.Compare,
+                        ShouldUseDeterministicFlow = true,
+                        ShouldUseAiFallback = false,
+                        ShouldUseRag = false,
+                        Reason = "Recovered compare from single product answer"
+                    };
+                }
             }
 
             if (ShouldForceDirectProductLookup(effectiveIntent))
@@ -100,8 +257,48 @@ namespace Chatbot.API.Services.Conversation
                 routing.Reason = "Forced by order lookup reference follow-up";
                 return routing;
             }
+            if (!IsExplicitCompareRequest(text, effectiveIntent) &&
+     HasExclusionConstraint(effectiveIntent))
+            {
+                if (IsFreshRecommendationWithExclusion(effectiveIntent))
+                {
+                    MarkAsFreshRecommendation(effectiveIntent);
+                    ClearCompareContext(conversationProfile);
+
+                    return RouteTo(
+                        ChatFlowType.Recommendation,
+                        "Fresh recommendation with exclusion",
+                        useRag: true);
+                }
+
+                if (hasRecommendationContext)
+                {
+                    MarkAsRefinementExclude(effectiveIntent);
+                    ClearCompareContext(conversationProfile);
+
+                    return RouteTo(
+                        ChatFlowType.Refinement,
+                        "Recommendation refinement with exclusion");
+                }
+            }
+
             if (ShouldForceSearchFromIntent(effectiveIntent))
             {
+                if (hasRecommendationContext && LooksLikeCategoryRefinement(text, effectiveIntent))
+                {
+                    effectiveIntent.IntentType = "refine";
+                    effectiveIntent.RouteFlow = ChatFlowType.Refinement;
+                    effectiveIntent.IsFollowUp = true;
+                    effectiveIntent.FollowUpType = "narrow_refinement";
+
+                    routing.FlowType = ChatFlowType.Refinement;
+                    routing.ShouldUseDeterministicFlow = true;
+                    routing.ShouldUseAiFallback = false;
+                    routing.ShouldUseRag = false;
+                    routing.Reason = "Category search converted to recommendation refinement";
+                    return routing;
+                }
+
                 routing.FlowType = ChatFlowType.ProductSearch;
                 routing.ShouldUseDeterministicFlow = true;
                 routing.ShouldUseAiFallback = false;
@@ -119,42 +316,60 @@ namespace Chatbot.API.Services.Conversation
                 routing.Reason = "Forced by ChangeProduct action";
                 return routing;
             }
-            // 2) Then trust resolved conversation decision.
+            // 2) ContextDecision là quyết định hội thoại chính
             switch (contextDecision)
             {
-                case RecommendationContextDecision.StartFreshRecommendation:
-                    routing.FlowType = ChatFlowType.Recommendation;
-                    routing.ShouldUseDeterministicFlow = true;
-                    routing.ShouldUseAiFallback = false;
-                    routing.ShouldUseRag = true;
-                    routing.Reason = "Mapped from StartFreshRecommendation";
-                    return routing;
+                case RecommendationContextDecision.New:
+                    ClearCompareContext(conversationProfile);
 
-                case RecommendationContextDecision.ExpandFromCurrentGoal:
+                    return RouteTo(
+                        ChatFlowType.Recommendation,
+                        "ContextDecision:New",
+                        useRag: true);
+
+                case RecommendationContextDecision.Continue:
                     if (ShouldTreatExpandAsRefinement(effectiveIntent, text))
                     {
-                        routing.FlowType = ChatFlowType.Refinement;
-                        routing.ShouldUseDeterministicFlow = true;
-                        routing.ShouldUseAiFallback = false;
-                        routing.ShouldUseRag = false;
-                        routing.Reason = "Expand decision converted to refinement because user added constraints";
-                        return routing;
+                        return RouteTo(
+                            ChatFlowType.Refinement,
+                            "ContextDecision:Continue converted to Refinement");
                     }
 
-                    routing.FlowType = ChatFlowType.Recommendation;
-                    routing.ShouldUseDeterministicFlow = true;
-                    routing.ShouldUseAiFallback = false;
-                    routing.ShouldUseRag = true;
-                    routing.Reason = "Mapped from ExpandFromCurrentGoal";
-                    return routing;
+                    return RouteTo(
+                        ChatFlowType.Recommendation,
+                        "ContextDecision:Continue",
+                        useRag: true);
 
-                case RecommendationContextDecision.NarrowWithinCurrentSet:
-                    routing.FlowType = ChatFlowType.Refinement;
-                    routing.ShouldUseDeterministicFlow = true;
-                    routing.ShouldUseAiFallback = false;
-                    routing.ShouldUseRag = false;
-                    routing.Reason = "Mapped from NarrowWithinCurrentSet";
-                    return routing;
+                case RecommendationContextDecision.Refine:
+                    ClearCompareContext(conversationProfile);
+
+                    return RouteTo(
+                        ChatFlowType.Refinement,
+                        "ContextDecision:Refine");
+
+                case RecommendationContextDecision.Pivot:
+                    if (IsClearBaseRouting(baseRouting))
+                    {
+                        baseRouting.ShouldUseDeterministicFlow = true;
+                        baseRouting.ShouldUseAiFallback = false;
+                        baseRouting.Reason = $"ContextDecision:Pivot -> {baseRouting.Reason}";
+                        return baseRouting;
+                    }
+
+                    return RouteTo(
+                        ChatFlowType.Unknown,
+                        "ContextDecision:Pivot but base routing is unknown",
+                        useAiFallback: true);
+
+                case RecommendationContextDecision.Ambiguous:
+                    return new FlowRoutingResult
+                    {
+                        FlowType = ChatFlowType.Unknown,
+                        ShouldUseDeterministicFlow = false,
+                        ShouldUseAiFallback = false,
+                        ShouldUseRag = false,
+                        Reason = "ContextDecision:Ambiguous - ask clarification"
+                    };
             }
 
             if (ShouldForceRecommendationFromIntent(effectiveIntent))
@@ -167,23 +382,12 @@ namespace Chatbot.API.Services.Conversation
                 return routing;
             }
 
-            if (ShouldForceSearchFromIntent(effectiveIntent))
-            {
-                routing.FlowType = ChatFlowType.ProductSearch;
-                routing.ShouldUseDeterministicFlow = true;
-                routing.ShouldUseAiFallback = false;
-                routing.ShouldUseRag = false;
-                routing.Reason = "Forced by explicit product search intent";
-                return routing;
-            }
-
-
-            // 3) Use follow-up context only as a lightweight fallback
-            // when policy service did not already produce a strong decision.
             bool hasStrongPolicyDecision =
-                contextDecision == RecommendationContextDecision.StartFreshRecommendation ||
-                contextDecision == RecommendationContextDecision.ExpandFromCurrentGoal ||
-                contextDecision == RecommendationContextDecision.NarrowWithinCurrentSet;
+     contextDecision == RecommendationContextDecision.New ||
+     contextDecision == RecommendationContextDecision.Continue ||
+     contextDecision == RecommendationContextDecision.Refine ||
+     contextDecision == RecommendationContextDecision.Pivot ||
+     contextDecision == RecommendationContextDecision.Ambiguous;
 
             if (!hasStrongPolicyDecision && !LooksLikeNewStandaloneRequest(text, effectiveIntent))
             {
@@ -216,9 +420,12 @@ namespace Chatbot.API.Services.Conversation
                     routing.Reason = "Forced by recommendation follow-up refinement fallback";
                     return routing;
                 }
+
             }
-            // 4) Hard filter only search should remain deterministic, but only when recommendation context is not active.
-            if (FlowIntentHeuristics.IsHardFilterOnlySearch(effectiveIntent, text) && !hasRecommendationContext)
+
+            if (FlowIntentHeuristics.IsHardFilterOnlySearch(effectiveIntent, text) &&
+    !hasRecommendationContext &&
+    !HasExclusionConstraint(effectiveIntent))
             {
                 routing.FlowType = ChatFlowType.ProductSearch;
                 routing.ShouldUseDeterministicFlow = true;
@@ -243,10 +450,22 @@ namespace Chatbot.API.Services.Conversation
 
         private static bool HasCompareContext(CustomerPreferenceProfile? profile)
         {
-            return profile != null &&
-                   profile.HasActiveCompareContext &&
-                   profile.LastComparedProducts != null &&
-                   profile.LastComparedProducts.Count >= 2;
+            if (profile == null)
+                return false;
+
+            bool activeCompare =
+                string.Equals(profile.ActiveFlow, ChatFlowType.Compare, StringComparison.OrdinalIgnoreCase);
+
+            bool hasComparedProducts =
+                profile.LastComparedProducts != null &&
+                profile.LastComparedProducts.Count >= 1;
+
+            bool hasMentionedCompareProducts =
+                profile.LastMentionedProducts != null &&
+                profile.LastMentionedProducts.Count >= 2;
+
+            return activeCompare ||
+                   (profile.HasActiveCompareContext && (hasComparedProducts || hasMentionedCompareProducts));
         }
 
         private static bool HasLookupContext(CustomerPreferenceProfile? profile)
@@ -354,6 +573,16 @@ namespace Chatbot.API.Services.Conversation
         {
             if (!hasCompareContext)
                 return false;
+            // Nếu user đang loại trừ hãng/sản phẩm/dòng xe thì KHÔNG được giữ compare context cũ.
+            // Ví dụ: sau khi so sánh Vision và Air Blade, user nói "không yamaha"
+            // đây là câu mơ hồ hoặc refine, không phải compare follow-up.
+            if (HasExclusionConstraint(effectiveIntent) ||
+                string.Equals(effectiveIntent.FollowUpType, "exclude", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(effectiveIntent.FollowUpType, "exclude_product", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(effectiveIntent.IntentType, "refine", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
             if (LooksLikeAlternativeRecommendationRequest(message))
                 return false;
             if (ShouldForceRecommendationFromIntent(effectiveIntent) ||
@@ -737,6 +966,196 @@ namespace Chatbot.API.Services.Conversation
                         intent.ExcludedProducts.Add(productName.Trim());
                 }
             }
+        }
+        private static FlowRoutingResult RouteTo(
+     string flowType,
+     string reason,
+     bool useRag = false,
+     bool useAiFallback = false)
+        {
+            return new FlowRoutingResult
+            {
+                FlowType = flowType,
+                ShouldUseDeterministicFlow = !useAiFallback,
+                ShouldUseAiFallback = useAiFallback,
+                ShouldUseRag = useRag,
+                Reason = reason
+            };
+        }
+        private static bool IsClearBaseRouting(FlowRoutingResult? routing)
+        {
+            if (routing == null)
+                return false;
+
+            if (string.IsNullOrWhiteSpace(routing.FlowType))
+                return false;
+
+            return !string.Equals(routing.FlowType, ChatFlowType.Unknown, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsExplicitCompareRequest(string message, ParsedIntent? intent)
+        {
+            if (intent == null)
+                return false;
+
+            var text = NormalizeText(message);
+
+            return intent.IsDirectCompare ||
+                   string.Equals(intent.IntentType, "compare", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(intent.RouteFlow, ChatFlowType.Compare, StringComparison.OrdinalIgnoreCase) ||
+                   text.Contains("so sanh") ||
+                   text.Contains("so voi") ||
+                   text.Contains("khac nhau") ||
+                   text.Contains("uu nhuoc diem");
+        }
+
+        private static bool HasExclusionConstraint(ParsedIntent? intent)
+        {
+            if (intent == null)
+                return false;
+
+            return intent.ExcludedBrands.Any() ||
+                   intent.ExcludedProducts.Any() ||
+                   intent.ExcludedCategories.Any();
+        }
+
+        private static bool IsFreshRecommendationWithExclusion(ParsedIntent intent)
+        {
+            if (!HasExclusionConstraint(intent))
+                return false;
+
+            return string.Equals(intent.IntentType, "recommend", StringComparison.OrdinalIgnoreCase) ||
+                   intent.IsOpenRecommendation ||
+                   intent.HasFreshConsultationSignal ||
+                   (
+                       !intent.IsFollowUp &&
+                       (
+                           !string.IsNullOrWhiteSpace(intent.Brand) ||
+                           !string.IsNullOrWhiteSpace(intent.Category) ||
+                           !string.IsNullOrWhiteSpace(intent.Target) ||
+                           intent.ForSchool ||
+                           intent.ForWork ||
+                           intent.ForCity ||
+                           intent.ForTour ||
+                           intent.PriceMin.HasValue ||
+                           intent.PriceMax.HasValue ||
+                           intent.TargetPrice.HasValue
+                       )
+                   );
+        }
+
+        private static void MarkAsRefinementExclude(ParsedIntent intent)
+        {
+            intent.IntentType = "refine";
+            intent.IsFollowUp = true;
+            intent.IsDirectCompare = false;
+            intent.FollowUpType ??= "exclude";
+        }
+
+        private static void MarkAsFreshRecommendation(ParsedIntent intent)
+        {
+            intent.IntentType = "recommend";
+            intent.IsFollowUp = false;
+            intent.FollowUpType = null;
+            intent.IsOpenRecommendation = true;
+        }
+
+        private static void ClearCompareContext(CustomerPreferenceProfile? profile)
+        {
+            if (profile == null)
+                return;
+
+            profile.HasActiveCompareContext = false;
+            profile.LastComparedProducts?.Clear();
+            profile.LastComparisonFeature = null;
+        }
+        private static bool IsProductCategoryQuestion(string message, ParsedIntent? intent)
+        {
+            var text = NormalizeText(message);
+
+            bool asksCategory =
+                text.Contains("co phai") &&
+                (
+                    text.Contains("xe ga") ||
+                    text.Contains("tay ga") ||
+                    text.Contains("xe so") ||
+                    text.Contains("con tay")
+                );
+
+            bool hasProduct =
+                intent?.MentionedProducts != null &&
+                intent.MentionedProducts.Any(x => !string.IsNullOrWhiteSpace(x));
+
+            bool hasReference =
+                text.Contains("xe nay") ||
+                text.Contains("mau nay") ||
+                text.Contains("con nay") ||
+                text.Contains("xe do") ||
+                text.Contains("mau do");
+
+            return asksCategory && (hasProduct || hasReference);
+        }
+        private static bool LooksLikeBareExclusionMessage(ParsedIntent? intent)
+        {
+            if (intent == null)
+                return false;
+
+            bool hasExclusion =
+                intent.ExcludedBrands.Any() ||
+                intent.ExcludedProducts.Any() ||
+                intent.ExcludedCategories.Any();
+
+            if (!hasExclusion)
+                return false;
+
+            bool hasNewRecommendationSignal =
+                string.Equals(intent.IntentType, "recommend", StringComparison.OrdinalIgnoreCase) ||
+                intent.IsOpenRecommendation ||
+                intent.HasFreshConsultationSignal ||
+                !string.IsNullOrWhiteSpace(intent.Brand) ||
+                !string.IsNullOrWhiteSpace(intent.Category) ||
+                !string.IsNullOrWhiteSpace(intent.Target) ||
+                intent.PriceMin.HasValue ||
+                intent.PriceMax.HasValue ||
+                intent.TargetPrice.HasValue;
+
+            bool hasNamedCompareTargets =
+                intent.MentionedProducts != null &&
+                intent.MentionedProducts.Count >= 2;
+
+            return !hasNewRecommendationSignal && !hasNamedCompareTargets;
+        }
+        private static bool LooksLikeCategoryRefinement(string message, ParsedIntent intent)
+        {
+            var text = NormalizeText(message);
+
+            bool hasCategory =
+                !string.IsNullOrWhiteSpace(intent.Category) ||
+                text.Contains("xe ga") ||
+                text.Contains("tay ga") ||
+                text.Contains("xe so") ||
+                text.Contains("con tay");
+
+            bool hasNamedProducts =
+                intent.MentionedProducts != null &&
+                intent.MentionedProducts.Any(x => !string.IsNullOrWhiteSpace(x));
+
+            return hasCategory && !hasNamedProducts;
+        }
+        private static bool LooksLikePickOneRequest(string message)
+        {
+            var text = NormalizeText(message);
+
+            return
+                text.Contains("chon 1") ||
+                text.Contains("chon mot") ||
+                text.Contains("lay 1") ||
+                text.Contains("lay mot") ||
+                text.Contains("chot 1") ||
+                text.Contains("chot mot") ||
+                text.Contains("chon xe") ||
+                text.Contains("chot xe") ||
+                text.Contains("chon giup");
         }
     }
 }

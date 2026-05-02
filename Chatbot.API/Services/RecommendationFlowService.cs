@@ -55,7 +55,26 @@ namespace Chatbot.API.Services
             CustomerPreferenceProfile profile)
         {
             var effectiveIntent = BuildEffectiveIntent(intent, profile, normalizedMessage);
+            if (string.Equals(effectiveIntent.FollowUpType, "pick_best", StringComparison.OrdinalIgnoreCase))
+            {
+                var picked = await PickBestFromComparedProductsAsync(
+                    conversationId,
+                    normalizedMessage,
+                    effectiveIntent,
+                    profile);
 
+                if (picked != null)
+                    return picked;
+            }
+            if (string.Equals(effectiveIntent.FollowUpType, "restart_recommendation", StringComparison.OrdinalIgnoreCase))
+            {
+                effectiveIntent.IntentType = "recommend";
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.IsOpenRecommendation = false;
+
+                effectiveIntent.MentionedProducts.Clear();
+
+            }
             bool hasEnoughSignals =
                 _recommendationClarificationService.HasEnoughSignalsForDirectRecommendation(
                     normalizedMessage,
@@ -63,11 +82,16 @@ namespace Chatbot.API.Services
                     profile);
             var requestedBrand = FirstNonEmpty(effectiveIntent.Brand, profile.PreferredBrand);
 
-            if (!string.IsNullOrWhiteSpace(requestedBrand) &&
-                effectiveIntent.ExcludedBrands.Contains(requestedBrand))
+            if (!string.IsNullOrWhiteSpace(intent.Brand))
             {
-                requestedBrand = null;
-                effectiveIntent.Brand = null;
+                effectiveIntent.ExcludedBrands.RemoveWhere(x =>
+                    string.Equals(x, intent.Brand, StringComparison.OrdinalIgnoreCase));
+
+                profile.ExcludedBrands.RemoveWhere(x =>
+     string.Equals(x, intent.Brand, StringComparison.OrdinalIgnoreCase));
+
+                requestedBrand = intent.Brand;
+                effectiveIntent.Brand = intent.Brand;
             }
 
             var effectiveCategory = FirstNonEmpty(effectiveIntent.Category, profile.PreferredCategory);
@@ -98,31 +122,29 @@ namespace Chatbot.API.Services
             }
 
             var candidateBuckets = await CollectCandidatesAsync(
-     conversationId,
-     effectiveIntent,
-     profile,
-     requestedBrand,
-     effectiveCategory,
-     minPrice,
-     maxPrice);
+    conversationId,
+    effectiveIntent,
+    profile,
+    requestedBrand,
+    effectiveCategory,
+    minPrice,
+    maxPrice);
 
             var items = MergeCandidateBuckets(candidateBuckets);
 
+            if (items.Count == 0 && HasExclusionIntent(effectiveIntent))
+            {
+                items = await LoadBroadCandidatesForExclusionAsync(
+                    conversationId,
+                    effectiveIntent,
+                    profile,
+                    effectiveCategory,
+                    minPrice,
+                    maxPrice);
+            }
+
             if (items.Count == 0)
             {
-                bool hasExcludedBrand = effectiveIntent.ExcludedBrands.Any();
-
-                if (hasExcludedBrand)
-                {
-                    return new ChatResponse
-                    {
-                        Success = true,
-                        ConversationId = conversationId,
-                        UsedAI = false,
-                        UsedTool = ToolNames.GetProductsByFilters,
-                        Reply = "Hiện tại sau khi loại các hãng bạn không muốn, mình chưa tìm được mẫu nào phù hợp. Bạn có thể nới điều kiện hoặc cho mình thêm tiêu chí nhé."
-                    };
-                }
 
                 return new ChatResponse
                 {
@@ -144,6 +166,16 @@ namespace Chatbot.API.Services
                 effectiveCategory,
                 conversationId,
                 normalizedMessage);
+            if (items.Count == 0 && HasExclusionIntent(effectiveIntent))
+            {
+                items = await LoadBroadCandidatesForExclusionAsync(
+                    conversationId,
+                    effectiveIntent,
+                    profile,
+                    effectiveCategory,
+                    minPrice,
+                    maxPrice);
+            }
 
             var scored = _recommendationScoringService.ScoreProducts(
     items,
@@ -161,22 +193,19 @@ namespace Chatbot.API.Services
                 conversationId,
                 rankedByRule.Count);
             var llmReasonMap = new Dictionary<int, string>();
-            var rankedAfterLlm = await TryApplyLlmRerankAsync(
+            await TryApplyLlmReasonsOnlyAsync(
      conversationId,
      normalizedMessage,
      effectiveIntent,
      profile,
      rankedByRule,
      llmReasonMap);
-
-            // ❗ LUÔN CHẠY GUARD LẠI SAU LLM
             var ranked = EnforceFinalRecommendationGuards(
-    rankedAfterLlm,
-    effectiveIntent,
-    profile,
-    effectiveCategory,
-    normalizedMessage);
-            // Chỉ dùng rule reorder khi LLM fail hoặc không đổi thứ tự
+                rankedByRule,
+                effectiveIntent,
+                profile,
+                effectiveCategory,
+                normalizedMessage);
             if (ranked == null || ranked.Count == 0)
             {
                 ranked = ApplyConversationAwareReorder(
@@ -242,7 +271,7 @@ namespace Chatbot.API.Services
                     UsedAI = false,
                     UsedTool = ToolNames.GetProductsByFilters,
                     Reply = isChangeProduct
-                        ? "Mình chưa tìm được mẫu khác đúng hoàn toàn các tiêu chí cũ. Bạn có thể nới nhẹ ngân sách hoặc bỏ bớt một điều kiện để mình lọc tiếp nhé."
+                       ? "Mình đã giữ các tiêu chí cũ và thử tìm mẫu khác, nhưng hiện chưa có mẫu nào khớp hoàn toàn. Bạn có thể nới nhẹ ngân sách, đổi hãng hoặc bỏ bớt một tiêu chí để mình lọc tiếp nhé."
                         : _replyStyleService.BuildRecommendationNoMatchReply(
                             effectiveIntent,
                             profile,
@@ -538,7 +567,25 @@ namespace Chatbot.API.Services
                 intent.PrefersFemaleStyle ||
                 intent.PrefersMaleStyle;
             var text = NormalizeText(normalizedMessage);
+            bool hasExclusionIntent = HasExclusionIntent(intent);
 
+            bool looksLikeFreshRecommendationWithExclusion =
+                hasExclusionIntent &&
+                ContainsAny(text,
+                    "tu van",
+                    "tư vấn",
+                    "goi y",
+                    "gợi ý",
+                    "tu van lai",
+                    "tư vấn lại",
+                    "chon xe",
+                    "chọn xe");
+
+            if (hasExclusionIntent &&
+                (profile.HasActiveRecommendationContext || looksLikeFreshRecommendationWithExclusion))
+            {
+                return false;
+            }
             bool isTargetFollowUp =
                 ContainsAny(text,
                     "cho nu",
@@ -1505,24 +1552,19 @@ namespace Chatbot.API.Services
 
             return text;
         }
-        private async Task<List<ProductSummaryDto>> TryApplyLlmRerankAsync(
-    string conversationId,
-    string normalizedMessage,
-    ParsedIntent intent,
-    CustomerPreferenceProfile profile,
-    IReadOnlyList<ProductSummaryDto> rankedByRule,
-    Dictionary<int, string> llmReasonMap)
+        private async Task TryApplyLlmReasonsOnlyAsync(
+     string conversationId,
+     string normalizedMessage,
+     ParsedIntent intent,
+     CustomerPreferenceProfile profile,
+     IReadOnlyList<ProductSummaryDto> rankedByRule,
+     Dictionary<int, string> llmReasonMap)
         {
             if (rankedByRule == null || rankedByRule.Count == 0)
-                return new List<ProductSummaryDto>();
+                return;
 
             if (rankedByRule.Count == 1)
-            {
-                _logger.LogInformation(
-                    "Skip LLM rerank because only one ranked candidate remains. ConversationId={ConversationId}",
-                    conversationId);
-                return rankedByRule.ToList();
-            }
+                return;
 
             try
             {
@@ -1531,41 +1573,33 @@ namespace Chatbot.API.Services
                     intent,
                     profile,
                     rankedByRule);
+
                 if (llmResult?.Recommendations != null)
                 {
+                    var validIds = rankedByRule.Select(x => x.Id).ToHashSet();
+
                     foreach (var item in llmResult.Recommendations)
                     {
+                        if (item == null)
+                            continue;
+
+                        if (!validIds.Contains(item.ProductId))
+                            continue;
+
                         if (!string.IsNullOrWhiteSpace(item.Reason))
-                        {
                             llmReasonMap[item.ProductId] = item.Reason.Trim();
-                        }
                     }
                 }
-                var llmRanked = ApplyLlmRerank(rankedByRule, llmResult);
-                if (llmResult?.Recommendations != null && llmResult.Recommendations.Count > 0 && llmRanked.Count == 0)
-                {
-                    _logger.LogWarning(
-                        "LLM rerank returned recommendations but none could be mapped back to rankedByRule. ConversationId={ConversationId}",
-                        conversationId);
-                }
 
-                if (llmRanked.Count > 0)
-                {
-                    _logger.LogInformation(
-                        "LLM rerank applied. ConversationId={ConversationId}, RuleCount={RuleCount}, LlmSelectedCount={LlmSelectedCount}",
-                        conversationId,
-                        rankedByRule.Count,
-                        llmRanked.Count);
-
-                    return llmRanked;
-                }
+                _logger.LogInformation(
+                    "LLM reasons applied without changing rule ranking. ConversationId={ConversationId}, ReasonCount={ReasonCount}",
+                    conversationId,
+                    llmReasonMap.Count);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "LLM rerank failed in RecommendationFlowService. Fallback to rule ranking.");
+                _logger.LogWarning(ex, "LLM reason generation failed. Keep rule reasons.");
             }
-
-            return rankedByRule.ToList();
         }
 
         private async Task<string> RewriteIfEnabledAsync(string normalizedMessage, string draftReply)
@@ -1743,6 +1777,9 @@ namespace Chatbot.API.Services
                 if (items.Count > 0)
                     return items;
             }
+
+            if (userExplicitBrand)
+                return new List<ProductSummaryDto>();
 
             return await GetCandidatesAsync(
                 null,
@@ -2037,6 +2074,10 @@ namespace Chatbot.API.Services
                 effectiveCategory,
                 normalizedMessage);
 
+            if (string.Equals(effectiveIntent.FollowUpType, "pick_best", StringComparison.OrdinalIgnoreCase))
+            {
+                return result.Take(1).ToList();
+            }
             return result.Take(3).ToList();
         }
         private static List<ProductSummaryDto> EnforceFinalRecommendationGuards(
@@ -2332,6 +2373,187 @@ namespace Chatbot.API.Services
             return products
                 .Where(x => !oldNames.Contains(x.Ten ?? string.Empty))
                 .ToList();
+        }
+        private async Task<ChatResponse?> PickBestFromComparedProductsAsync(
+    string conversationId,
+    string normalizedMessage,
+    ParsedIntent effectiveIntent,
+    CustomerPreferenceProfile profile)
+        {
+            var comparedNames = profile.LastComparedProducts?
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? new List<string>();
+
+            if (comparedNames.Count == 0)
+                return null;
+
+            var candidates = new List<ProductSummaryDto>();
+
+            foreach (var name in comparedNames)
+            {
+                var result = await _toolClient.SearchProductsAsync(name, 3);
+                var product = result?.Items?
+                    .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Ten))
+                    .OrderByDescending(x => string.Equals(x.Ten, name, StringComparison.OrdinalIgnoreCase))
+                    .ThenByDescending(x => x.SoLuong)
+                    .FirstOrDefault();
+
+                if (product != null && !candidates.Any(x => x.Id == product.Id))
+                    candidates.Add(product);
+            }
+
+            if (candidates.Count == 0)
+                return null;
+
+            var feature = effectiveIntent.ComparisonFeature;
+            if (string.IsNullOrWhiteSpace(feature))
+                feature = profile.LastComparisonFeature;
+
+            var ranked = candidates
+                .Select(p => new
+                {
+                    Product = p,
+                    Score = ScorePickBestCandidate(p, feature, effectiveIntent, profile, normalizedMessage)
+                })
+                .OrderByDescending(x => x.Score)
+                .ThenBy(x => x.Product.Gia)
+                .Select(x => x.Product)
+                .ToList();
+
+            var best = ranked.First();
+
+            await _conversationPreferenceService.SetBaseRecommendedProductsAsync(
+                conversationId,
+                new List<ProductSummaryDto> { best });
+
+            await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
+                conversationId,
+                new List<ProductSummaryDto> { best },
+                "pick_best_from_compare");
+            var reason = BuildReasonByFeature(best, feature);
+            return new ChatResponse
+            {
+                Success = true,
+                ConversationId = conversationId,
+                UsedAI = false,
+                UsedTool = ToolNames.GetProductsByFilters,
+                Reply =
+    $"Nếu chốt 1 xe trong nhóm vừa so sánh theo tiêu chí này thì mình nghiêng về **{best.Ten}**.\n\n" +
+    $"- **{best.Ten}** ({best.Gia:N0} VNĐ): {reason}",
+                Products = new List<ChatProductCard>
+        {
+            ChatProductCardMapper.Map(best)
+        }
+            };
+        }
+
+        private static int ScorePickBestCandidate(
+            ProductSummaryDto product,
+            string? feature,
+            ParsedIntent intent,
+            CustomerPreferenceProfile profile,
+            string normalizedMessage)
+        {
+            var score = 0;
+            var name = product.Ten ?? string.Empty;
+            var text = NormalizeText(normalizedMessage);
+
+            if (string.Equals(feature, "power", StringComparison.OrdinalIgnoreCase) ||
+                ContainsAny(text, "boc", "may khoe", "manh", "khoe"))
+            {
+                if (ContainsAny(name, "Air Blade", "PCX", "SH", "Winner", "Exciter", "Raider"))
+                    score += 50;
+
+                if (ContainsAny(name, "Vision", "Latte", "Freego", "Zip", "Janus"))
+                    score -= 10;
+            }
+
+            if (string.Equals(feature, "fuel_saving", StringComparison.OrdinalIgnoreCase) ||
+                intent.WantsFuelSaving || profile.WantsFuelSaving)
+            {
+                if (ContainsAny(name, "Vision", "Future", "Wave", "Sirius", "Janus"))
+                    score += 45;
+
+                if (ContainsAny(name, "SH", "PCX"))
+                    score -= 10;
+            }
+
+            if (string.Equals(feature, "storage", StringComparison.OrdinalIgnoreCase) ||
+                intent.WantsLargeStorage || profile.WantsLargeStorage)
+            {
+                if (ContainsAny(name, "Lead", "Freego", "Air Blade", "Latte"))
+                    score += 40;
+            }
+
+            if (string.Equals(feature, "female_fit", StringComparison.OrdinalIgnoreCase) ||
+                intent.PrefersFemaleStyle || profile.PrefersFemaleStyle)
+            {
+                if (ContainsAny(name, "Vision", "Latte", "Grande", "Janus", "Zip"))
+                    score += 40;
+
+                if (ContainsAny(name, "SH", "PCX", "Winner", "Exciter", "Raider"))
+                    score -= 20;
+            }
+
+            if (intent.ForWork || profile.ForWork)
+            {
+                if (ContainsAny(name, "Vision", "Air Blade", "Future", "Freego", "Lead"))
+                    score += 20;
+            }
+
+            if (product.Gia <= 35_000_000m)
+                score += 5;
+
+            return score;
+        }
+        private static bool HasExclusionIntent(ParsedIntent intent)
+        {
+            return intent.ExcludedBrands.Any() ||
+                   intent.ExcludedProducts.Any() ||
+                   intent.ExcludedCategories.Any();
+        }
+        private async Task<List<ProductSummaryDto>> LoadBroadCandidatesForExclusionAsync(
+    string conversationId,
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile,
+    string? effectiveCategory,
+    decimal? minPrice,
+    decimal? maxPrice)
+        {
+            var products = await GetCandidatesAsync(
+                requestedBrand: null,
+                effectiveCategory: effectiveCategory,
+                minPrice: minPrice,
+                maxPrice: maxPrice,
+                take: 200);
+
+            products = ApplyExclusions(products, intent, profile);
+
+            _logger.LogInformation(
+                "Loaded broad candidates for exclusion. ConversationId={ConversationId}, Count={Count}",
+                conversationId,
+                products.Count);
+
+            return products;
+        }
+        private static string BuildReasonByFeature(ProductSummaryDto product, string? feature)
+        {
+            var name = product.Ten ?? "";
+
+            if (feature == "power")
+                return "máy khỏe hơn, bốc hơn và cảm giác xe đầm hơn khi chạy.";
+
+            if (feature == "fuel_saving")
+                return "tiết kiệm xăng hơn, phù hợp đi lâu dài.";
+
+            if (feature == "storage")
+                return "cốp rộng hơn, tiện mang đồ hằng ngày.";
+
+            if (feature == "female_fit")
+                return "dáng xe gọn, dễ điều khiển và hợp nữ hơn.";
+
+            return "phù hợp nhất trong nhóm theo tiêu chí bạn đang xét.";
         }
         private sealed class RecommendationBuckets
         {

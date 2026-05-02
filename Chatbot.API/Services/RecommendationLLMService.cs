@@ -105,7 +105,7 @@ namespace Chatbot.API.Services
             var sb = new StringBuilder();
 
             sb.AppendLine("Bạn là chuyên viên tư vấn xe máy cho website bán xe.");
-            sb.AppendLine("Nhiệm vụ của bạn là chọn tối đa 3 xe phù hợp nhất từ danh sách candidate đã được hệ thống lọc sẵn.");
+            sb.AppendLine("Nhiệm vụ của bạn là viết reason tự nhiên cho các xe trong candidate. Không quyết định lại thứ tự ranking.");
             sb.AppendLine("Bạn chỉ được chọn trong candidate. Tuyệt đối không bịa thêm xe ngoài danh sách.");
             sb.AppendLine("Hãy tư duy như người tư vấn thật: hiểu nhu cầu, giữ ngữ cảnh hội thoại, cân đối giá - loại xe - hãng - mục đích sử dụng.");
             sb.AppendLine("Không chọn xe chỉ vì trùng từ khóa. Phải chọn vì thật sự hợp với nhu cầu hiện tại.");
@@ -125,9 +125,15 @@ namespace Chatbot.API.Services
             sb.AppendLine("9. Nếu candidate có xe quá đắt so với nhu cầu hiện tại, chỉ chọn khi user có dấu hiệu muốn nâng cấp/cao cấp.");
             sb.AppendLine("10. Reason phải là lý do tư vấn tự nhiên, cụ thể theo nhu cầu, không nói chung chung.");
             sb.AppendLine("11. Reason không được bịa thông số không có trong candidate.");
-            sb.AppendLine("12. Nếu chỉ có 1 xe thật sự hợp, trả 1 recommendation. Không cần cố đủ 3.");
-            sb.AppendLine("13. Tuyệt đối không chọn lại các hãng hoặc loại xe mà người dùng vừa loại bỏ (ExcludedBrands, ExcludedCategories).");
-            sb.AppendLine("14. Nếu danh sách candidate còn chứa các xe bị loại, phải bỏ qua khi chọn recommendation.");
+            sb.AppendLine("12. Reason phải nêu được ít nhất 1 tiêu chí cụ thể: giá, loại xe, hãng, mục đích dùng, dễ đi, tiết kiệm, cốp rộng, yên thấp, phong cách nam/nữ.");
+            sb.AppendLine("13. Không dùng các câu chung chung như: 'đáng cân nhắc', 'phù hợp nhu cầu', 'lựa chọn tốt', nếu không gắn với tiêu chí cụ thể.");
+            sb.AppendLine("14. Nếu user loại hãng/loại xe, reason phải thể hiện xe được chọn đã tránh đúng điều bị loại hoặc là hướng thay thế hợp lý.");
+            sb.AppendLine("15. Nếu user hỏi rẻ hơn, reason phải nói rõ đang giữ tiêu chí cũ nhưng ưu tiên giá thấp hơn.");
+            sb.AppendLine("16. Nếu chỉ có 1 xe thật sự hợp, trả 1 recommendation. Không cần cố đủ 3.");
+            sb.AppendLine("17. Tuyệt đối không chọn lại các hãng hoặc loại xe mà người dùng vừa loại bỏ (ExcludedBrands, ExcludedCategories).");
+            sb.AppendLine("18. Nếu danh sách candidate còn chứa các xe bị loại, phải bỏ qua khi chọn recommendation.");
+            sb.AppendLine("19. Mỗi reason phải khác nhau rõ ràng; không dùng cùng một cấu trúc câu cho nhiều xe.");
+            sb.AppendLine("20. Reason nên giống lời tư vấn bán hàng ngắn gọn, không giống mô tả máy móc.");
 
             sb.AppendLine("Tóm tắt ngữ cảnh cần ưu tiên:");
             sb.AppendLine($"- Tin nhắn hiện tại: {message}");
@@ -210,7 +216,7 @@ namespace Chatbot.API.Services
   "recommendations": [
     {
       "productId": 0,
-     "reason": "lý do tư vấn ngắn, gắn với nhu cầu hiện tại",
+      "reason": "lý do ngắn nhưng cụ thể, nêu rõ tiêu chí khớp như giá/loại xe/hãng/dễ đi/tiết kiệm/cốp rộng",
       "score": 0.0
     }
   ]
@@ -227,6 +233,8 @@ namespace Chatbot.API.Services
             sb.AppendLine("- Không chọn xe sai hãng/sai loại nếu còn candidate đúng hãng/đúng loại.");
             sb.AppendLine("- Không lặp lại reason giống nhau cho nhiều xe.");
             sb.AppendLine("- Nếu xe được chọn có giá cao hơn ngân sách, reason phải nói rõ là phương án nâng nhẹ ngân sách.");
+            sb.AppendLine("- Reason nên dài 12-24 từ, có chi tiết cụ thể, tránh câu rỗng như 'đáng cân nhắc'.");
+            sb.AppendLine("- Nếu không chắc tiêu chí nào khớp, ưu tiên nêu giá + loại xe + mục đích dùng dựa trên candidate và intent.");
 
             return sb.ToString();
         }
@@ -293,9 +301,17 @@ namespace Chatbot.API.Services
         private static string NormalizeReason(string? reason)
         {
             if (string.IsNullOrWhiteSpace(reason))
-                return "Phù hợp với nhu cầu hiện tại.";
+                return "Giá và kiểu xe khá sát với các tiêu chí đang lọc.";
 
             var normalized = Regex.Replace(reason.Trim(), @"\s+", " ");
+            var weak = NormalizeText(normalized);
+            if (weak.Contains("dang can nhac") ||
+                weak.Contains("phu hop voi nhu cau hien tai") ||
+                weak.Contains("lua chon tot") ||
+                weak.Contains("lua chon kha on"))
+            {
+                normalized = "Giá, loại xe và cách sử dụng khá sát với tiêu chí bạn đang lọc";
+            }
 
             if (normalized.Length > 140)
                 normalized = normalized.Substring(0, 140).Trim().TrimEnd(',', ';', ':');
@@ -338,7 +354,7 @@ namespace Chatbot.API.Services
                     matched.Add(new LLMRecommendedItem
                     {
                         ProductId = item.Id,
-                        Reason = $"Được AI ưu tiên vì khá hợp với nhu cầu hiện tại",
+                        Reason = "Được ưu tiên vì giá và kiểu xe gần với tiêu chí đang lọc",
                         Score = Math.Max(0.4, 1.0 - matched.Count * 0.1)
                     });
                 }
@@ -358,7 +374,7 @@ namespace Chatbot.API.Services
                         matched.Add(new LLMRecommendedItem
                         {
                             ProductId = item.Id,
-                            Reason = "Là một phương án khá đáng cân nhắc theo tiêu chí hiện tại",
+                            Reason = "Giá và loại xe gần với nhóm bạn đang cần so sánh",
                             Score = Math.Max(0.3, 0.75 - matched.Count * 0.1)
                         });
                     }

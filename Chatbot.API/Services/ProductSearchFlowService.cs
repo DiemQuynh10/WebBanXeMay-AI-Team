@@ -147,13 +147,24 @@ namespace Chatbot.API.Services
             {
                 effectiveCategory = null;
             }
-            var effectiveMinPrice = explicitListSearch
-     ? intent.PriceMin
-     : intent.PriceMin ?? profile.PriceMin;
+            bool shouldCarryProfileBudget =
+       profile.HasActiveRecommendationContext &&
+       !intent.PriceMin.HasValue &&
+       !intent.PriceMax.HasValue &&
+       !intent.TargetPrice.HasValue &&
+       (
+           intent.IsFollowUp ||
+           MessageHasExplicitCategory(normalizedMessage) ||
+           string.Equals(intent.FollowUpType, "none", StringComparison.OrdinalIgnoreCase)
+       );
 
-            var effectiveMaxPrice = explicitListSearch
-                ? intent.PriceMax
-                : intent.PriceMax ?? profile.PriceMax;
+            var effectiveMinPrice = intent.PriceMin ?? (shouldCarryProfileBudget ? profile.PriceMin : null);
+            var effectiveMaxPrice = intent.PriceMax ?? (shouldCarryProfileBudget ? profile.PriceMax : null);
+            var effectiveFilterType = intent.FilterType != PriceFilterType.None
+    ? intent.FilterType
+    : shouldCarryProfileBudget
+        ? profile.FilterType
+        : PriceFilterType.None;
             _logger.LogInformation(
     "ProductSearch effective filters. ConversationId: {ConversationId}, Brand: {Brand}, Category: {Category}, MinPrice: {MinPrice}, MaxPrice: {MaxPrice}, IntentType: {IntentType}, FilterType: {FilterType}",
     conversationId,
@@ -162,7 +173,40 @@ namespace Chatbot.API.Services
     effectiveMinPrice,
     effectiveMaxPrice,
     intent.IntentType,
-    intent.FilterType);
+   effectiveFilterType);
+            bool isGeneralListRequest =
+    string.IsNullOrWhiteSpace(effectiveBrand) &&
+    string.IsNullOrWhiteSpace(effectiveCategory) &&
+    !effectiveMinPrice.HasValue &&
+    !effectiveMaxPrice.HasValue &&
+    !intent.TargetPrice.HasValue &&
+    LooksLikeGeneralProductListRequest(normalizedMessage);
+
+            if (isGeneralListRequest)
+            {
+                var generalResult = await _toolClient.GetProductsByFiltersAsync(
+                    brand: null,
+                    minPrice: null,
+                    maxPrice: null,
+                    category: null,
+                    take: 10);
+
+                var generalItems = generalResult?.Items?
+                    .Where(x => x != null)
+                    .ToList() ?? new List<ProductSummaryDto>();
+
+                await SaveSearchContextAsync(conversationId, generalItems, intent);
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    UsedTool = ToolNames.GetProductsByFilters,
+                    Reply = "Mình tìm thấy một số mẫu xe hiện có trong cửa hàng:",
+                    Products = generalItems.Take(5).Select(MapToCard).ToList()
+                };
+            }
             ProductSearchResponseDto? result;
 
             // Ưu tiên gọi đúng tool theo độ đặc hiệu
@@ -460,7 +504,15 @@ namespace Chatbot.API.Services
 
             return text;
         }
+        private static bool ContainsAny(string text, params string[] keywords)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
 
+            return keywords.Any(k =>
+                !string.IsNullOrWhiteSpace(k) &&
+                text.Contains(k, StringComparison.OrdinalIgnoreCase));
+        }
         private static string NormalizeText(string? value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -495,6 +547,25 @@ namespace Chatbot.API.Services
             var index = Math.Abs(name.GetHashCode()) % reasons.Length;
 
             return reasons[index];
+        }
+        private static bool LooksLikeGeneralProductListRequest(string text)
+        {
+            text = NormalizeText(text);
+
+            return ContainsAny(text,
+                "shop co nhung xe nao",
+                "shop co xe nao",
+                "cua hang co nhung xe nao",
+                "cua hang co xe nao",
+                "co nhung xe nao",
+                "co xe nao",
+                "co xe gi",
+                "liet ke xe",
+                "danh sach xe",
+                "tat ca xe",
+                "toan bo xe",
+                "xem cac xe",
+                "xem danh sach xe");
         }
         private static bool MessageHasExplicitCategory(string message)
         {

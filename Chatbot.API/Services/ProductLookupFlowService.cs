@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using System.Text.RegularExpressions;
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.Responses;
 using Chatbot.API.Models.ToolApi;
@@ -267,25 +268,16 @@ namespace Chatbot.API.Services
 
             return null;
         }
-        private async Task<string> BuildLookupNotFoundReplyAsync(
-    ParsedIntent intent,
-    CustomerPreferenceProfile profile,
-    string normalizedMessage)
+        private Task<string> BuildLookupNotFoundReplyAsync(
+      ParsedIntent intent,
+      CustomerPreferenceProfile profile,
+      string normalizedMessage)
         {
-            var fallbackItems = await FindFallbackProductsAsync(intent, profile, normalizedMessage);
-
-            if (fallbackItems.Count == 0)
-            {
-                return "Mình chưa tìm thấy đúng mẫu xe bạn đang hỏi trong dữ liệu hiện tại. Bạn có thể ghi rõ tên xe hơn hoặc nói nhu cầu như xe ga, xe số, tầm giá để mình gợi ý mẫu gần nhất nhé.";
-            }
-
-            var top = fallbackItems.Take(3).ToList();
-            var names = string.Join(", ", top.Select(x => x.Ten));
-
-            return
+            var reply =
                 "Mình chưa tìm thấy đúng mẫu xe bạn đang hỏi trong dữ liệu hiện tại. " +
-                $"Tuy nhiên có vài mẫu gần để bạn tham khảo tiếp: **{names}**. " +
-                "Nếu muốn, mình có thể xem nhanh giá, tồn kho hoặc so sánh tiếp cho bạn.";
+                "Bạn nhập lại tên xe rõ hơn giúp mình nhé, ví dụ: Honda Vision, Air Blade, Yamaha Freego.";
+
+            return Task.FromResult(reply);
         }
 
         private async Task<List<ProductSummaryDto>> FindFallbackProductsAsync(
@@ -369,9 +361,18 @@ namespace Chatbot.API.Services
                     candidates.AddRange(profile.LastRecommendedProducts);
             }
 
-            if (candidates.Count == 0 && !string.IsNullOrWhiteSpace(normalizedMessage))
-                candidates.Add(normalizedMessage.Trim());
-
+            if (candidates.Count == 0 &&
+     intent.MentionedProducts != null &&
+     intent.MentionedProducts.Count > 0)
+            {
+                candidates.AddRange(intent.MentionedProducts);
+            }
+            if (candidates.Count == 0)
+            {
+                var unknownCandidate = ExtractUnknownProductCandidate(normalizedMessage);
+                if (!string.IsNullOrWhiteSpace(unknownCandidate))
+                    candidates.Add(unknownCandidate);
+            }
             return candidates
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Select(x => x.Trim())
@@ -387,11 +388,21 @@ namespace Chatbot.API.Services
 
             foreach (var alias in ProductAliasMap.OrderByDescending(x => x.Key.Length))
             {
-                if (text.Contains(alias.Key, StringComparison.OrdinalIgnoreCase))
+                if (ContainsWholePhrase(text, NormalizeText(alias.Key)))
                     return alias.Value;
             }
 
             return null;
+        }
+        private static bool ContainsWholePhrase(string text, string phrase)
+        {
+            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(phrase))
+                return false;
+
+            return System.Text.RegularExpressions.Regex.IsMatch(
+                text,
+                $@"(?<!\p{{L}}|\p{{N}}){System.Text.RegularExpressions.Regex.Escape(phrase)}(?!\p{{L}}|\p{{N}})",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         }
         private static List<string> BuildSearchQueries(string candidate)
         {
@@ -514,7 +525,9 @@ namespace Chatbot.API.Services
                     .ThenByDescending(x => x.SoLuong)
                     .FirstOrDefault();
 
-                if (bestMatch != null && ScoreProductMatch(bestMatch, candidate, query) >= 40)
+                var bestScore = bestMatch == null ? 0 : ScoreProductMatch(bestMatch, candidate, query);
+
+                if (bestMatch != null && bestScore >= 80)
                 {
                     _logger.LogInformation(
                         "Product lookup resolved product. Candidate={Candidate}, Query={Query}, Resolved={ResolvedName}, Id={Id}",
@@ -838,8 +851,69 @@ namespace Chatbot.API.Services
         }
         private static bool HasExplicitProductSignal(string normalizedMessage, ParsedIntent intent)
         {
+            if (intent.MentionedProducts != null &&
+                intent.MentionedProducts.Any(x => !string.IsNullOrWhiteSpace(x)))
+            {
+                return true;
+            }
+
             var productFromText = DetectProductNameFromText(normalizedMessage);
-            return !string.IsNullOrWhiteSpace(productFromText);
+            if (!string.IsNullOrWhiteSpace(productFromText))
+                return true;
+
+            var unknownCandidate = ExtractUnknownProductCandidate(normalizedMessage);
+            return !string.IsNullOrWhiteSpace(unknownCandidate);
+        }
+        private static string? ExtractUnknownProductCandidate(string? message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return null;
+
+            var text = NormalizeText(message);
+
+            var patterns = new[]
+            {
+        @"^(?:xe\s+)?(?<name>[a-z0-9\s]{2,50})\s+(?:co|con)\s+khong$",
+        @"^(?:co|con)\s+(?:xe\s+)?(?<name>[a-z0-9\s]{2,50})\s+khong$"
+    };
+
+            foreach (var pattern in patterns)
+            {
+                var match = Regex.Match(text, pattern, RegexOptions.IgnoreCase);
+                if (!match.Success)
+                    continue;
+
+                var name = match.Groups["name"].Value.Trim();
+
+                if (string.IsNullOrWhiteSpace(name))
+                    continue;
+
+                if (IsGenericLookupWord(name))
+                    continue;
+
+                return name;
+            }
+
+            return null;
+        }
+
+        private static bool IsGenericLookupWord(string value)
+        {
+            value = NormalizeText(value);
+
+            var genericWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "nao",
+        "gi",
+        "xe nao",
+        "mau nao",
+        "hang nao",
+        "san pham nao",
+        "shop",
+        "cua hang"
+    };
+
+            return genericWords.Contains(value);
         }
     }
 }

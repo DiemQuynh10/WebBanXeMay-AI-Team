@@ -42,11 +42,13 @@ namespace Chatbot.API.Services
             AddTargetStyleFit(criteria, product, intent, profile);
             AddUsageFit(criteria, product, intent, profile, normalizedMessage);
             AddFuelSavingFit(criteria, product, intent, profile);
+            AddPerformanceFit(criteria, product, normalizedMessage);
             AddStorageFit(criteria, product, intent, profile);
             AddLowSeatFit(criteria, product, intent, profile);
             AddStyleFit(criteria, product, intent, profile);
             AddGlobalConstraint(criteria, product, intent, profile);
             AddCompatibilityPenalty(criteria, product, intent, profile);
+            AddProductSpecificBonus(criteria, product, intent, profile, normalizedMessage);
             var total = criteria.Sum(x => x.WeightedScore);
 
             return new ScoredRecommendationItem
@@ -185,7 +187,7 @@ namespace Chatbot.API.Services
             }
             else
             {
-                raw = -25;
+                raw = 0;
                 reason = $"Không đúng nhóm {desiredCategory}.";
             }
 
@@ -213,12 +215,12 @@ namespace Chatbot.API.Services
 
                 if (soft && isScooter)
                 {
-                    raw = 9.2;
+                    raw = 9.8;
                     reason = "Dáng xe gọn, mềm và khá hợp nhu cầu nữ.";
                 }
                 else if (isScooter && (lowSeat || largeStorage))
                 {
-                    raw = 9.0;
+                    raw = 9.3;
                     reason = "Thuộc nhóm xe ga và khá hợp nếu ưu tiên dễ dùng hằng ngày.";
                 }
                 else if (isScooter)
@@ -455,6 +457,61 @@ namespace Chatbot.API.Services
 
             criteria.Add(BuildCriterion("StorageFit", weight, raw, reason));
         }
+        private static void AddPerformanceFit(
+    List<RecommendationCriterionScore> criteria,
+    ProductSummaryDto product,
+    string normalizedMessage)
+        {
+            const double weight = 0.18;
+
+            var message = NormalizeText(normalizedMessage);
+
+            double raw = 5;
+            string reason = "Hiệu năng ở mức trung bình.";
+
+            bool asksStrongOrRemoveWeak =
+                message.Contains("yeu") ||
+                message.Contains("khong manh") ||
+                message.Contains("may khoe") ||
+                message.Contains("boc") ||
+                message.Contains("khoe hon") ||
+                message.Contains("di xa");
+
+            if (asksStrongOrRemoveWeak)
+            {
+                var cc = product.CC ?? 0;
+
+                if (cc >= 150)
+                {
+                    raw = 9.0;
+                    reason = "Máy khỏe hơn, phù hợp nếu muốn tránh xe yếu.";
+                }
+                else if (cc >= 125)
+                {
+                    raw = 7.0;
+                    reason = "Hiệu năng đủ dùng, không quá yếu trong nhóm này.";
+                }
+                else
+                {
+                    raw = 3.0;
+                    reason = "Hiệu năng yếu hơn so với nhu cầu hiện tại.";
+                }
+
+                if (ContainsAny(product.Ten, "PCX", "Air Blade", "SH", "Winner", "Exciter", "Raider"))
+                {
+                    raw = Math.Max(raw, 8.5);
+                    reason = "Cảm giác máy khỏe và đầm hơn trong nhóm đang so sánh.";
+                }
+
+                if (ContainsAny(product.Ten, "Liberty", "Zip", "Vision", "Janus"))
+                {
+                    raw = Math.Min(raw, 6.0);
+                    reason = "Thiên về đi phố nhẹ nhàng hơn là máy khỏe.";
+                }
+            }
+
+            criteria.Add(BuildCriterion("PerformanceFit", weight, raw, reason));
+        }
         private static void AddLowSeatFit(
      List<RecommendationCriterionScore> criteria,
      ProductSummaryDto product,
@@ -686,7 +743,7 @@ namespace Chatbot.API.Services
         private static bool IsFemaleTarget(string? target)
         {
             var text = NormalizeText(target);
-            return text.Contains("nữ") || text.Contains("nu");
+            return text.Contains("nu");
         }
 
         private static bool IsMaleTarget(string? target)
@@ -825,7 +882,7 @@ namespace Chatbot.API.Services
     ParsedIntent intent,
     CustomerPreferenceProfile profile)
         {
-            const double weight = 0.25;
+            const double weight = 0.15;
 
             var stylePreference = ResolveStylePreference(intent, profile);
             var desiredCategory = NormalizeCategory(FirstNonEmpty(intent.Category, profile.PreferredCategory));
@@ -853,6 +910,43 @@ namespace Chatbot.API.Services
             }
 
             criteria.Add(BuildCriterion("GlobalConstraint", weight, raw, reason));
+        }
+        private static void AddProductSpecificBonus(
+    List<RecommendationCriterionScore> criteria,
+    ProductSummaryDto product,
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile,
+    string normalizedMessage)
+        {
+            const double weight = 0.10;
+
+            var stylePreference = ResolveStylePreference(intent, profile);
+            var name = product.Ten ?? string.Empty;
+            var text = NormalizeText(normalizedMessage);
+
+            double raw = 5;
+            string reason = "Không có ưu tiên riêng theo mẫu xe.";
+
+            if (stylePreference == "female" || ContainsAny(text, "cho nu", "xe nu", "hop nu"))
+            {
+                if (ContainsAny(name, "Vision"))
+                {
+                    raw = 10;
+                    reason = "Vision là mẫu xe ga gọn, dễ đi và rất hợp nhu cầu nữ phổ thông.";
+                }
+                else if (ContainsAny(name, "Latte", "Grande", "Janus", "Lead", "Zip"))
+                {
+                    raw = 9;
+                    reason = "Mẫu này thuộc nhóm xe ga gọn và hợp nữ.";
+                }
+                else if (ContainsAny(name, "Attila", "Shark", "Address", "Impulse"))
+                {
+                    raw = 7.5;
+                    reason = "Mẫu này vẫn khá hợp nữ nhưng mức nổi bật thấp hơn nhóm Vision/Latte/Grande.";
+                }
+            }
+
+            criteria.Add(BuildCriterion("ProductSpecificBonus", weight, raw, reason));
         }
     }
 }

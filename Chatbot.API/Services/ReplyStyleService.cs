@@ -169,9 +169,9 @@ namespace Chatbot.API.Services
         $"{top.Ten} ({top.Gia:N0} VNĐ) là lựa chọn khác khá hợp, vì {mainReason}."
     )
     : Pick(
-        $"Trong nhóm này thì {top.Ten} ({top.Gia:N0} VNĐ) là mẫu hợp nhất, vì {mainReason}.",
-        $"Nếu chọn nhanh thì {top.Ten} ({top.Gia:N0} VNĐ) khá ổn, vì {mainReason}.",
-        $"Mình sẽ ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước, vì {mainReason}."
+        $"Trong nhóm này, mình sẽ để {top.Ten} ({top.Gia:N0} VNĐ) lên trước — {mainReason}.",
+$"Nếu chọn nhanh, {top.Ten} ({top.Gia:N0} VNĐ) là phương án dễ chốt hơn — {mainReason}.",
+$"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
     );
 
             sb.AppendLine(topLead);
@@ -546,6 +546,18 @@ namespace Chatbot.API.Services
             }
 
             var excludedText = BuildExcludedText(intent);
+            if (IsCheaperRefinement(text))
+            {
+                return count <= 1
+                    ? Pick(
+                        "Mình vẫn giữ nhu cầu trước đó, nhưng lọc xuống nhóm giá dễ chịu hơn:",
+                        "Nếu muốn tiết kiệm hơn nhóm vừa xem, hiện mình nghiêng về mẫu này:",
+                        "Mình lọc lại theo hướng rẻ hơn nhưng vẫn giữ tiêu chí chính của bạn:")
+                    : Pick(
+                        "Mình vẫn giữ nhu cầu trước đó, nhưng lọc xuống nhóm giá dễ chịu hơn:",
+                        "Nếu muốn tiết kiệm hơn nhóm vừa xem, các mẫu này hợp hơn:",
+                        "Mình lọc lại theo hướng rẻ hơn nhưng vẫn giữ tiêu chí chính của bạn:");
+            }
 
             if (!string.IsNullOrWhiteSpace(excludedText))
             {
@@ -975,12 +987,13 @@ namespace Chatbot.API.Services
             if (reasons == null || reasons.Count == 0)
             {
                 var fallbacks = new[]
-  {
-    "giá dễ tiếp cận, phù hợp đi lại hằng ngày",
-    "gọn nhẹ, dễ điều khiển trong phố",
-    "chi phí sử dụng hợp lý, dễ dùng lâu dài",
-    "phù hợp đi làm hoặc đi học hằng ngày",
-    "mức giá dễ cân nhắc trong nhóm này"
+ {
+    "dễ đi, hợp chạy trong phố hằng ngày",
+    "gọn nhẹ, không cần làm quen nhiều khi sử dụng",
+    "chi phí sử dụng dễ chịu, hợp đi lại thường xuyên",
+    "phù hợp nếu bạn cần một mẫu xe đơn giản, dễ dùng",
+    "xoay trở linh hoạt trong đô thị, không bị cồng kềnh",
+    "mức giá dễ tiếp cận, phù hợp để dùng hằng ngày"
 };
 
                 return fallbacks[new Random().Next(fallbacks.Length)];
@@ -1021,13 +1034,13 @@ namespace Chatbot.API.Services
             if (cleaned.Count == 0)
             {
                 var fallbacks = new[]
-{
-    "đi phố khá ổn, dễ dùng hằng ngày",
-    "khá bền, dùng lâu ít phải lo",
-    "hợp để đi làm hoặc đi học",
-    "chi phí sử dụng dễ chịu",
-    "gọn nhẹ, dễ chạy trong phố",
-    "nhiều người chọn vì đi ổn định"
+ {
+    "gọn nhẹ, dễ điều khiển khi đi trong phố",
+    "chi phí sử dụng dễ chịu, hợp đi lại hằng ngày",
+    "dễ làm quen, phù hợp nếu bạn cần xe đơn giản để dùng lâu dài",
+    "mức giá dễ tiếp cận, không tạo áp lực ngân sách",
+    "phù hợp đi làm hoặc đi học vì cách dùng khá đơn giản",
+    "dễ kiểm soát, hợp với nhu cầu di chuyển thường xuyên"
 };
 
                 return fallbacks[new Random().Next(fallbacks.Length)];
@@ -1043,9 +1056,9 @@ namespace Chatbot.API.Services
             if (intent.PriceMax.HasValue || intent.TargetPrice.HasValue || profile.PriceMax.HasValue || profile.TargetPrice.HasValue)
             {
                 return Pick(
-                    "Bạn muốn ưu tiên rẻ nhất hay chọn mẫu ổn định lâu dài hơn?",
-                    "Bạn muốn tiết kiệm tối đa hay chọn xe cân bằng, đáng dùng hơn?",
-                    "Bạn muốn mình lọc tiếp theo hãng hay theo tiêu chí dễ đi, tiết kiệm xăng?"
+                    "Bạn muốn mình lọc tiếp theo hướng rẻ hơn, hay giữ tầm này để chọn mẫu đáng dùng hơn?",
+                    "Bạn muốn ưu tiên tiết kiệm chi phí, hay chọn xe dễ đi và ổn định lâu dài hơn?",
+                    "Mình có thể lọc tiếp theo hãng, độ dễ đi hoặc tiết kiệm xăng nếu bạn muốn."
                 );
             }
             if (desiredCategory == "xe ga")
@@ -1157,6 +1170,23 @@ namespace Chatbot.API.Services
                 profile.WantsEasyControl;
 
             var message = NormalizeText(normalizedMessage);
+            var brand = intent.Brand ?? profile.PreferredBrand;
+
+            if (profile.ExcludedBrands != null && profile.ExcludedBrands.Any())
+            {
+                var excluded = string.Join(", ", profile.ExcludedBrands);
+
+                return Pick(
+                    $"Mình đã loại {excluded} ra và chọn các mẫu khác phù hợp hơn cho bạn.",
+                    $"Do bạn không muốn {excluded}, mình sẽ gợi ý các mẫu khác để bạn tham khảo.",
+                    $"Mình bỏ {excluded} khỏi lựa chọn và lọc lại các mẫu phù hợp hơn."
+                );
+            }
+            if (!string.IsNullOrWhiteSpace(brand) &&
+                profile.ExcludedBrands.Any(x => string.Equals(x, brand, StringComparison.OrdinalIgnoreCase)))
+            {
+                return $"Mình hiểu là bạn muốn xem lại {brand}, nên mình sẽ bỏ điều kiện loại {brand} trước đó và gợi ý lại các mẫu phù hợp.";
+            }
             bool isVeryOpenAsk =
                 ContainsAny(message,
                     "tư vấn xe", "tu van xe",
@@ -1216,11 +1246,19 @@ namespace Chatbot.API.Services
 
                 if (ContainsAny(message, "tu van", "tư vấn", "goi y", "gợi ý", "nen mua", "nên mua"))
                 {
-                    return $"Nếu ưu tiên {desiredCategory}, mình đang nghiêng hơn về {anchorName}.";
+                    return Pick(
+                        $"Nếu chọn nhanh trong nhóm {displayCategory}, mình sẽ xem {anchorName} trước.",
+                        $"Với nhu cầu {displayCategory}, {anchorName} là mẫu mình thấy dễ bắt đầu cân nhắc nhất.",
+                        $"Trong nhóm {displayCategory}, mình sẽ ưu tiên {anchorName} vì khá hợp với hướng bạn đang tìm."
+                    );
                 }
 
 
-                return $"Nếu bạn ưu tiên {displayCategory}, mình đang nghiêng hơn về {anchorName}.";
+                return Pick(
+     $"Nếu bám theo nhóm {displayCategory}, mình sẽ ưu tiên {anchorName} trước.",
+     $"Trong nhóm {displayCategory}, {anchorName} là mẫu nổi bật hơn để cân nhắc.",
+     $"Với hướng {displayCategory}, mình thấy {anchorName} là lựa chọn dễ xem trước."
+ );
             }
 
             if (forWork)
@@ -1241,15 +1279,14 @@ namespace Chatbot.API.Services
 
             if (hasPriceAnchor && hasGenderContext)
             {
-                return $"Mình đang nghiêng hơn về {anchorName}, vì mẫu này cân bằng nhất giữa mức giá và nhu cầu sử dụng.";
+                return $"Nếu chọn nhanh trong tầm này, mình nghiêng về {anchorName} trước - vì mẫu này vừa sát ngân sách, vừa hợp với nhu cầu bạn đang nói.";
             }
             if (hasPriceAnchor)
             {
                 return Pick(
-                    $"Tầm giá này thì {anchorName} là mẫu khá dễ cân nhắc.",
-                    $"Với mức tiền này, {anchorName} là mẫu mình thấy hợp lý nhất.",
-                    $"Nếu chọn nhanh trong tầm này thì {anchorName} khá ổn.",
-                    $"Trong khoảng giá này, {anchorName} là mẫu đáng xem trước."
+                    $"Nếu chọn nhanh trong tầm này, mình sẽ xem {anchorName} trước vì giá khá sát ngân sách.",
+                    $"Với mức tiền này, {anchorName} là mẫu dễ cân nhắc nhất để bắt đầu so sánh.",
+                    $"Trong khoảng giá này, {anchorName} là phương án nổi bật hơn vì không lệch quá xa ngân sách."
                 );
             }
 
@@ -1309,7 +1346,17 @@ namespace Chatbot.API.Services
                    text.Contains("dễ chống chân") || text.Contains("de chong chan") ||
                    text.Contains("yên thấp") || text.Contains("yen thap");
         }
-
+        private static bool IsCheaperRefinement(string text)
+        {
+            return text.Contains("re hon") ||
+                   text.Contains("rẻ hơn") ||
+                   text.Contains("mềm hơn") ||
+                   text.Contains("mem hon") ||
+                   text.Contains("tiết kiệm hơn") ||
+                   text.Contains("tiet kiem hon") ||
+                   text.Contains("giá thấp hơn") ||
+                   text.Contains("gia thap hon");
+        }
         private static bool IsAlternativeRefinement(ParsedIntent intent, string text)
         {
             return string.Equals(intent.ComparisonFeature, "alternative", StringComparison.OrdinalIgnoreCase)
@@ -1383,6 +1430,9 @@ namespace Chatbot.API.Services
                 parts.Add("xe hợp với nữ");
             else if (male)
                 parts.Add("xe hợp với nam");
+            var brand = intent.Brand ?? profile.PreferredBrand;
+            if (!string.IsNullOrWhiteSpace(brand))
+                parts.Add($"hãng {brand}");
 
             var category = DisplayCategory(intent.Category ?? profile.PreferredCategory);
             if (!string.IsNullOrWhiteSpace(category))
@@ -1417,7 +1467,11 @@ namespace Chatbot.API.Services
             if (parts.Count == 0)
                 return string.Empty;
 
-            return $"Mình đang dựa trên tiêu chí: {string.Join(", ", parts)}.";
+            return Pick(
+    $"Mình sẽ bám theo hướng {string.Join(", ", parts)} để chọn các mẫu sát nhu cầu hơn.",
+    $"Mình sẽ dựa trên các tiêu chí {string.Join(", ", parts)} để gợi ý cho hợp hơn.",
+    $"Mình vẫn giữ các tiêu chí chính: {string.Join(", ", parts)} để lọc danh sách cho gọn."
+);
         }
         private static string Normalize(string? input)
         {

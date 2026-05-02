@@ -71,6 +71,16 @@ namespace Chatbot.API.Services
     "ENTER REFINEMENT => ConversationId={ConversationId}, Message={Message}",
     conversationId,
     normalizedMessage);
+            if (LooksLikeRejectMotorbikeDomain(normalizedMessage))
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    Reply = "Mình hiểu rồi. Hiện chatbot này chủ yếu hỗ trợ xe máy, giá xe, tồn kho và đơn hàng. Nếu bạn muốn đổi sang nhu cầu khác, bạn nói rõ hơn để mình biết có hỗ trợ được không nhé."
+                };
+            }
             if (LooksLikeLookupReferenceFollowUp(normalizedMessage) &&
     string.Equals(profile.ActiveFlow, ChatFlowType.ProductLookup, StringComparison.OrdinalIgnoreCase) &&
     !string.IsNullOrWhiteSpace(profile.LastLookupProductName))
@@ -95,9 +105,17 @@ namespace Chatbot.API.Services
              : profile.BaseRecommendedProducts;
 
             if (!profile.HasActiveRecommendationContext ||
-                activeRecommendedProducts == null ||
-                activeRecommendedProducts.Count == 0)
+     activeRecommendedProducts == null ||
+     activeRecommendedProducts.Count == 0)
             {
+                if (HasExclusionIntent(intent))
+                {
+                    return await BuildRefinementNeedsContextResponseAsync(
+                        conversationId,
+                        normalizedMessage,
+                        intent);
+                }
+
                 return null;
             }
 
@@ -109,6 +127,14 @@ namespace Chatbot.API.Services
             var previousProducts = await LoadPreviousProductsAsync(allowedNames);
             if (previousProducts.Count == 0)
             {
+                if (HasExclusionIntent(intent))
+                {
+                    return await BuildRefinementNeedsContextResponseAsync(
+                        conversationId,
+                        normalizedMessage,
+                        intent);
+                }
+
                 return null;
             }
             _logger.LogWarning(
@@ -117,7 +143,10 @@ namespace Chatbot.API.Services
     string.Join(" | ", previousProducts.Select(x => $"{x.Ten}:{x.Gia:N0}")));
 
             EnrichIntentFromFollowUp(normalizedMessage, intent);
-
+            if (ShouldBypassRefinementForFreshRecommendation(normalizedMessage, intent))
+            {
+                return null;
+            }
             var currentTurnHasCategory = CurrentTurnHasExplicitCategory(normalizedMessage);
             var currentTurnHasBrand = CurrentTurnHasExplicitBrand(normalizedMessage);
             var currentTurnHasPrice = CurrentTurnHasExplicitPrice(normalizedMessage);
@@ -277,8 +306,54 @@ namespace Chatbot.API.Services
                 ConversationId = conversationId,
                 UsedAI = false,
                 Reply = hardReply,
-                Products = ChatProductCardMapper.MapMany(rankedHard, 4)
+                Products = ChatProductCardMapper.MapMany(rankedHard.Take(3).ToList(), 3)
             };
+        }
+        private static bool ShouldBypassRefinementForFreshRecommendation(
+    string message,
+    ParsedIntent intent)
+        {
+            var text = NormalizeText(message);
+
+            bool looksLikeFreshAsk =
+                ContainsAny(text,
+                    "tu van",
+                    "goi y",
+                    "nen mua",
+                    "chon xe",
+                    "mau nao hop",
+                    "xe nao hop");
+
+            if (!looksLikeFreshAsk)
+                return false;
+
+            bool hasExplicitBrand =
+                !string.IsNullOrWhiteSpace(intent.Brand) ||
+                ContainsAny(text, "honda", "yamaha", "suzuki", "sym", "piaggio");
+
+            bool hasTargetSignal =
+                !string.IsNullOrWhiteSpace(intent.Target) ||
+                intent.PrefersFemaleStyle ||
+                intent.PrefersMaleStyle ||
+                ContainsAny(text,
+                    "cho nu",
+                    "xe nu",
+                    "hop nu",
+                    "nu tinh",
+                    "cho nam",
+                    "xe nam",
+                    "hop nam",
+                    "nam tinh");
+
+            bool isOnlyRefine =
+                LooksLikeCheaperRequest(text) ||
+                LooksLikeMoreExpensiveRequest(text) ||
+                LooksLikeDifferentAlternativeRequest(text) ||
+                LooksLikeLargeStorageRequest(text) ||
+                LooksLikeLowSeatRequest(text) ||
+                LooksLikeFuelSavingRequest(text);
+
+            return (hasExplicitBrand || hasTargetSignal) && !isOnlyRefine;
         }
         private static bool LooksLikeFreshTargetRecommendation(string message, ParsedIntent intent)
         {
@@ -382,7 +457,7 @@ namespace Chatbot.API.Services
             var candidateProducts = contextFilteredCurrent;
 
             var isRelativePriceRefinement = IsRelativePriceRefinement(signals);
-            var relativePriceAnchor = ResolveRelativePriceAnchor(intent, profile, currentBand);
+            var relativePriceAnchor = ResolveRelativePriceAnchor(intent, profile, currentBand, signals);
             var shouldRefetchBroader =
      signals.WantsBroaderAlternatives ||
      signals.PreferDifferent ||
@@ -555,7 +630,7 @@ namespace Chatbot.API.Services
                     ConversationId = conversationId,
                     UsedAI = false,
                     Reply = reply,
-                    Products = ChatProductCardMapper.MapMany(rankedRelative, 4)
+                    Products = ChatProductCardMapper.MapMany(rankedRelative.Take(3).ToList(), 3)
                 };
             }
 
@@ -603,11 +678,12 @@ namespace Chatbot.API.Services
                 profile,
                 rankedSoftByRule);
 
+
             if (rankedSoft == null || rankedSoft.Count == 0)
             {
                 return await BuildNoMatchResponseAsync(conversationId, normalizedMessage, intent, profile);
             }
-
+            rankedSoft = rankedSoft.Take(3).ToList();
             await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
                 conversationId,
                 rankedSoft,
@@ -627,7 +703,7 @@ namespace Chatbot.API.Services
                 ConversationId = conversationId,
                 UsedAI = false,
                 Reply = softReply,
-                Products = ChatProductCardMapper.MapMany(rankedSoft, 4)
+                Products = ChatProductCardMapper.MapMany(rankedSoft.Take(3).ToList(), 3)
             };
         }
 
@@ -667,7 +743,7 @@ namespace Chatbot.API.Services
             }
 
             var currentBand = BuildCurrentResultPriceBand(previousProducts);
-            var relativePriceAnchor = ResolveRelativePriceAnchor(intent, profile, currentBand);
+            var relativePriceAnchor = ResolveRelativePriceAnchor(intent, profile, currentBand, signals);
             bool isRelativePriceRefinement = IsRelativePriceRefinement(signals);
 
             List<ProductSummaryDto> ranked;
@@ -745,7 +821,7 @@ namespace Chatbot.API.Services
                 ConversationId = conversationId,
                 UsedAI = false,
                 Reply = reply,
-                Products = ChatProductCardMapper.MapMany(ranked, 4)
+                Products = ChatProductCardMapper.MapMany(ranked.Take(3).ToList(), 3)
             };
         }
 
@@ -1132,8 +1208,10 @@ namespace Chatbot.API.Services
 
             if (signals.PreferCheaper)
                 return PickReasonByName(name,
-                    "giá mềm hơn nhóm bạn vừa xem, dễ cân nhắc hơn nếu muốn tiết kiệm chi phí",
-                    "hợp hơn nếu bạn muốn giảm ngân sách mà vẫn có lựa chọn ổn");
+                    "giá thấp hơn nhóm vừa xem, hợp nếu bạn muốn tiết kiệm rõ hơn",
+                    "vẫn giữ hướng dễ dùng nhưng giảm được ngân sách",
+                    "phù hợp nếu bạn muốn hạ chi phí mà vẫn có xe đi phố ổn",
+                    "mức giá dễ chịu hơn, hợp để cân nhắc khi muốn mua tiết kiệm");
 
             if (signals.PreferMoreExpensive)
                 return PickReasonByName(name,
@@ -1638,7 +1716,7 @@ namespace Chatbot.API.Services
                 ConversationId = conversationId,
                 UsedAI = false,
                 Reply = brandReply,
-                Products = ChatProductCardMapper.MapMany(rankedRelaxed, 4)
+                Products = ChatProductCardMapper.MapMany(rankedRelaxed.Take(3).ToList(), 3)
             };
         }
         private static (decimal? MinPrice, decimal? MaxPrice, string? Brand, string? Category) BuildSoftRefinementBaseFilters(
@@ -1877,8 +1955,29 @@ namespace Chatbot.API.Services
         private static decimal? ResolveRelativePriceAnchor(
     ParsedIntent intent,
     CustomerPreferenceProfile profile,
-    CurrentResultPriceBand currentBand)
+    CurrentResultPriceBand currentBand,
+    RefinementSignals signals)
         {
+            if (signals.PreferCheaper)
+            {
+                return currentBand.MinPrice
+                    ?? currentBand.MedianPrice
+                    ?? intent.PriceMax
+                    ?? intent.TargetPrice
+                    ?? profile.PriceMax
+                    ?? profile.TargetPrice;
+            }
+
+            if (signals.PreferMoreExpensive)
+            {
+                return currentBand.MaxPrice
+                    ?? currentBand.MedianPrice
+                    ?? intent.PriceMin
+                    ?? intent.TargetPrice
+                    ?? profile.PriceMin
+                    ?? profile.TargetPrice;
+            }
+
             if (signalsLikeAround(intent) && intent.TargetPrice.HasValue)
                 return intent.TargetPrice.Value;
 
@@ -1902,7 +2001,6 @@ namespace Chatbot.API.Services
 
             return currentBand.MinPrice;
         }
-
         private static bool signalsLikeAround(ParsedIntent intent)
         {
             return intent.FilterType == PriceFilterType.Around;
@@ -1928,8 +2026,7 @@ namespace Chatbot.API.Services
             decimal? minPrice = null;
             decimal? maxPrice = null;
 
-            var anchor = ResolveRelativePriceAnchor(intent, profile, currentBand);
-
+            var anchor = ResolveRelativePriceAnchor(intent, profile, currentBand, signals);
             if (signals.PreferCheaper)
             {
                 maxPrice = anchor.HasValue
@@ -2291,6 +2388,16 @@ namespace Chatbot.API.Services
 
             return false;
         }
+        private static bool LooksLikeRejectMotorbikeDomain(string message)
+        {
+            var text = NormalizeText(message);
+
+            return ContainsAny(text,
+                "khong thich xe may",
+                "khong muon xe may",
+                "khong can xe may",
+                "khong mua xe may");
+        }
         private static List<ProductSummaryDto> ApplyAllExclusions(
     IEnumerable<ProductSummaryDto> source,
     ParsedIntent intent,
@@ -2312,6 +2419,49 @@ namespace Chatbot.API.Services
                 !excludedCategories.Any(ex => IsSameCategory(x.Loai, ex)) &&
                 !excludedProducts.Contains(x.Ten ?? string.Empty))
                 .ToList();
+        }
+        private static bool HasExclusionIntent(ParsedIntent intent)
+        {
+            return intent != null &&
+                   (
+                       intent.ExcludedBrands.Any() ||
+                       intent.ExcludedProducts.Any() ||
+                       intent.ExcludedCategories.Any() ||
+                       string.Equals(intent.FollowUpType, "exclude", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(intent.FollowUpType, "exclude_product", StringComparison.OrdinalIgnoreCase)
+                   );
+        }
+        private async Task<ChatResponse> BuildRefinementNeedsContextResponseAsync(
+    string conversationId,
+    string normalizedMessage,
+    ParsedIntent intent)
+        {
+            string draft;
+
+            if (intent.ExcludedBrands.Any())
+            {
+                var brands = string.Join(", ", intent.ExcludedBrands);
+                draft = $"Mình đã hiểu là bạn không muốn chọn hãng {brands}. Bạn cho mình thêm tầm giá hoặc nhu cầu chính, mình sẽ tư vấn lại và loại hãng đó ra.";
+            }
+            else if (intent.ExcludedProducts.Any())
+            {
+                var products = string.Join(", ", intent.ExcludedProducts);
+                draft = $"Mình đã hiểu là bạn không muốn mẫu {products}. Bạn cho mình thêm tầm giá hoặc nhu cầu chính, mình sẽ lọc lại mẫu khác phù hợp hơn.";
+            }
+            else
+            {
+                draft = "Mình hiểu là bạn muốn đổi tiêu chí, nhưng hiện chưa có danh sách xe trước đó để lọc tiếp. Bạn cho mình thêm tầm giá, hãng hoặc nhu cầu chính nhé.";
+            }
+
+            var reply = await _replyRewriteService.RewriteAsync(normalizedMessage, draft);
+
+            return new ChatResponse
+            {
+                Success = true,
+                ConversationId = conversationId,
+                UsedAI = false,
+                Reply = reply
+            };
         }
         private sealed class RefinementSignals
         {

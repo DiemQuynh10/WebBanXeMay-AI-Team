@@ -26,7 +26,9 @@ namespace Chatbot.API.Services
 
             profile.LastLookupCandidateNames ??= new List<string>();
             profile.ExcludedProducts ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
+            profile.ExcludedBrands ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            profile.ExcludedCategories ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            profile.RequestedStyles ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             return Task.FromResult(profile);
         }
 
@@ -148,6 +150,17 @@ namespace Chatbot.API.Services
 
             ApplyTargetState(profile, intent, messageExplicitlyMentionsMale, messageExplicitlyMentionsFemale);
             ApplyPreferenceFlags(profile, intent);
+            if (!string.IsNullOrWhiteSpace(profile.PreferredBrand) &&
+    profile.ExcludedBrands.Contains(profile.PreferredBrand))
+            {
+                profile.PreferredBrand = null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(profile.PreferredCategory) &&
+                profile.ExcludedCategories.Contains(profile.PreferredCategory))
+            {
+                profile.PreferredCategory = null;
+            }
         }
         private static void ApplyMetadataUpdates(CustomerPreferenceProfile profile, ParsedIntent intent)
         {
@@ -712,7 +725,12 @@ namespace Chatbot.API.Services
 
             foreach (var style in intent.RequestedStyles)
                 profile.RequestedStyles.Add(style);
-
+            if (profile.ExcludedBrands.Any() &&
+    !string.IsNullOrWhiteSpace(profile.PreferredBrand) &&
+    profile.ExcludedBrands.Contains(profile.PreferredBrand))
+            {
+                profile.PreferredBrand = null;
+            }
             if (messageExplicitlyMentionsMale)
             {
                 profile.Target = "nam";

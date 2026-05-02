@@ -22,6 +22,14 @@ namespace Chatbot.API.Services
 
             if (LooksLikeHeightOrPhysicalPreference(text))
                 return result;
+            if (TryParseRange(text, out var minPrice, out var maxPrice))
+            {
+                result.FilterType = PriceFilterType.Range;
+                result.MinPrice = minPrice;
+                result.MaxPrice = maxPrice;
+                result.TargetPrice = null;
+                return result;
+            }
             if (TryParseRestartOverrideTargetPrice(text, out var overrideTarget))
             {
                 var delta = GetAroundDelta(overrideTarget);
@@ -39,23 +47,6 @@ namespace Chatbot.API.Services
                 result.TargetPrice = null;
                 return result;
             }
-            //if (TryParseNumericRangeLoosely(text, out var looseMin, out var looseMax))
-            //{
-            //    result.FilterType = PriceFilterType.Range;
-            //    result.MinPrice = looseMin;
-            //    result.MaxPrice = looseMax;
-            //    result.TargetPrice = null;
-            //    return result;
-            //}
-
-            if (TryParseRange(text, out var minPrice, out var maxPrice))
-            {
-                result.FilterType = PriceFilterType.Range;
-                result.MinPrice = minPrice;
-                result.MaxPrice = maxPrice;
-                result.TargetPrice = null;
-                return result;
-            }
             var maxMatch = Regex.Match(
                 text,
                 @"\b(duoi|toi da|khong qua)\s+(\d+(?:[.,]\d+)?)\s*(trieu|tr|cu|chai)?\b",
@@ -65,7 +56,7 @@ namespace Chatbot.API.Services
                 decimal.TryParse(maxMatch.Groups[2].Value.Replace(",", "."), NumberStyles.Any, CultureInfo.InvariantCulture, out var maxValue))
             {
                 result.FilterType = PriceFilterType.MaxOnly;
-                result.MaxPrice = maxValue * 1_000_000m;
+                result.MaxPrice = NormalizePriceValue(maxValue, maxMatch.Groups[3].Value);
                 result.TargetPrice = null;
                 return result;
             }
@@ -79,7 +70,7 @@ namespace Chatbot.API.Services
                 decimal.TryParse(minMatch.Groups[2].Value.Replace(",", "."), NumberStyles.Any, CultureInfo.InvariantCulture, out var minValue))
             {
                 result.FilterType = PriceFilterType.MinOnly;
-                result.MinPrice = minValue * 1_000_000m;
+                result.MinPrice = NormalizePriceValue(minValue, minMatch.Groups[3].Value);
                 result.TargetPrice = null;
                 return result;
             }
@@ -106,13 +97,18 @@ namespace Chatbot.API.Services
     @"\b(khoang|tam|quanh)\s+(\d+(?:[.,]\d+)?)\s*(trieu|tr|cu|chai)?\b",
     RegexOptions.IgnoreCase);
 
-            bool containsRangeWord = text.Contains(" den ") || text.Contains("-") || text.Contains("~");
+            bool containsRangeWord =
+     text.Contains(" den ") ||
+     text.Contains(" toi ") ||
+     text.Contains(" tới ") ||
+     text.Contains("-") ||
+     text.Contains("~");
 
             if (!containsRangeWord &&
                 aroundMatch.Success &&
                 decimal.TryParse(aroundMatch.Groups[2].Value.Replace(",", "."), NumberStyles.Any, CultureInfo.InvariantCulture, out var aroundValue))
             {
-                var amount = aroundValue * 1_000_000m;
+                var amount = NormalizePriceValue(aroundValue, aroundMatch.Groups[3].Value);
                 var delta = GetAroundDelta(amount);
 
                 result.FilterType = PriceFilterType.Around;
@@ -130,7 +126,7 @@ namespace Chatbot.API.Services
             if (singleMatch.Success &&
                 decimal.TryParse(singleMatch.Groups[1].Value.Replace(",", "."), NumberStyles.Any, CultureInfo.InvariantCulture, out var singleValue))
             {
-                var amount = singleValue * 1_000_000m;
+                var amount = NormalizePriceValue(singleValue, singleMatch.Groups[2].Value);
                 result.FilterType = PriceFilterType.Around;
                 result.TargetPrice = amount;
 
@@ -151,9 +147,9 @@ namespace Chatbot.API.Services
                 return false;
 
             var match = Regex.Match(
-                text,
-                @"(?:khong phai\s+\d+(?:[.,]\d+)?\s*(?:trieu|tr|cu|chai)?\s*(?:nua)?[, ]*)?(?:gio|bay gio|y la|doi y|h t muon|vay h t muon)?\s*(?:quanh|khoang|tam)\s+(\d+(?:[.,]\d+)?)\s*(trieu|tr|cu|chai)?",
-                RegexOptions.IgnoreCase);
+      text,
+      @"(?:khong phai\s+\d+(?:[.,]\d+)?\s*(?:trieu|tr|cu|chai)?\s*(?:nua)?[, ]*)?(?:gio|bay gio|y la|doi y|h t muon|vay h t muon)?\s*(?:quanh|khoang|tam)\s+(\d+(?:[.,]\d+)?)\s*(trieu|tr|cu|chai|vnd)?",
+      RegexOptions.IgnoreCase);
 
             if (!match.Success)
                 return false;
@@ -167,7 +163,7 @@ namespace Chatbot.API.Services
                 return false;
             }
 
-            targetPrice = value * 1_000_000m;
+            targetPrice = NormalizePriceValue(value, match.Groups[2].Value);
             return true;
         }
         private static bool TryParseNumericRangeLoosely(string text, out decimal minPrice, out decimal maxPrice)
@@ -219,14 +215,14 @@ namespace Chatbot.API.Services
 
             var match = Regex.Match(
                 text,
-                @"(?:khoang\s+)?(?:tu\s+)?(\d+(?:[.,]\d+)?)\s*(?:trieu|tr|cu|chai)?\s*(?:den|-|~)\s*(\d+(?:[.,]\d+)?)",
+             @"(?:(?:khoang|tam|quanh)\s+)?(?:tu\s+)?(\d+(?:[.,]\d+)?)\s*(trieu|tr|cu|chai|vnd)?\s*(?:den|toi|tới|-|~)\s*(\d+(?:[.,]\d+)?)\s*(trieu|tr|cu|chai|vnd)?",
                 RegexOptions.IgnoreCase);
 
             if (!match.Success)
                 return false;
 
             var rawMin = match.Groups[1].Value.Replace(",", ".");
-            var rawMax = match.Groups[2].Value.Replace(",", ".");
+            var rawMax = match.Groups[3].Value.Replace(",", ".");
 
             if (!decimal.TryParse(rawMin, NumberStyles.Any, CultureInfo.InvariantCulture, out var minVal))
                 return false;
@@ -234,11 +230,15 @@ namespace Chatbot.API.Services
             if (!decimal.TryParse(rawMax, NumberStyles.Any, CultureInfo.InvariantCulture, out var maxVal))
                 return false;
 
-            if (minVal > maxVal)
-                (minVal, maxVal) = (maxVal, minVal);
+            var minUnit = match.Groups[2].Value;
+            var maxUnit = match.Groups[4].Value;
 
-            minPrice = minVal * 1_000_000m;
-            maxPrice = maxVal * 1_000_000m;
+            minPrice = NormalizePriceValue(minVal, minUnit);
+            maxPrice = NormalizePriceValue(maxVal, maxUnit);
+
+            if (minPrice > maxPrice)
+                (minPrice, maxPrice) = (maxPrice, minPrice);
+
             return true;
         }
         private static string Normalize(string input)
@@ -289,12 +289,37 @@ namespace Chatbot.API.Services
 
             return text;
         }
+        private static decimal NormalizePriceValue(decimal value, string? unit)
+        {
+            var normalizedUnit = unit?.Trim().ToLowerInvariant();
+
+            if (value >= 1_000_000m)
+                return value;
+
+            if (normalizedUnit == "trieu" ||
+                normalizedUnit == "tr" ||
+                normalizedUnit == "cu" ||
+                normalizedUnit == "chai")
+            {
+                return value * 1_000_000m;
+            }
+
+            if (value > 0 && value <= 500)
+                return value * 1_000_000m;
+
+            return value;
+        }
         private static decimal GetAroundDelta(decimal amount)
         {
-            if (amount <= 20_000_000m) return 2_000_000m;
-            if (amount <= 50_000_000m) return 3_000_000m;
-            if (amount <= 80_000_000m) return 5_000_000m;
-            return 7_000_000m;
+            var percentDelta = amount * 0.20m;
+
+            if (amount <= 20_000_000m)
+                return Math.Max(2_000_000m, percentDelta);
+
+            if (amount <= 80_000_000m)
+                return Math.Max(5_000_000m, percentDelta);
+
+            return Math.Max(7_000_000m, percentDelta);
         }
 
         private static string RemoveVietnameseSigns(string text)

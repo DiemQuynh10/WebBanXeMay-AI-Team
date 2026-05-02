@@ -117,7 +117,12 @@ namespace Chatbot.API.Services.Conversation
             EnsureIntentCollections(effectiveIntent);
             bool isCurrentTurnExplicitFreshGoal =
      IsExplicitFreshGoal(normalizedMessage, parsedIntent);
-
+            bool isFreshBrandOnlyRecommendation =
+    isCurrentTurnExplicitFreshGoal &&
+    !string.IsNullOrWhiteSpace(parsedIntent.Brand) &&
+    string.IsNullOrWhiteSpace(parsedIntent.Category) &&
+    string.IsNullOrWhiteSpace(parsedIntent.Target) &&
+    !HasAnyBudgetSignal(parsedIntent);
             bool shouldCarryBudgetBase =
                 !isCurrentTurnExplicitFreshGoal &&
                 ShouldCarryBudgetBase(parsedIntent, normalizedMessage, existingProfile);
@@ -127,12 +132,35 @@ namespace Chatbot.API.Services.Conversation
                 ShouldCarryIdentityBase(parsedIntent, normalizedMessage, existingProfile, previousActiveFlow);
 
             ApplyMissingContextFromProfile(
-                effectiveIntent,
-                existingProfile,
-                includeBudget: shouldCarryBudgetBase,
-                includeBrandCategory: shouldCarryIdentityBase,
-                includeTarget: shouldCarryIdentityBase,
-                includeSoftPreferences: true);
+     effectiveIntent,
+     existingProfile,
+     includeBudget: isFreshBrandOnlyRecommendation ? false : shouldCarryBudgetBase,
+     includeBrandCategory: isFreshBrandOnlyRecommendation ? false : shouldCarryIdentityBase,
+     includeTarget: isFreshBrandOnlyRecommendation ? false : shouldCarryIdentityBase,
+     includeSoftPreferences: !isFreshBrandOnlyRecommendation);
+            if (isFreshBrandOnlyRecommendation)
+            {
+                effectiveIntent.Category = null;
+                effectiveIntent.Target = null;
+
+                effectiveIntent.PriceMin = null;
+                effectiveIntent.PriceMax = null;
+                effectiveIntent.TargetPrice = null;
+                effectiveIntent.FilterType = PriceFilterType.None;
+
+                effectiveIntent.WantsFuelSaving = false;
+                effectiveIntent.WantsLargeStorage = false;
+                effectiveIntent.WantsEasyControl = false;
+                effectiveIntent.NeedsLowSeat = false;
+
+                effectiveIntent.PrefersMaleStyle = false;
+                effectiveIntent.PrefersFemaleStyle = false;
+
+                effectiveIntent.RequestedStyles.Clear();
+                effectiveIntent.ExcludedBrands.Clear();
+                effectiveIntent.ExcludedCategories.Clear();
+                effectiveIntent.ExcludedProducts.Clear();
+            }
 
             MergePreferenceCollectionsFromProfile(effectiveIntent, existingProfile);
 
@@ -163,19 +191,19 @@ namespace Chatbot.API.Services.Conversation
             if (contextDecision == RecommendationContextDecision.ExpandFromCurrentGoal)
             {
                 bool currentTurnHasBudgetSignal = HasAnyBudgetSignal(parsedIntent);
+                bool currentTurnHasBrand =
+                    !string.IsNullOrWhiteSpace(parsedIntent.Brand);
 
-                bool currentTurnHasIdentitySignal =
-    !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
-    !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
-    !string.IsNullOrWhiteSpace(parsedIntent.Target) ||
-    !string.IsNullOrWhiteSpace(ResolveExplicitGenderTarget(normalizedMessage, parsedIntent));
+                bool currentTurnHasTarget =
+                    !string.IsNullOrWhiteSpace(parsedIntent.Target) ||
+                    !string.IsNullOrWhiteSpace(ResolveExplicitGenderTarget(normalizedMessage, parsedIntent));
 
                 ApplyMissingContextFromProfile(
                     effectiveIntent,
                     existingProfile,
                     includeBudget: !currentTurnHasBudgetSignal,
-                    includeBrandCategory: !currentTurnHasIdentitySignal,
-                    includeTarget: !currentTurnHasIdentitySignal,
+                    includeBrandCategory: !currentTurnHasBrand,
+                    includeTarget: !currentTurnHasTarget,
                     includeSoftPreferences: true);
 
                 if (currentTurnHasBudgetSignal)
@@ -379,19 +407,17 @@ namespace Chatbot.API.Services.Conversation
             if (LooksLikeHardContextReset(normalizedMessage, parsedIntent))
                 return false;
 
-            // Nếu câu hiện tại đã nói rõ brand/category/target thì không kéo identity cũ
-            if (!string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
-                !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
-                !string.IsNullOrWhiteSpace(parsedIntent.Target))
-            {
-                return false;
-            }
-
-            bool hasExplicitGenderTarget =
+            bool hasExplicitBrand = !string.IsNullOrWhiteSpace(parsedIntent.Brand);
+            bool hasExplicitCategory = !string.IsNullOrWhiteSpace(parsedIntent.Category);
+            bool hasExplicitTarget =
+                !string.IsNullOrWhiteSpace(parsedIntent.Target) ||
                 !string.IsNullOrWhiteSpace(ResolveExplicitGenderTarget(normalizedMessage, parsedIntent));
 
-            if (hasExplicitGenderTarget)
+            if (hasExplicitBrand)
                 return false;
+
+            if (hasExplicitCategory || hasExplicitTarget)
+                return true;
 
             bool currentlyInRecommendationFamily =
                 string.Equals(previousActiveFlow, ChatFlowType.Recommendation, StringComparison.OrdinalIgnoreCase) ||

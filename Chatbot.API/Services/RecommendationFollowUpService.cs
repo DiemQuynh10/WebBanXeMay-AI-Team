@@ -104,7 +104,20 @@ namespace Chatbot.API.Services
 
             if (products.Count == 0)
             {
-                return null;
+                if (HasExclusionIntent(intent))
+                {
+                    _logger.LogInformation(
+                        "Follow-up exclusion emptied old recommendation list. Loading broad candidates. ConversationId: {ConversationId}",
+                        conversationId);
+
+                    products = await LoadBroadCandidatesForExclusionAsync();
+                    products = ProductExclusionHelper.ApplyExclusions(products, intent, profile);
+                }
+
+                if (products.Count == 0)
+                {
+                    return null;
+                }
             }
             if (!string.IsNullOrWhiteSpace(intent.Brand))
             {
@@ -137,15 +150,29 @@ namespace Chatbot.API.Services
             }
 
             products = ProductExclusionHelper.ApplyExclusions(products, intent, profile);
+
             if (products.Count == 0)
             {
-                return new ChatResponse
+                if (HasExclusionIntent(intent))
                 {
-                    Success = true,
-                    ConversationId = conversationId,
-                    UsedAI = false,
-                    Reply = BuildNoMatchReply(intent)
-                };
+                    _logger.LogInformation(
+                        "Follow-up candidates empty after exclusions. Reloading broad candidates. ConversationId: {ConversationId}",
+                        conversationId);
+
+                    products = await LoadBroadCandidatesForExclusionAsync();
+                    products = ProductExclusionHelper.ApplyExclusions(products, intent, profile);
+                }
+
+                if (products.Count == 0)
+                {
+                    return new ChatResponse
+                    {
+                        Success = true,
+                        ConversationId = conversationId,
+                        UsedAI = false,
+                        Reply = BuildNoMatchReply(intent)
+                    };
+                }
             }
             bool hasExplicitPriceRefinement =
      intent.FilterType == PriceFilterType.MaxOnly ||
@@ -326,6 +353,28 @@ namespace Chatbot.API.Services
             }
 
             return sb.ToString().Trim();
+        }
+        private static bool HasExclusionIntent(ParsedIntent intent)
+        {
+            return intent.ExcludedBrands.Any() ||
+                   intent.ExcludedProducts.Any() ||
+                   intent.ExcludedCategories.Any();
+        }
+        private async Task<List<ProductSummaryDto>> LoadBroadCandidatesForExclusionAsync()
+        {
+            var result = await _toolClient.GetProductsByFiltersAsync(
+    brand: null,
+    minPrice: null,
+    maxPrice: null,
+    category: null,
+    take: 200);
+
+            return result?.Items?
+                .Where(x => x != null)
+                .GroupBy(x => x.Id)
+                .Select(g => g.First())
+                .ToList()
+                ?? new List<ProductSummaryDto>();
         }
         private static string BuildNoMatchReply(ParsedIntent intent)
         {

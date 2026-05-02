@@ -93,6 +93,16 @@ namespace Chatbot.API.Services
         {
             var text = Normalize(message);
             var signals = BuildSignals(text, parsedIntent, profile);
+            if (parsedIntent.ExcludedBrands?.Any() == true &&
+    !signals.HasBudget &&
+    !signals.HasCategory &&
+    !signals.HasTargetOrUseCase &&
+    !signals.HasNeedHint)
+            {
+                var excludedBrands = string.Join(", ", parsedIntent.ExcludedBrands);
+
+                return $"Mình hiểu là bạn không muốn chọn {excludedBrands}. Bạn muốn mình tư vấn theo tầm giá nào, hoặc ưu tiên xe ga/xe số/côn tay?";
+            }
 
             if (signals.HasGender && !signals.HasBudget)
             {

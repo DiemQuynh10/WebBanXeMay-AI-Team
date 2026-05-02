@@ -30,10 +30,8 @@ namespace Chatbot.API.Services
         private readonly IOpenAIService _openAIService;
         private readonly IRecommendationFlowService _recommendationFlowService;
         private readonly IOrderLookupFlowService _orderLookupFlowService;
-        private readonly IConversationPolicyService _conversationPolicyService;
         private readonly IConversationStateService _conversationStateService;
         private readonly ITurnContextBuilder _turnContextBuilder;
-        private readonly IContextualIntentClassifierService _contextualIntentClassifier;
         public ChatFlowOrchestrator(
     ILogger<ChatFlowOrchestrator> logger,
     IClarificationStateService clarificationStateService,
@@ -52,9 +50,7 @@ namespace Chatbot.API.Services
     IOrderLookupFlowService orderLookupFlowService,
     IOpenAIService openAIService,
     IConversationStateService conversationStateService,
-    ITurnContextBuilder turnContextBuilder,
-    IContextualIntentClassifierService contextualIntentClassifier,
-    IConversationPolicyService conversationPolicyService)
+    ITurnContextBuilder turnContextBuilder)
         {
             _logger = logger;
             _clarificationStateService = clarificationStateService;
@@ -74,8 +70,6 @@ namespace Chatbot.API.Services
             _openAIService = openAIService;
             _conversationStateService = conversationStateService;
             _turnContextBuilder = turnContextBuilder;
-            _contextualIntentClassifier = contextualIntentClassifier;
-            _conversationPolicyService = conversationPolicyService;
         }
 
         public async Task<ChatResponse> HandleAsync(ChatRequest request)
@@ -92,7 +86,21 @@ namespace Chatbot.API.Services
                     : request.ConversationId.Trim();
 
                 request.ConversationId = conversationId;
+                if (IsResetCommand(request.Message))
+                {
+                    _clarificationStateService.Clear(conversationId);
+                    await _conversationPreferenceService.ClearAsync(conversationId);
+                    await _conversationStateService.ClearAsync(conversationId);
 
+                    return new ChatResponse
+                    {
+                        Success = true,
+                        UsedAI = false,
+                        ConversationId = conversationId,
+                        ElapsedMs = stopwatch.ElapsedMilliseconds,
+                        Reply = "Mình đã reset cuộc hội thoại. Bạn có thể bắt đầu lại nhé!"
+                    };
+                }
                 if (TryHandlePendingClarification(
          request,
          conversationId,
@@ -169,6 +177,13 @@ namespace Chatbot.API.Services
 
             var parsedIntent = await ParseIntentAsync(normalizedMessage, existingProfile);
             var isStrongStandaloneIntent = IsStrongStandaloneIntent(parsedIntent);
+            bool isFreshBrandOnlyRequestByText =
+    IsFreshBrandOnlyRequestByText(normalizedMessage, parsedIntent);
+
+            if (isFreshBrandOnlyRequestByText)
+            {
+                ResetOldRecommendationConstraintsForFreshBrandOnly(parsedIntent);
+            }
             if (IsExplicitProductSearchRequest(normalizedMessage, parsedIntent))
             {
                 NormalizeExplicitProductSearchIntent(normalizedMessage, parsedIntent, existingProfile);
@@ -242,6 +257,10 @@ namespace Chatbot.API.Services
      state);
 
             var effectiveIntent = turnContext.EffectiveIntent ?? parsedIntent;
+            if (isFreshBrandOnlyRequestByText)
+            {
+                ResetOldRecommendationConstraintsForFreshBrandOnly(effectiveIntent);
+            }
             if (IsExplicitProductSearchRequest(normalizedMessage, effectiveIntent))
             {
                 NormalizeExplicitProductSearchIntent(normalizedMessage, effectiveIntent, existingProfile);
@@ -252,6 +271,37 @@ namespace Chatbot.API.Services
                 ApplyConversationActionRules(effectiveIntent, existingProfile);
             }
             PreserveDeterministicExclusions(parsedIntent, effectiveIntent);
+            _logger.LogWarning(
+    "AFTER PRESERVE EXCLUSION => ParsedExcludedBrands={ParsedBrands}, ParsedExcludedProducts={ParsedProducts}, EffectiveIntentType={EffectiveIntentType}, EffectiveRouteFlow={EffectiveRouteFlow}, EffectiveFollowUpType={EffectiveFollowUpType}, EffectiveExcludedBrands={EffectiveBrands}, EffectiveExcludedProducts={EffectiveProducts}",
+    string.Join(",", parsedIntent.ExcludedBrands),
+    string.Join(",", parsedIntent.ExcludedProducts),
+    effectiveIntent.IntentType,
+    effectiveIntent.RouteFlow,
+    effectiveIntent.FollowUpType,
+    string.Join(",", effectiveIntent.ExcludedBrands),
+    string.Join(",", effectiveIntent.ExcludedProducts)
+);
+            if (string.Equals(effectiveIntent.IntentType, "compare", StringComparison.OrdinalIgnoreCase)
+                || effectiveIntent.IsDirectCompare)
+            {
+                effectiveIntent.PriceMin = null;
+                effectiveIntent.PriceMax = null;
+                effectiveIntent.TargetPrice = null;
+
+                effectiveIntent.Brand = null;
+                effectiveIntent.Category = null;
+                effectiveIntent.Target = null;
+
+                effectiveIntent.ForWork = false;
+                effectiveIntent.ForSchool = false;
+                effectiveIntent.ForCity = false;
+                effectiveIntent.ForTour = false;
+
+                effectiveIntent.WantsFuelSaving = false;
+                effectiveIntent.WantsLargeStorage = false;
+                effectiveIntent.WantsEasyControl = false;
+                effectiveIntent.NeedsLowSeat = false;
+            }
             if (effectiveIntent.IsBrandSwitch ||
     string.Equals(effectiveIntent.FollowUpType, "switch_brand", StringComparison.OrdinalIgnoreCase))
             {
@@ -301,6 +351,11 @@ namespace Chatbot.API.Services
                 effectiveIntent.HasNarrowRefinementSignal = false;
                 effectiveIntent.HasExpandRecommendationSignal = false;
                 effectiveIntent.HasFreshConsultationSignal = true;
+                if (isFreshBrandOnlyRequestByText)
+                {
+                    ResetOldRecommendationConstraintsForFreshBrandOnly(effectiveIntent);
+                    effectiveIntent.Brand = parsedIntent.Brand;
+                }
             }
             if (effectiveIntent.IsOutOfScope ||
     effectiveIntent.IsNoise ||
@@ -342,139 +397,16 @@ namespace Chatbot.API.Services
     effectiveIntent,
     contextDecision,
     isFreshRecommendationByCurrentMessage);
-            PreserveDeterministicExclusions(parsedIntent, effectiveIntent);
-            bool isExplicitCompareRequest =
-      string.Equals(effectiveIntent.IntentType, "compare", StringComparison.OrdinalIgnoreCase)
-      || effectiveIntent.IsDirectCompare
-      || NormalizeText(normalizedMessage).Contains("so sanh")
-      || NormalizeText(normalizedMessage).Contains("uu nhuoc diem")
-      || NormalizeText(normalizedMessage).Contains("khac nhau");
 
-            bool isProductReferenceLookup =
-     IsProductReferenceLookupMessage(normalizedMessage) &&
-     (
-         string.Equals(effectiveIntent.IntentType, "product_lookup", StringComparison.OrdinalIgnoreCase) ||
-         !string.IsNullOrWhiteSpace(mergedProfile.LastLookupProductName)
-     );
-            if (IsProductCategoryQuestion(normalizedMessage))
-            {
-                effectiveIntent.IntentType = "product_lookup";
-                effectiveIntent.IsDirectProductLookup = true;
-                effectiveIntent.IsDirectCompare = false;
-                effectiveIntent.LookupField = "category";
-
-                finalRouting = new FlowRoutingResult
-                {
-                    FlowType = ChatFlowType.ProductLookup,
-                    Reason = "force_product_category_question",
-                    ShouldUseAiFallback = false
-                };
-            }
-
-            bool hasExclusionConstraint =
-      effectiveIntent.ExcludedBrands.Any() ||
-      effectiveIntent.ExcludedProducts.Any() ||
-      effectiveIntent.ExcludedCategories.Any();
-
-            bool isFreshRecommendationWithExclusion =
-                hasExclusionConstraint &&
-                (
-                    string.Equals(effectiveIntent.IntentType, "recommend", StringComparison.OrdinalIgnoreCase) ||
-                    effectiveIntent.IsOpenRecommendation ||
-                    effectiveIntent.HasFreshConsultationSignal ||
-                    (
-                        !effectiveIntent.IsFollowUp &&
-                        (
-                            !string.IsNullOrWhiteSpace(effectiveIntent.Brand) ||
-                            !string.IsNullOrWhiteSpace(effectiveIntent.Category) ||
-                            !string.IsNullOrWhiteSpace(effectiveIntent.Target) ||
-                            effectiveIntent.ForSchool ||
-                            effectiveIntent.ForWork ||
-                            effectiveIntent.ForCity ||
-                            effectiveIntent.ForTour ||
-                            effectiveIntent.PriceMin.HasValue ||
-                            effectiveIntent.PriceMax.HasValue ||
-                            effectiveIntent.TargetPrice.HasValue
-                        )
-                    )
-                );
-
-            if (!isExplicitCompareRequest &&
-                !isProductReferenceLookup &&
-                hasExclusionConstraint &&
-                !isFreshRecommendationWithExclusion)
-            {
-                ClearCompareContextIfNeeded(mergedProfile);
-
-                effectiveIntent.IntentType = "refine";
-                effectiveIntent.IsFollowUp = true;
-                effectiveIntent.IsDirectCompare = false;
-                effectiveIntent.FollowUpType ??= "exclude";
-
-                finalRouting = new FlowRoutingResult
-                {
-                    FlowType = ChatFlowType.Refinement,
-                    Reason = "forced_exclusion_refinement",
-                    ShouldUseAiFallback = false
-                };
-            }
-            else if (isFreshRecommendationWithExclusion)
-            {
-                effectiveIntent.IntentType = "recommend";
-                effectiveIntent.IsFollowUp = false;
-                effectiveIntent.FollowUpType = null;
-                effectiveIntent.IsOpenRecommendation = true;
-
-                finalRouting = new FlowRoutingResult
-                {
-                    FlowType = ChatFlowType.Recommendation,
-                    Reason = "fresh_recommendation_with_exclusion",
-                    ShouldUseDeterministicFlow = true,
-                    ShouldUseRag = true,
-                    ShouldUseAiFallback = false
-                };
-            }
-            if (effectiveIntent != null &&
-    MessageHasExplicitCategory(normalizedMessage) &&
-    !MessageHasExplicitPrice(normalizedMessage))
-            {
-                mergedProfile.PriceMin = null;
-                mergedProfile.PriceMax = null;
-                mergedProfile.TargetPrice = null;
-                mergedProfile.FilterType = PriceFilterType.None;
-
-                effectiveIntent.PriceMin = null;
-                effectiveIntent.PriceMax = null;
-                effectiveIntent.TargetPrice = null;
-                effectiveIntent.FilterType = PriceFilterType.None;
-            }
             if (effectiveIntent != null &&
      MessageHasExplicitCategory(normalizedMessage) &&
      !MessageHasExplicitBrand(normalizedMessage) &&
-     isFreshRecommendationByCurrentMessage)
+     isFreshRecommendationByCurrentMessage &&
+     !existingProfile.HasActiveRecommendationContext)
             {
                 mergedProfile.PreferredBrand = null;
                 effectiveIntent.Brand = null;
             }
-
-            finalRouting = ApplyRoutingBiasFromTurnContext(
-    finalRouting,
-    turnContext,
-    effectiveIntent,
-    mergedProfile);
-            finalRouting = ForceExitCompareContextForRecommendationFollowUp(
-    normalizedMessage,
-    effectiveIntent,
-    mergedProfile,
-    finalRouting);
-
-            finalRouting = await ApplyContextualClassifierAsync(
-                conversationId,
-                normalizedMessage,
-                effectiveIntent,
-                mergedProfile,
-                finalRouting);
-
             LogContextSummary(
                 conversationId,
                 parsedIntent,
@@ -503,20 +435,56 @@ namespace Chatbot.API.Services
             if (deterministicResult != null)
                 return deterministicResult;
 
-            var forcedCompareResult = await TryHandleForcedCompareFollowUpAsync(context);
-            if (forcedCompareResult != null)
-                return forcedCompareResult;
+            if (string.Equals(context.FinalRouting?.Reason, "Ambiguous exclusion while compare context is active", StringComparison.OrdinalIgnoreCase))
+            {
+                var snapshot = BuildRecommendationSnapshot(context.ExistingProfile);
+
+                _clarificationStateService.SetPending(
+                    context.ConversationId,
+                    $"AMBIGUOUS_COMPARE_EXCLUSION::{context.NormalizedMessage}::CTX::{snapshot}");
+                return new ChatResponse
+                {
+                    Success = true,
+                    UsedAI = false,
+                    ConversationId = context.ConversationId,
+                    Reply = "Ý bạn là muốn mình tư vấn lại và bỏ hãng/mẫu đó khỏi danh sách, hay bạn muốn tiếp tục so sánh hai mẫu vừa rồi? Bạn có thể trả lời: \"tư vấn lại\" hoặc \"so sánh tiếp\" nhé."
+                };
+            }
+
+            if (string.Equals(context.FinalRouting?.Reason, "Compare missing second product", StringComparison.OrdinalIgnoreCase))
+            {
+                var firstProduct = context.EffectiveIntent?.MentionedProducts?
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+
+                if (!string.IsNullOrWhiteSpace(firstProduct))
+                {
+                    _clarificationStateService.SetPending(
+                        context.ConversationId,
+                        $"COMPARE_MISSING_PRODUCT::{firstProduct}");
+                }
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    UsedAI = false,
+                    ConversationId = context.ConversationId,
+                    Reply = !string.IsNullOrWhiteSpace(firstProduct)
+                        ? $"Bạn muốn so sánh {firstProduct} với mẫu Yamaha nào? Ví dụ: Yamaha Freego, Yamaha Grande, Yamaha Latte hoặc Yamaha Jupiter."
+                        : "Bạn muốn so sánh mẫu xe đó với mẫu Yamaha nào? Ví dụ: Yamaha Freego, Yamaha Grande, Yamaha Latte hoặc Yamaha Jupiter."
+                };
+            }
 
             _logger.LogWarning(
-     "No flow returned a result. ConversationId={ConversationId}, FlowType={FlowType}, Message={Message}",
-     context.ConversationId,
-     context.FinalRouting?.FlowType ?? ChatFlowType.Unknown,
-     context.NormalizedMessage);
+                "No flow returned a result. ConversationId={ConversationId}, FlowType={FlowType}, Message={Message}",
+                context.ConversationId,
+                context.FinalRouting?.FlowType ?? ChatFlowType.Unknown,
+                context.NormalizedMessage);
 
             var aiFallback = await TryAiFallbackAsync(context);
             if (aiFallback != null)
                 return aiFallback;
-
             return new ChatResponse
             {
                 Success = true,
@@ -686,61 +654,7 @@ namespace Chatbot.API.Services
 
             return null;
         }
-        private async Task<ChatResponse?> TryHandleForcedCompareFollowUpAsync(ChatOrchestrationContext context)
-        {
-            if (!_conversationPolicyService.ShouldForceCompareFollowUp(
-                    context.NormalizedMessage,
-                    context.EffectiveIntent,
-                    context.ExistingProfile))
-            {
-                return null;
-            }
 
-            _logger.LogInformation(
-                "Force compare follow-up in orchestrator. ConversationId={ConversationId}, Message={Message}",
-                context.ConversationId,
-                context.NormalizedMessage);
-
-            return await _compareService.CompareAsync(
-                context.ConversationId,
-                context.NormalizedMessage,
-                context.EffectiveIntent,
-                context.ExistingProfile);
-        }
-        private static bool ShouldUseContextualClassifier(
-      string normalizedMessage,
-      ParsedIntent intent,
-      CustomerPreferenceProfile profile)
-        {
-            if (string.IsNullOrWhiteSpace(normalizedMessage) || intent == null || profile == null)
-                return false;
-
-            if (intent.IsGreeting || intent.IsNoise || intent.IsAck || intent.IsOutOfScope)
-                return false;
-            if (IsStrongStandaloneIntent(intent) || intent.IsProductSearch)
-                return false;
-
-            bool hasContext =
-                profile.HasActiveRecommendationContext ||
-                profile.HasActiveCompareContext;
-
-            if (!hasContext)
-                return false;
-
-            var text = NormalizeText(normalizedMessage);
-
-            bool hasExplicitCompare =
-                text.Contains("so sanh") ||
-                text.Contains("so voi") ||
-                text.Contains("khac nhau") ||
-                intent.IsDirectCompare ||
-                string.Equals(intent.IntentType, "compare", StringComparison.OrdinalIgnoreCase);
-
-            if (hasExplicitCompare)
-                return false;
-
-            return true;
-        }
         private static string BuildFallbackPrompt(
     string normalizedMessage,
     CustomerPreferenceProfile? profile)
@@ -893,7 +807,116 @@ Tin nhắn người dùng: {normalizedMessage}";
 
             var originalMessage = request.Message?.Trim() ?? string.Empty;
             var pendingClarification = _clarificationStateService.GetPending(conversationId);
+            if (!string.IsNullOrWhiteSpace(pendingClarification) &&
+    pendingClarification.StartsWith("COMPARE_MISSING_PRODUCT::", StringComparison.OrdinalIgnoreCase))
+            {
+                var firstProduct = pendingClarification
+                    .Replace("COMPARE_MISSING_PRODUCT::", "", StringComparison.OrdinalIgnoreCase)
+                    .Trim();
 
+                if (string.IsNullOrWhiteSpace(firstProduct))
+                {
+                    _clarificationStateService.Clear(conversationId);
+                    return false;
+                }
+
+                var reply = NormalizeText(originalMessage);
+
+                bool userChangedToLookup =
+                    reply.Contains("gia") ||
+                    reply.Contains("bao nhieu") ||
+                    reply.Contains("con hang") ||
+                    reply.Contains("ton kho") ||
+                    reply.Contains("chi tiet") ||
+                    reply.Contains("thong tin") ||
+                    reply.Contains("bao nhieu cc");
+
+                bool userChangedToNewIntent =
+                    userChangedToLookup ||
+                    reply.Contains("tu van") ||
+                    reply.Contains("goi y") ||
+                    reply.Contains("don hang") ||
+                    reply.Contains("tra cuu");
+
+                if (userChangedToNewIntent)
+                {
+                    _clarificationStateService.Clear(conversationId);
+                    return false;
+                }
+
+                request.Message = $"so sánh {firstProduct} với {originalMessage}";
+                _clarificationStateService.Clear(conversationId);
+                _logger.LogInformation(
+                    "Compare missing product resolved. ConversationId={ConversationId}, ResolvedMessage={ResolvedMessage}",
+                    conversationId,
+                    request.Message);
+
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(pendingClarification) &&
+    pendingClarification.StartsWith("AMBIGUOUS_COMPARE_EXCLUSION::", StringComparison.OrdinalIgnoreCase))
+            {
+                var parts = pendingClarification.Split("::CTX::");
+
+                var originalExcludedMessage = parts[0]
+                    .Replace("AMBIGUOUS_COMPARE_EXCLUSION::", "", StringComparison.OrdinalIgnoreCase)
+                    .Trim();
+
+                var previousContext = parts.Length > 1 ? parts[1] : "";
+
+                var reply = NormalizeText(originalMessage);
+                if (HasExclusionIntentText(originalMessage))
+                {
+                    var mergedExcludedMessage = $"{originalExcludedMessage} {originalMessage}".Trim();
+
+                    _clarificationStateService.SetPending(
+                        conversationId,
+                        $"AMBIGUOUS_COMPARE_EXCLUSION::{mergedExcludedMessage}");
+
+                    earlyResponse = new ChatResponse
+                    {
+                        Success = true,
+                        UsedAI = false,
+                        ConversationId = conversationId,
+                        ElapsedMs = elapsedMs,
+                        Reply = "Mình đã ghi nhận thêm điều kiện loại trừ đó. Bạn muốn mình **tư vấn lại** theo các điều kiện này, hay **so sánh tiếp** hai mẫu vừa rồi?"
+                    };
+
+                    return true;
+                }
+                if (reply.Contains("tu van") || reply.Contains("goi y") || reply.Contains("loc lai") || reply.Contains("bo hang") || reply.Contains("bo mau"))
+                {
+                    request.Message = $"tư vấn lại theo tiêu chí trước đó {previousContext} {originalExcludedMessage}".Trim();
+                    _clarificationStateService.Clear(conversationId);
+                    return false;
+                }
+                if (reply.Contains("so sanh") || reply.Contains("tiep tuc") || reply.Contains("so sanh tiep"))
+                {
+                    _clarificationStateService.Clear(conversationId);
+
+                    earlyResponse = new ChatResponse
+                    {
+                        Success = true,
+                        UsedAI = false,
+                        ConversationId = conversationId,
+                        ElapsedMs = elapsedMs,
+                        Reply = "Ok, mình sẽ tiếp tục giữ phần so sánh hai mẫu vừa rồi. Bạn muốn so sánh thêm về giá, độ dễ đi, cốp xe hay mức tiết kiệm xăng?"
+                    };
+
+                    return true;
+                }
+
+                earlyResponse = new ChatResponse
+                {
+                    Success = true,
+                    UsedAI = false,
+                    ConversationId = conversationId,
+                    ElapsedMs = elapsedMs,
+                    Reply = "Mình cần bạn chọn rõ một hướng nhé: \"tư vấn lại\" để bỏ hãng/mẫu đó khỏi danh sách, hoặc \"so sánh tiếp\" để tiếp tục so sánh hai xe vừa rồi."
+                };
+
+                return true;
+            }
             if (string.IsNullOrWhiteSpace(pendingClarification))
                 return false;
 
@@ -1041,38 +1064,21 @@ Tin nhắn người dùng: {normalizedMessage}";
 
             return false;
         }
-        private static bool IsDeterministicIntent(
-      ParsedIntent parsedIntent,
-      string normalizedMessage)
+        private static bool HasExclusionIntentText(string message)
         {
-            if (parsedIntent.IsGreeting || parsedIntent.IsOutOfScope || LooksLikeThanksIntent(normalizedMessage))
-                return true;
+            var text = NormalizeText(message);
 
-            if (parsedIntent.IsOrderLookup)
-                return true;
-
-            if (parsedIntent.IsDirectProductLookup &&
-                parsedIntent.MentionedProducts != null &&
-                parsedIntent.MentionedProducts.Count > 0)
-            {
-                return true;
-            }
-
-            if (parsedIntent.IsDirectCompare &&
-                parsedIntent.MentionedProducts != null &&
-                parsedIntent.MentionedProducts.Count >= 2)
-            {
-                return true;
-            }
-
-            if (parsedIntent.IsProductSearch &&
-                FlowIntentHeuristics.IsHardFilterOnlySearch(parsedIntent, normalizedMessage))
-            {
-                return true;
-            }
-
-            return false;
+            return text.Contains("khong ") ||
+                   text.Contains("ko ") ||
+                   text.Contains("k ") ||
+                   text.Contains("khong thich") ||
+                   text.Contains("khong muon") ||
+                   text.Contains("khong lay") ||
+                   text.Contains("bo ") ||
+                   text.Contains("loai ") ||
+                   text.Contains("tru ");
         }
+
         private static bool LooksLikeThanksIntent(string normalizedMessage)
         {
             if (string.IsNullOrWhiteSpace(normalizedMessage))
@@ -1160,44 +1166,7 @@ Tin nhắn người dùng: {normalizedMessage}";
 
             return isShortMessage && (hasReferenceWords || isHeuristicFollowUp);
         }
-        private static bool HasNaturalLanguageConsultationSignal(string normalizedMessage)
-        {
-            if (string.IsNullOrWhiteSpace(normalizedMessage))
-                return false;
-
-            var message = normalizedMessage.Trim().ToLowerInvariant();
-
-            return
-                message.Contains("đi làm") ||
-                message.Contains("di lam") ||
-                message.Contains("đi học") ||
-                message.Contains("di hoc") ||
-                message.Contains("đi phố") ||
-                message.Contains("di pho") ||
-                message.Contains("đi tour") ||
-                message.Contains("di tour") ||
-                message.Contains("tiết kiệm xăng") ||
-                message.Contains("tiet kiem xang") ||
-                message.Contains("cốp rộng") ||
-                message.Contains("cop rong") ||
-                message.Contains("dễ chạy") ||
-                message.Contains("de chay") ||
-                message.Contains("dễ lái") ||
-                message.Contains("de lai") ||
-                message.Contains("chống chân") ||
-                message.Contains("chong chan") ||
-                message.Contains("cho nữ") ||
-                message.Contains("cho nu") ||
-                message.Contains("cho nam") ||
-                message.Contains("phù hợp") ||
-                message.Contains("phu hop") ||
-                message.Contains("nên mua") ||
-                message.Contains("nen mua") ||
-                message.Contains("tư vấn") ||
-                message.Contains("tu van") ||
-                message.Contains("gợi ý") ||
-                message.Contains("goi y");
-        }
+       
         private async Task<ParsedIntent> EnrichIntentWithLlmAsync(
     ParsedIntent parsedIntent,
     string normalizedMessage,
@@ -1242,7 +1211,7 @@ Tin nhắn người dùng: {normalizedMessage}";
                 parsedIntent.HasNarrowRefinementSignal = true;
                 parsedIntent.HasDeterministicProductIntent = true;
             }
-
+        
             if (string.IsNullOrWhiteSpace(parsedIntent.FollowUpType) && !string.IsNullOrWhiteSpace(llmIntent.FollowUpType))
                 parsedIntent.FollowUpType = llmIntent.FollowUpType;
 
@@ -1445,7 +1414,7 @@ Tin nhắn người dùng: {normalizedMessage}";
      bool isFreshRecommendationByCurrentMessage)
         {
             var isFreshRecommendation =
-      contextDecision == RecommendationContextDecision.StartFreshRecommendation ||
+      contextDecision == RecommendationContextDecision.New ||
       isFreshRecommendationByCurrentMessage;
             var mergedProfile = await _conversationPreferenceService.MergeAsync(
     conversationId,
@@ -1461,17 +1430,6 @@ Tin nhắn người dùng: {normalizedMessage}";
 
             if (effectiveIntent.TargetPrice.HasValue)
                 mergedProfile.TargetPrice = effectiveIntent.TargetPrice;
-
-            if (isFreshRecommendationByCurrentMessage &&
-     !effectiveIntent.PriceMin.HasValue &&
-     !effectiveIntent.PriceMax.HasValue &&
-     !effectiveIntent.TargetPrice.HasValue)
-            {
-                mergedProfile.PriceMin = null;
-                mergedProfile.PriceMax = null;
-                mergedProfile.TargetPrice = null;
-                mergedProfile.FilterType = PriceFilterType.None;
-            }
 
             var baseRouting = _chatFlowRouter.Route(
                 normalizedMessage,
@@ -1828,6 +1786,18 @@ turnContext.Reason,
             }
 
             var currentGoalType = NormalizeGoalType(context.FinalRouting?.FlowType, profile);
+            if (string.Equals(currentGoalType, ChatFlowType.Compare, StringComparison.OrdinalIgnoreCase) &&
+    mentionedProductNames.Count >= 2)
+            {
+                profile.HasActiveCompareContext = true;
+                profile.LastComparedProducts = mentionedProductNames
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(2)
+                    .ToList();
+
+                profile.ActiveFlow = ChatFlowType.Compare;
+            }
             var isAwaitingClarification = LooksLikeClarificationResponse(response?.Reply);
             var currentGoalStatus = isAwaitingClarification ? "pending_clarification" : "active";
 
@@ -1967,6 +1937,8 @@ turnContext.Reason,
                    || text.Contains("bạn cứ nói thêm")
                    || text.Contains("cho mình biết thêm")
                    || text.Contains("hãy nói rõ")
+                   || text.Contains("tư vấn lại")
+|| text.Contains("so sánh tiếp")
                    || text.Contains("mình cần thêm");
         }
 
@@ -2028,297 +2000,26 @@ turnContext.Reason,
     && hasDomainSignal
     && !IsStrongStandaloneIntent(effectiveIntent))
             {
-                return RecommendationContextDecision.StartFreshRecommendation;
+                return RecommendationContextDecision.New;
             }
 
             return RecommendationContextDecision.None;
         }
-        private static FlowRoutingResult ApplyRoutingBiasFromTurnContext(
-    FlowRoutingResult finalRouting,
-    TurnContextBuildResult turnContext,
-    ParsedIntent effectiveIntent,
-    CustomerPreferenceProfile mergedProfile)
-        {
-            if (finalRouting == null)
-                return new FlowRoutingResult();
 
-            if (turnContext == null)
-                return finalRouting;
 
-            // Nếu là refine thì ưu tiên refinement/recommendation thay vì rơi sang unknown hoặc search mơ hồ
-            if (string.Equals(turnContext.GoalContinuity, "refine", StringComparison.OrdinalIgnoreCase))
-            {
-                if (string.Equals(finalRouting.FlowType, ChatFlowType.Unknown, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(finalRouting.FlowType, ChatFlowType.ProductSearch, StringComparison.OrdinalIgnoreCase))
-                {
-                    finalRouting.FlowType = ChatFlowType.Refinement;
-                    finalRouting.Reason = "turn_context_refine_bias";
-                    finalRouting.ShouldUseAiFallback = false;
-                    return finalRouting;
-                }
-            }
-
-            if (string.Equals(turnContext.GoalContinuity, "continue", StringComparison.OrdinalIgnoreCase))
-            {
-                bool hasCurrentTurnDomainSignal =
-      effectiveIntent.IsDirectProductLookup ||
-      effectiveIntent.IsProductSearch ||
-      effectiveIntent.IsOpenRecommendation ||
-      effectiveIntent.IsDirectCompare ||
-      effectiveIntent.IsOrderLookup ||
-      !string.IsNullOrWhiteSpace(effectiveIntent.Brand) ||
-      !string.IsNullOrWhiteSpace(effectiveIntent.Category) ||
-      !string.IsNullOrWhiteSpace(effectiveIntent.Target) ||
-      effectiveIntent.PriceMin.HasValue ||
-      effectiveIntent.PriceMax.HasValue ||
-      effectiveIntent.TargetPrice.HasValue ||
-      (effectiveIntent.MentionedProducts?.Count > 0) ||
-      (effectiveIntent.ExcludedProducts?.Count > 0) ||
-      (effectiveIntent.ExcludedBrands?.Count > 0) ||
-      (effectiveIntent.ExcludedCategories?.Count > 0);
-
-                if (mergedProfile.HasActiveRecommendationContext &&
-                    string.Equals(finalRouting.FlowType, ChatFlowType.Unknown, StringComparison.OrdinalIgnoreCase) &&
-                    hasCurrentTurnDomainSignal &&
-                    !effectiveIntent.IsOutOfScope &&
-                    !effectiveIntent.IsNoise &&
-                    !effectiveIntent.IsAck)
-                {
-                    finalRouting.FlowType = ChatFlowType.Recommendation;
-                    finalRouting.Reason = "turn_context_continue_bias";
-                    finalRouting.ShouldUseAiFallback = false;
-                    return finalRouting;
-                }
-            }
-
-            // Nếu là pivot thì giữ flow mới nếu đã rõ; chỉ cứu khi nó rơi về unknown
-            if (string.Equals(turnContext.GoalContinuity, "pivot", StringComparison.OrdinalIgnoreCase))
-            {
-                if (string.Equals(finalRouting.FlowType, ChatFlowType.Unknown, StringComparison.OrdinalIgnoreCase))
-                {
-                    if (effectiveIntent.IsDirectCompare)
-                    {
-                        finalRouting.FlowType = ChatFlowType.Compare;
-                        finalRouting.Reason = "turn_context_pivot_compare_bias";
-                        finalRouting.ShouldUseAiFallback = false;
-                        return finalRouting;
-                    }
-
-                    if (effectiveIntent.IsDirectProductLookup)
-                    {
-                        finalRouting.FlowType = ChatFlowType.ProductLookup;
-                        finalRouting.Reason = "turn_context_pivot_lookup_bias";
-                        finalRouting.ShouldUseAiFallback = false;
-                        return finalRouting;
-                    }
-
-                    if (effectiveIntent.IsProductSearch)
-                    {
-                        finalRouting.FlowType = ChatFlowType.ProductSearch;
-                        finalRouting.Reason = "turn_context_pivot_search_bias";
-                        finalRouting.ShouldUseAiFallback = false;
-                        return finalRouting;
-                    }
-                }
-            }
-
-            return finalRouting;
-        }
-        private async Task<FlowRoutingResult> ApplyContextualClassifierAsync(
-    string conversationId,
-    string normalizedMessage,
-    ParsedIntent effectiveIntent,
-    CustomerPreferenceProfile profile,
-    FlowRoutingResult finalRouting)
-        {
-            if ((effectiveIntent.IsDirectProductLookup || !string.IsNullOrWhiteSpace(effectiveIntent.LookupField)) &&
-    effectiveIntent.MentionedProducts != null &&
-    effectiveIntent.MentionedProducts.Count > 0)
-            {
-                return new FlowRoutingResult
-                {
-                    FlowType = ChatFlowType.ProductLookup,
-                    Reason = "explicit_product_lookup_guard",
-                    ShouldUseAiFallback = false
-                };
-            }
-            _logger.LogWarning(
-    "CONTEXTUAL CLASSIFIER CHECK => Message={Message}, ShouldUse={ShouldUse}, ActiveRec={ActiveRec}, ActiveCompare={ActiveCompare}",
-    normalizedMessage,
-    ShouldUseContextualClassifier(normalizedMessage, effectiveIntent, profile),
-    profile.HasActiveRecommendationContext,
-    profile.HasActiveCompareContext);
-            if (!ShouldUseContextualClassifier(normalizedMessage, effectiveIntent, profile))
-                return finalRouting;
-
-            var decision = await _contextualIntentClassifier.ClassifyAsync(
-     normalizedMessage,
-     effectiveIntent,
-     profile);
-
-            if (decision == null || decision.Confidence < 0.70)
-            {
-                var fallbackRouting = TryBuildDeterministicContextualFallback(
-                    normalizedMessage,
-                    effectiveIntent,
-                    profile,
-                    finalRouting);
-
-                return fallbackRouting ?? finalRouting;
-            }
-            _logger.LogInformation(
-                "Contextual classifier decision. ConversationId={ConversationId}, Flow={Flow}, Action={Action}, Confidence={Confidence}, Reason={Reason}",
-                conversationId,
-                decision.Flow,
-                decision.Action,
-                decision.Confidence,
-                decision.Reason);
-
-            ApplyContextualDecisionToIntent(effectiveIntent, decision);
-
-            if (string.Equals(decision.Flow, "refinement", StringComparison.OrdinalIgnoreCase))
-            {
-                ClearCompareContextIfNeeded(profile);
-                if (string.Equals(decision.Action, "switch_brand", StringComparison.OrdinalIgnoreCase))
-                {
-                    var text = NormalizeText(normalizedMessage);
-
-                    bool messageMentionsFeature =
-                        text.Contains("cop rong") ||
-                        text.Contains("tiet kiem xang") ||
-                        text.Contains("de chong chan") ||
-                        text.Contains("yen thap") ||
-                        text.Contains("de di");
-
-                    bool isStrongDirectionChange =
-                        text.Contains("honda") ||
-                        text.Contains("yamaha") ||
-                        text.Contains("suzuki") ||
-                        text.Contains("sym") ||
-                        text.Contains("piaggio");
-                    bool shouldKeepFeature =
-                        messageMentionsFeature
-                        || (!isStrongDirectionChange && decision.ShouldKeepPreviousFeature == true);
-
-                    if (!shouldKeepFeature)
-                    {
-                        profile.WantsLargeStorage = false;
-                        profile.WantsFuelSaving = false;
-                        profile.NeedsLowSeat = false;
-                        profile.WantsEasyControl = false;
-
-                        effectiveIntent.WantsLargeStorage = false;
-                        effectiveIntent.WantsFuelSaving = false;
-                        effectiveIntent.NeedsLowSeat = false;
-                        effectiveIntent.WantsEasyControl = false;
-                        effectiveIntent.ComparisonFeature = null;
-                    }
-                }
-                return new FlowRoutingResult
-                {
-                    FlowType = ChatFlowType.Refinement,
-                    Reason = $"ContextualLLM:{decision.Action}",
-                    ShouldUseAiFallback = false
-                };
-            }
-
-            if (string.Equals(decision.Flow, "compare", StringComparison.OrdinalIgnoreCase))
-            {
-                return new FlowRoutingResult
-                {
-                    FlowType = ChatFlowType.Compare,
-                    Reason = $"ContextualLLM:{decision.Action}",
-                    ShouldUseAiFallback = false
-                };
-            }
-
-            if (string.Equals(decision.Flow, "recommendation", StringComparison.OrdinalIgnoreCase))
-            {
-                ClearCompareContextIfNeeded(profile);
-
-                return new FlowRoutingResult
-                {
-                    FlowType = ChatFlowType.Recommendation,
-                    Reason = $"ContextualLLM:{decision.Action}",
-                    ShouldUseAiFallback = false
-                };
-            }
-
-            if (string.Equals(decision.Flow, "out_of_scope", StringComparison.OrdinalIgnoreCase))
-            {
-                effectiveIntent.IsOutOfScope = true;
-
-                return new FlowRoutingResult
-                {
-                    FlowType = ChatFlowType.OutOfScope,
-                    Reason = "ContextualLLM:out_of_scope",
-                    ShouldUseAiFallback = false
-                };
-            }
-
-            return finalRouting;
-        }
-        private static void ApplyContextualDecisionToIntent(
-    ParsedIntent intent,
-    ContextualIntentDecision decision)
-        {
-            if (intent == null || decision == null)
-                return;
-
-            intent.IsFollowUp = true;
-
-            switch (decision.Action)
-            {
-                case "refine_feature":
-                    intent.ComparisonFeature ??= "feature";
-                    break;
-
-                case "alternative":
-                    intent.ComparisonFeature = "alternative";
-                    intent.HasExpandRecommendationSignal = true;
-                    break;
-
-                case "decide_best":
-                    intent.ComparisonFeature = "decide_best";
-                    intent.HasNarrowRefinementSignal = true;
-                    break;
-
-                case "switch_brand":
-                    intent.HasNarrowRefinementSignal = true;
-
-                    if (decision.ShouldKeepPreviousFeature == false)
-                    {
-                        intent.WantsLargeStorage = false;
-                        intent.WantsFuelSaving = false;
-                        intent.NeedsLowSeat = false;
-                        intent.WantsEasyControl = false;
-                        intent.ComparisonFeature = null;
-                    }
-
-                    break;
-                case "switch_category":
-                    intent.HasNarrowRefinementSignal = true;
-                    break;
-
-                case "compare_products":
-                    intent.IsDirectCompare = true;
-                    break;
-
-                case "out_of_scope":
-                    intent.IsOutOfScope = true;
-                    break;
-            }
-        }
         private static void PreserveDeterministicExclusions(
-    ParsedIntent parsedIntent,
-    ParsedIntent effectiveIntent)
+     ParsedIntent parsedIntent,
+     ParsedIntent effectiveIntent)
         {
-            if (string.Equals(effectiveIntent.IntentType, "compare", StringComparison.OrdinalIgnoreCase) ||
-    effectiveIntent.IsDirectCompare)
-            {
-                return;
-            }
             if (parsedIntent == null || effectiveIntent == null)
+                return;
+
+            bool hasParsedExclusion =
+                parsedIntent.ExcludedProducts.Any() ||
+                parsedIntent.ExcludedBrands.Any() ||
+                parsedIntent.ExcludedCategories.Any();
+
+            if (!hasParsedExclusion)
                 return;
 
             foreach (var item in parsedIntent.ExcludedProducts)
@@ -2330,38 +2031,47 @@ turnContext.Reason,
             foreach (var item in parsedIntent.ExcludedCategories)
                 effectiveIntent.ExcludedCategories.Add(item);
 
-            if (parsedIntent.ExcludedProducts.Any() ||
-    parsedIntent.ExcludedBrands.Any() ||
-    parsedIntent.ExcludedCategories.Any())
+            effectiveIntent.IsOutOfScope = false;
+            effectiveIntent.IsNoise = false;
+            effectiveIntent.IsAck = false;
+
+            if (string.Equals(effectiveIntent.IntentType, "compare", StringComparison.OrdinalIgnoreCase) ||
+     effectiveIntent.IsDirectCompare ||
+     string.Equals(effectiveIntent.RouteFlow, ChatFlowType.Compare, StringComparison.OrdinalIgnoreCase))
             {
-                bool looksLikeFreshRecommendation =
-                    string.Equals(effectiveIntent.IntentType, "recommend", StringComparison.OrdinalIgnoreCase) ||
-                    effectiveIntent.IsOpenRecommendation ||
-                    effectiveIntent.HasFreshConsultationSignal ||
-                    !string.IsNullOrWhiteSpace(effectiveIntent.Brand) ||
-                    !string.IsNullOrWhiteSpace(effectiveIntent.Category) ||
-                    !string.IsNullOrWhiteSpace(effectiveIntent.Target) ||
-                    effectiveIntent.PriceMin.HasValue ||
-                    effectiveIntent.PriceMax.HasValue ||
-                    effectiveIntent.TargetPrice.HasValue ||
-                    effectiveIntent.ForWork ||
-                    effectiveIntent.ForSchool ||
-                    effectiveIntent.ForCity ||
-                    effectiveIntent.ForTour ||
-                    effectiveIntent.PrefersMaleStyle ||
-                    effectiveIntent.PrefersFemaleStyle;
+                effectiveIntent.IntentType = "refine";
+                effectiveIntent.IsDirectCompare = false;
+                effectiveIntent.RouteFlow = null;
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.FollowUpType ??= "exclude";
+                effectiveIntent.HasNarrowRefinementSignal = true;
+                effectiveIntent.HasDeterministicProductIntent = true;
+                return;
+            }
 
-                if (!looksLikeFreshRecommendation)
-                {
-                    effectiveIntent.IntentType = "refine";
-                    effectiveIntent.IsFollowUp = true;
-                    effectiveIntent.FollowUpType ??= "exclude";
-                    effectiveIntent.HasDeterministicProductIntent = true;
-                }
+            bool looksLikeFreshRecommendation =
+                string.Equals(effectiveIntent.IntentType, "recommend", StringComparison.OrdinalIgnoreCase) ||
+                effectiveIntent.IsOpenRecommendation ||
+                effectiveIntent.HasFreshConsultationSignal ||
+                !string.IsNullOrWhiteSpace(effectiveIntent.Brand) ||
+                !string.IsNullOrWhiteSpace(effectiveIntent.Category) ||
+                !string.IsNullOrWhiteSpace(effectiveIntent.Target) ||
+                effectiveIntent.PriceMin.HasValue ||
+                effectiveIntent.PriceMax.HasValue ||
+                effectiveIntent.TargetPrice.HasValue ||
+                effectiveIntent.ForWork ||
+                effectiveIntent.ForSchool ||
+                effectiveIntent.ForCity ||
+                effectiveIntent.ForTour ||
+                effectiveIntent.PrefersMaleStyle ||
+                effectiveIntent.PrefersFemaleStyle;
 
-                effectiveIntent.IsOutOfScope = false;
-                effectiveIntent.IsNoise = false;
-                effectiveIntent.IsAck = false;
+            if (!looksLikeFreshRecommendation)
+            {
+                effectiveIntent.IntentType = "refine";
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.FollowUpType ??= "exclude";
+                effectiveIntent.HasDeterministicProductIntent = true;
             }
         }
         private static void ClearCompareContextIfNeeded(CustomerPreferenceProfile profile)
@@ -2374,76 +2084,7 @@ turnContext.Reason,
             profile.LastComparisonFeature = null;
             profile.ActiveFlow = ChatFlowType.Recommendation;
         }
-        private static FlowRoutingResult ForceExitCompareContextForRecommendationFollowUp(
-    string normalizedMessage,
-    ParsedIntent effectiveIntent,
-    CustomerPreferenceProfile profile,
-    FlowRoutingResult finalRouting)
-        {
-            if (profile == null || finalRouting == null)
-                return finalRouting;
-
-            if (!profile.HasActiveRecommendationContext || !profile.HasActiveCompareContext)
-                return finalRouting;
-
-            var text = NormalizeText(normalizedMessage);
-
-            bool hasExplicitCompare =
-                text.Contains("so sanh") ||
-                text.Contains("so voi") ||
-                text.Contains("khac nhau") ||
-                (
-                    effectiveIntent.MentionedProducts != null &&
-                    effectiveIntent.MentionedProducts.Count >= 2
-                );
-
-            if (hasExplicitCompare)
-                return finalRouting;
-
-            bool looksLikeRecommendationFollowUp =
-                text.Contains("cop rong") ||
-                text.Contains("tiet kiem xang") ||
-                text.Contains("de chong chan") ||
-                text.Contains("mau khac") ||
-                text.Contains("xe khac") ||
-                text.Contains("khac di") ||
-                text.Contains("xe nao on") ||
-                text.Contains("mau nao on") ||
-                text.Contains("chon xe nao") ||
-                text.Contains("honda di") ||
-                text.Contains("yamaha di") ||
-                text.Contains("suzuki di") ||
-                text.Contains("sym di") ||
-                text.Contains("piaggio di") ||
-                !string.IsNullOrWhiteSpace(effectiveIntent.Brand);
-
-            if (!looksLikeRecommendationFollowUp)
-                return finalRouting;
-
-            ClearCompareContextIfNeeded(profile);
-
-            effectiveIntent.IsDirectCompare = false;
-            effectiveIntent.IsFollowUp = true;
-
-            if (text.Contains("mau khac") || text.Contains("xe khac") || text.Contains("khac di"))
-                effectiveIntent.ComparisonFeature = "alternative";
-
-            if (text.Contains("xe nao on") || text.Contains("mau nao on") || text.Contains("chon xe nao"))
-                effectiveIntent.ComparisonFeature = "decide_best";
-
-            if (text.Contains("cop rong"))
-            {
-                effectiveIntent.WantsLargeStorage = true;
-                effectiveIntent.ComparisonFeature = "storage";
-            }
-
-            return new FlowRoutingResult
-            {
-                FlowType = ChatFlowType.Refinement,
-                Reason = "force_exit_compare_context_for_recommendation_followup",
-                ShouldUseAiFallback = false
-            };
-        }
+       
         private static string NormalizeText(string? value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -2468,111 +2109,7 @@ turnContext.Reason,
 
             return text;
         }
-        private static bool IsProductCategoryQuestion(string message)
-        {
-            var text = NormalizeText(message);
-
-            bool asksCategory =
-                text.Contains("co phai") &&
-                (
-                    text.Contains("xe ga") ||
-                    text.Contains("tay ga") ||
-                    text.Contains("xe so") ||
-                    text.Contains("con tay")
-                );
-
-            bool hasProductName =
-                text.Contains("vision") ||
-                text.Contains("air blade") ||
-                text.Contains("latte") ||
-                text.Contains("freego") ||
-                text.Contains("husky") ||
-                text.Contains("zip") ||
-                text.Contains("future") ||
-                text.Contains("wave") ||
-                text.Contains("sirius") ||
-                text.Contains("jupiter") ||
-                text.Contains("exciter") ||
-                text.Contains("winner") ||
-                text.Contains("raider") ||
-                text.Contains("impulse") ||
-                text.Contains("address") ||
-                text.Contains("attila");
-
-            bool hasReference =
-                text.Contains("xe nay") ||
-                text.Contains("mau nay") ||
-                text.Contains("con nay") ||
-                text.Contains("xe do") ||
-                text.Contains("mau do");
-
-            return asksCategory && (hasProductName || hasReference);
-        }
-        private static FlowRoutingResult? TryBuildDeterministicContextualFallback(
-    string normalizedMessage,
-    ParsedIntent intent,
-    CustomerPreferenceProfile profile,
-    FlowRoutingResult currentRouting)
-        {
-            var text = NormalizeText(normalizedMessage);
-
-            if (profile == null || !profile.HasActiveRecommendationContext)
-                return null;
-
-            bool hasExplicitCompare =
-                text.Contains("so sanh") ||
-                text.Contains("so voi") ||
-                text.Contains("khac nhau") ||
-                intent.IsDirectCompare ||
-                string.Equals(intent.IntentType, "compare", StringComparison.OrdinalIgnoreCase);
-
-            if (hasExplicitCompare)
-                return null;
-
-            if (text.Contains("cop rong"))
-            {
-                intent.IsFollowUp = true;
-                intent.WantsLargeStorage = true;
-                intent.ComparisonFeature = "storage";
-
-                return new FlowRoutingResult
-                {
-                    FlowType = ChatFlowType.Refinement,
-                    Reason = "fallback_contextual_refine_storage",
-                    ShouldUseAiFallback = false
-                };
-            }
-
-            if (text.Contains("mau khac") || text.Contains("xe khac") || text.Contains("khac di"))
-            {
-                intent.IsFollowUp = true;
-                intent.ComparisonFeature = "alternative";
-                intent.HasExpandRecommendationSignal = true;
-
-                return new FlowRoutingResult
-                {
-                    FlowType = ChatFlowType.Refinement,
-                    Reason = "fallback_contextual_alternative",
-                    ShouldUseAiFallback = false
-                };
-            }
-
-            if (text.Contains("xe nao on") || text.Contains("mau nao on") || text.Contains("chon xe nao"))
-            {
-                intent.IsFollowUp = true;
-                intent.ComparisonFeature = "decide_best";
-                intent.HasNarrowRefinementSignal = true;
-
-                return new FlowRoutingResult
-                {
-                    FlowType = ChatFlowType.Refinement,
-                    Reason = "fallback_contextual_decide_best",
-                    ShouldUseAiFallback = false
-                };
-            }
-
-            return null;
-        }
+      
         private static bool IsFreshRecommendationRequest(string message, ParsedIntent intent)
         {
             if (intent == null)
@@ -2743,6 +2280,87 @@ turnContext.Reason,
                    text.Contains("con tay") ||
                    text.Contains("tay ga");
         }
+        private static bool IsFreshBrandOnlyRequestByText(string message, ParsedIntent intent)
+        {
+            if (intent == null)
+                return false;
+
+            var text = NormalizeText(message);
+
+            bool hasFreshPhrase =
+                text.Contains("tu van") ||
+                text.Contains("goi y") ||
+                text.Contains("nen mua") ||
+                text.Contains("chon xe") ||
+                text.Contains("tim xe");
+
+            if (!hasFreshPhrase)
+                return false;
+
+            if (!MessageHasExplicitBrand(message))
+                return false;
+
+            if (MessageHasExplicitCategory(message))
+                return false;
+
+            if (MessageHasExplicitPrice(message))
+                return false;
+
+            if (text.Contains("cho nam") ||
+                text.Contains("cho nu") ||
+                text.Contains("cho nữ") ||
+                text.Contains("di lam") ||
+                text.Contains("di hoc") ||
+                text.Contains("tiet kiem xang") ||
+                text.Contains("cop rong") ||
+                text.Contains("de di") ||
+                text.Contains("de lai") ||
+                text.Contains("de chong chan"))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static void ResetOldRecommendationConstraintsForFreshBrandOnly(ParsedIntent intent)
+        {
+            if (intent == null)
+                return;
+
+            intent.Category = null;
+            intent.Target = null;
+
+            intent.PriceMin = null;
+            intent.PriceMax = null;
+            intent.TargetPrice = null;
+            intent.FilterType = PriceFilterType.None;
+
+            intent.ForWork = false;
+            intent.ForSchool = false;
+            intent.ForCity = false;
+            intent.ForTour = false;
+
+            intent.WantsFuelSaving = false;
+            intent.WantsLargeStorage = false;
+            intent.WantsEasyControl = false;
+            intent.NeedsLowSeat = false;
+
+            intent.PrefersMaleStyle = false;
+            intent.PrefersFemaleStyle = false;
+
+            intent.ComparisonFeature = null;
+
+            intent.RequestedStyles.Clear();
+            intent.ExcludedCategories.Clear();
+            intent.ExcludedProducts.Clear();
+
+            intent.IsFollowUp = false;
+            intent.FollowUpType = null;
+            intent.HasNarrowRefinementSignal = false;
+            intent.HasExpandRecommendationSignal = false;
+            intent.HasFreshConsultationSignal = true;
+        }
         private static bool MessageAsksForCheaperOption(string message)
         {
             var text = NormalizeText(message);
@@ -2872,6 +2490,39 @@ turnContext.Reason,
                 }
             }
         }
+        private static bool IsResetCommand(string? message)
+        {
+            var text = NormalizeText(message);
+            return text == "reset" ||
+                   text == "lam lai" ||
+                   text == "làm lại" ||
+                   text == "bat dau lai" ||
+                   text == "bắt đầu lại";
+        }
+        private static string BuildRecommendationSnapshot(CustomerPreferenceProfile? profile)
+        {
+            if (profile == null)
+                return "";
+
+            var parts = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(profile.PreferredCategory))
+                parts.Add(profile.PreferredCategory);
+
+            if (!string.IsNullOrWhiteSpace(profile.PreferredBrand))
+                parts.Add(profile.PreferredBrand);
+
+            if (profile.TargetPrice.HasValue)
+                parts.Add($"khoảng {profile.TargetPrice.Value:0} VNĐ");
+
+            if (profile.PriceMin.HasValue && profile.PriceMax.HasValue)
+                parts.Add($"từ {profile.PriceMin.Value:0} đến {profile.PriceMax.Value:0} VNĐ");
+
+            if (!string.IsNullOrWhiteSpace(profile.Target))
+                parts.Add(profile.Target);
+
+            return string.Join(", ", parts);
+        }
         private static bool LooksLikeHumanSupportOrAfterSalesRequest(string message)
         {
             var text = NormalizeText(message);
@@ -2988,26 +2639,6 @@ turnContext.Reason,
 
             return false;
         }
-        private static bool IsProductReferenceLookupMessage(string message)
-        {
-            var text = NormalizeText(message);
-
-            bool hasReference =
-                text.Contains("xe nay") ||
-                text.Contains("mau nay") ||
-                text.Contains("con nay");
-
-            bool asksInfo =
-                text.Contains("co phai") ||
-                text.Contains("la xe gi") ||
-                text.Contains("loai xe") ||
-                text.Contains("con tay") ||
-                text.Contains("xe ga") ||
-                text.Contains("xe so") ||
-                text.Contains("gia") ||
-                text.Contains("con hang");
-
-            return hasReference && asksInfo;
-        }
+     
     }
 }
