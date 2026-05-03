@@ -49,10 +49,11 @@ namespace Chatbot.API.Services
         }
 
         public async Task<ChatResponse?> HandleAsync(
-            string conversationId,
-            string normalizedMessage,
-            ParsedIntent intent,
-            CustomerPreferenceProfile profile)
+    string conversationId,
+    string normalizedMessage,
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile,
+    string? ragContext = null)
         {
             var effectiveIntent = BuildEffectiveIntent(intent, profile, normalizedMessage);
             if (string.Equals(effectiveIntent.FollowUpType, "pick_best", StringComparison.OrdinalIgnoreCase))
@@ -199,7 +200,8 @@ namespace Chatbot.API.Services
      effectiveIntent,
      profile,
      rankedByRule,
-     llmReasonMap);
+     llmReasonMap,
+     ragContext);
             var ranked = EnforceFinalRecommendationGuards(
                 rankedByRule,
                 effectiveIntent,
@@ -1558,7 +1560,8 @@ namespace Chatbot.API.Services
      ParsedIntent intent,
      CustomerPreferenceProfile profile,
      IReadOnlyList<ProductSummaryDto> rankedByRule,
-     Dictionary<int, string> llmReasonMap)
+     Dictionary<int, string> llmReasonMap,
+     string? ragContext = null)
         {
             if (rankedByRule == null || rankedByRule.Count == 0)
                 return;
@@ -1569,10 +1572,11 @@ namespace Chatbot.API.Services
             try
             {
                 var llmResult = await _recommendationLLMService.RerankAsync(
-                    normalizedMessage,
-                    intent,
-                    profile,
-                    rankedByRule);
+    normalizedMessage,
+    intent,
+    profile,
+    rankedByRule,
+    ragContext);
 
                 if (llmResult?.Recommendations != null)
                 {

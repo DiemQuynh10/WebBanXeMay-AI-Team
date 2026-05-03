@@ -11,6 +11,8 @@
     const deleteBtn = document.getElementById("aiChatDeleteConversation");
     const emptyState = document.getElementById("aiChatEmptyState");
     const humanSupportBtn = document.getElementById("aiChatHumanSupport");
+    const searchInput = document.getElementById("aiChatSearch");
+    let filteredConversations = [];
 
     if (!widget || !toggleBtn || !panel || !sendBtn || !input || !messages || !conversationList) return;
 
@@ -495,31 +497,37 @@
     }
 
     function renderConversationList() {
-        if (!state.conversations.length) {
+        const list = filteredConversations.length
+            ? filteredConversations
+            : state.conversations;
+
+        if (!list.length) {
             conversationList.innerHTML = `
-        <div class="ai-chat-no-history">Chưa có cuộc trò chuyện nào.</div>
-      `;
+            <div class="ai-chat-no-history">Không tìm thấy đoạn chat.</div>
+        `;
             return;
         }
 
-        conversationList.innerHTML = state.conversations
-            .map((item) => {
-                const activeClass = item.conversationId === state.currentConversationId ? "active" : "";
-                const title = escapeHtml(item.title || "Đoạn chat mới");
-                const preview = escapeHtml(item.lastMessagePreview || "Chưa có nội dung xem trước.");
-                const updatedAt = formatTime(item.updatedAtUtc);
+        conversationList.innerHTML = list.map((item) => {
+            const activeClass = item.conversationId === state.currentConversationId ? "active" : "";
+            const title = escapeHtml(item.title || "Đoạn chat mới");
 
-                return `
-          <button type="button"
-                  class="ai-chat-conversation-item ${activeClass}"
-                  data-conversation-id="${escapeAttribute(item.conversationId)}">
-            <div class="ai-chat-conversation-title">${title}</div>
-            <div class="ai-chat-conversation-preview">${preview}</div>
-            <div class="ai-chat-conversation-time">${updatedAt}</div>
-          </button>
+            // 🔥 CẮT NGẮN preview (giống ChatGPT)
+            let preview = item.lastMessagePreview || "";
+            preview = preview.length > 60 ? preview.substring(0, 60) + "..." : preview;
+
+            const updatedAt = formatTime(item.updatedAtUtc);
+
+            return `
+            <button type="button"
+                    class="ai-chat-conversation-item ${activeClass}"
+                    data-conversation-id="${escapeAttribute(item.conversationId)}">
+                <div class="ai-chat-conversation-title">${title}</div>
+                <div class="ai-chat-conversation-preview">${escapeHtml(preview)}</div>
+                <div class="ai-chat-conversation-time">${updatedAt}</div>
+            </button>
         `;
-            })
-            .join("");
+        }).join("");
 
         conversationList.querySelectorAll(".ai-chat-conversation-item").forEach((btn) => {
             btn.addEventListener("click", async () => {
@@ -810,4 +818,20 @@
     });
 
     renderWelcomeMessage();
+    if (searchInput) {
+        searchInput.addEventListener("input", function () {
+            const keyword = this.value.toLowerCase().trim();
+
+            if (!keyword) {
+                filteredConversations = [];
+            } else {
+                filteredConversations = state.conversations.filter(c =>
+                    (c.title || "").toLowerCase().includes(keyword) ||
+                    (c.lastMessagePreview || "").toLowerCase().includes(keyword)
+                );
+            }
+
+            renderConversationList();
+        });
+    }
 })();

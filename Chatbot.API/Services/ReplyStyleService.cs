@@ -169,8 +169,8 @@ namespace Chatbot.API.Services
         $"{top.Ten} ({top.Gia:N0} VNĐ) là lựa chọn khác khá hợp, vì {mainReason}."
     )
     : Pick(
-        $"Trong nhóm này, mình sẽ để {top.Ten} ({top.Gia:N0} VNĐ) lên trước — {mainReason}.",
-$"Nếu chọn nhanh, {top.Ten} ({top.Gia:N0} VNĐ) là phương án dễ chốt hơn — {mainReason}.",
+        $"Trong nhóm này, mình sẽ để {top.Ten} ({top.Gia:N0} VNĐ) lên trước -{mainReason}.",
+$"Nếu chọn nhanh, {top.Ten} ({top.Gia:N0} VNĐ) là phương án dễ chốt hơn -{mainReason}.",
 $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
     );
 

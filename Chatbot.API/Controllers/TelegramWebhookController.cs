@@ -180,9 +180,12 @@ namespace Chatbot.API.Controllers
                 var chatResult = await _chatService.ProcessMessageAsync(chatRequest);
                 swLogic.Stop();
 
-                Console.WriteLine("=== TELEGRAM CHAT RESULT ===");
-                Console.WriteLine("Reply: " + chatResult?.Reply);
-                Console.WriteLine("Products count: " + (chatResult?.Products?.Count ?? 0));
+                Console.WriteLine("=== TELEGRAM CHAT RESULT DEBUG ===");
+                Console.WriteLine($"Success: {chatResult?.Success}");
+                Console.WriteLine($"Reply: {chatResult?.Reply}");
+                Console.WriteLine($"Error: {chatResult?.ErrorMessage}");
+                Console.WriteLine($"ConversationId: {chatResult?.ConversationId}");
+                Console.WriteLine($"Products count: {chatResult?.Products?.Count ?? 0}");
 
                 var reply = ChatChannelMessageHelper.FormatReply(
                     chatResult?.Reply,

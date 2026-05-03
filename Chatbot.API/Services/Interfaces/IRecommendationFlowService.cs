@@ -6,9 +6,10 @@ namespace Chatbot.API.Services.Interfaces
     public interface IRecommendationFlowService
     {
         Task<ChatResponse?> HandleAsync(
-            string conversationId,
-            string normalizedMessage,
-            ParsedIntent intent,
-            CustomerPreferenceProfile profile);
+     string conversationId,
+     string normalizedMessage,
+     ParsedIntent intent,
+     CustomerPreferenceProfile profile,
+     string? ragContext = null);
     }
 }

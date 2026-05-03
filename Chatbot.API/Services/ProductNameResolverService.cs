@@ -52,8 +52,22 @@ namespace Chatbot.API.Services
 
             var bestScore = scored[0].Score;
 
-            return scored
-                .Where(x => x.Score >= bestScore - 10)
+            var nearBest = scored
+                .Where(x => x.Score >= bestScore - 6)
+                .ToList();
+
+            if (bestScore < 84)
+            {
+                _logger.LogInformation(
+                    "Product resolver skipped low-confidence match. Text={Text}, BestScore={BestScore}, BestProduct={BestProduct}",
+                    text,
+                    bestScore,
+                    nearBest.FirstOrDefault()?.Product.Ten);
+
+                return new List<string>();
+            }
+
+            return nearBest
                 .Take(take)
                 .Select(x => x.Product.Ten)
                 .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -101,7 +115,14 @@ namespace Chatbot.API.Services
             if (!string.IsNullOrWhiteSpace(nameWithoutBrand) &&
                 ContainsWholePhrase(text, nameWithoutBrand))
                 return 90;
+            var compactText = Compact(text);
+            var compactNameWithoutBrand = Compact(nameWithoutBrand);
 
+            if (!string.IsNullOrWhiteSpace(compactNameWithoutBrand) &&
+                compactText.Contains(compactNameWithoutBrand))
+            {
+                return 88;
+            }
             var nameTokens = name
      .Split(' ', StringSplitOptions.RemoveEmptyEntries)
      .Where(IsSafeProductToken)
@@ -121,6 +142,10 @@ namespace Chatbot.API.Services
 
             if (matchedTokens == 1 && !string.IsNullOrWhiteSpace(brand) && textTokens.Contains(brand))
                 return 50;
+
+            var fuzzyScore = FuzzyScoreProduct(text, product);
+            if (fuzzyScore > 0)
+                return fuzzyScore;
 
             return 0;
         }
@@ -150,7 +175,10 @@ namespace Chatbot.API.Services
                 $@"(?<!\p{{L}}|\p{{N}}){Regex.Escape(phrase)}(?!\p{{L}}|\p{{N}})",
                 RegexOptions.IgnoreCase);
         }
-
+        private static string Compact(string? value)
+        {
+            return Regex.Replace(Normalize(value), @"\s+", "");
+        }
         private static string Normalize(string? value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -199,6 +227,110 @@ namespace Chatbot.API.Services
                 text.Contains("cua hang");
 
             return hasListIntent && hasRangeOrInventorySignal;
+        }
+        private static int LevenshteinDistance(string a, string b)
+        {
+            if (string.IsNullOrWhiteSpace(a))
+                return string.IsNullOrWhiteSpace(b) ? 0 : b.Length;
+
+            if (string.IsNullOrWhiteSpace(b))
+                return a.Length;
+
+            var dp = new int[a.Length + 1, b.Length + 1];
+
+            for (int i = 0; i <= a.Length; i++)
+                dp[i, 0] = i;
+
+            for (int j = 0; j <= b.Length; j++)
+                dp[0, j] = j;
+
+            for (int i = 1; i <= a.Length; i++)
+            {
+                for (int j = 1; j <= b.Length; j++)
+                {
+                    int cost = a[i - 1] == b[j - 1] ? 0 : 1;
+
+                    dp[i, j] = Math.Min(
+                        Math.Min(dp[i - 1, j] + 1, dp[i, j - 1] + 1),
+                        dp[i - 1, j - 1] + cost);
+                }
+            }
+
+            return dp[a.Length, b.Length];
+        }
+        private static double Similarity(string a, string b)
+        {
+            a = Normalize(a);
+            b = Normalize(b);
+
+            if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
+                return 0;
+
+            var maxLen = Math.Max(a.Length, b.Length);
+            if (maxLen == 0)
+                return 1;
+
+            var distance = LevenshteinDistance(a, b);
+            return 1.0 - (double)distance / maxLen;
+        }
+        private static int FuzzyScoreProduct(string text, ProductSummaryDto product)
+        {
+            var name = Normalize(product.Ten);
+            var brand = Normalize(product.ThuongHieu);
+
+            if (string.IsNullOrWhiteSpace(name))
+                return 0;
+
+            var nameWithoutBrand = name;
+            if (!string.IsNullOrWhiteSpace(brand))
+                nameWithoutBrand = nameWithoutBrand.Replace(brand, "").Trim();
+
+            var textTokens = text
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Where(x => x.Length >= 3)
+                .ToList();
+
+            var productTokens = nameWithoutBrand
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Where(IsSafeProductToken)
+                .ToList();
+
+            if (textTokens.Count == 0 || productTokens.Count == 0)
+                return 0;
+
+            int matched = 0;
+
+            foreach (var productToken in productTokens)
+            {
+                bool tokenMatched = textTokens.Any(userToken =>
+                    IsFuzzyTokenMatch(userToken, productToken));
+
+                if (tokenMatched)
+                    matched++;
+            }
+
+            if (matched >= productTokens.Count)
+                return 88;
+
+            if (matched >= 1 && productTokens.Count == 1)
+                return 84;
+
+            if (matched >= 1 && text.Contains(brand))
+                return 82;
+
+            return 0;
+        }
+        private static bool IsFuzzyTokenMatch(string userToken, string productToken)
+        {
+            var similarity = Similarity(userToken, productToken);
+
+            if (productToken.Length >= 6)
+                return similarity >= 0.72;
+
+            if (productToken.Length >= 5)
+                return similarity >= 0.76;
+
+            return similarity >= 0.84;
         }
     }
 }

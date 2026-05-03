@@ -15,5 +15,6 @@
         public const string BrandSwitch = "brand_switch";
         public const string OutOfScope = "out_of_scope";
         public const string Unknown = "unknown";
+        public const string RagPolicy = "rag_policy";
     }
 }

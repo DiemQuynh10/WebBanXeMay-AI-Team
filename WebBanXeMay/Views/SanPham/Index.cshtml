@@ -30,14 +30,14 @@
 
 <form method="get" class="grid md:grid-cols-4 gap-3 mb-8 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
     <select name="brand" class="border border-gray-200 rounded-xl px-3 py-2 focus:border-pink-500 focus:ring-pink-500 outline-none">
-        <option value="">— Thương hiệu —</option>
+        <option value="">-Thương hiệu —</option>
         @foreach (var b in brands)
         {
             <option value="@b.Slug" selected="@(currentRequest.Query["brand"] == b.Slug)">@b.TenTH</option>
         }
     </select>
     <select name="loai" class="border border-gray-200 rounded-xl px-3 py-2 focus:border-pink-500 focus:ring-pink-500 outline-none">
-        <option value="">— Loại xe —</option>
+        <option value="">-Loại xe —</option>
         @foreach (var l in loais)
         {
             <option value="@l.Slug" selected="@(currentRequest.Query["loai"] == l.Slug)">@l.TenLoai</option>

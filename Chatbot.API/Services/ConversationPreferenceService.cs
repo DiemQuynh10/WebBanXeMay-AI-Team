@@ -50,7 +50,18 @@ namespace Chatbot.API.Services
                 FinalizeProfileUpdate(profile, intent);
                 return Task.FromResult(profile);
             }
+            bool isFollowUpRefinement =
+    intent.IsFollowUp ||
+    string.Equals(intent.IntentType, "refine", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(intent.RouteFlow, ChatFlowType.Refinement, StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(intent.FollowUpType, "exclude", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(intent.FollowUpType, "rerank_previous_list", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(intent.FollowUpType, "change_product", StringComparison.OrdinalIgnoreCase);
 
+            if (isFollowUpRefinement)
+            {
+                isFreshRecommendation = false;
+            }
             if (isFreshRecommendation)
             {
                 ResetUserPreferenceState(profile);

@@ -9,17 +9,20 @@ namespace Chatbot.API.Services
     public class LLMIntentUnderstandingService : ILLMIntentUnderstandingService
     {
         private static readonly HashSet<string> AllowedIntentTypes = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "product_lookup",
-            "product_search",
-            "recommend",
-            "refine",
-            "compare",
-            "order_lookup",
-            "greeting",
-            "out_of_scope",
-            "unknown"
-        };
+{
+    "product_lookup",
+    "product_search",
+    "recommend",
+    "refine",
+    "compare",
+    "order_lookup",
+    "rag_policy",
+    "policy",
+    "faq",
+    "greeting",
+    "out_of_scope",
+    "unknown"
+};
 
         private static readonly HashSet<string> AllowedFollowUpTypes = new(StringComparer.OrdinalIgnoreCase)
 {
@@ -141,6 +144,7 @@ namespace Chatbot.API.Services
             sb.AppendLine("- refine: đang lọc tiếp, đổi tiêu chí, thu hẹp hoặc mở rộng từ nhóm xe vừa gợi ý");
             sb.AppendLine("- compare: so sánh 2 mẫu xe, hoặc hỏi tiêu chí so sánh tiếp trên cặp xe đang so sánh");
             sb.AppendLine("- order_lookup: hỏi đơn hàng / trạng thái đơn / mã đơn");
+            sb.AppendLine("- rag_policy: hỏi chính sách/FAQ như trả góp, điều kiện trả góp, sinh viên có trả góp được không, bảo hành, giao hàng, giấy tờ mua xe, đặt cọc, đổi trả, bảo dưỡng, thanh toán, mua online.");
             sb.AppendLine("- out_of_scope: ngoài phạm vi xe máy / đơn hàng / tư vấn mua xe");
             sb.AppendLine("- unknown: vẫn chưa đủ chắc để kết luận");
             sb.AppendLine();
@@ -177,6 +181,9 @@ namespace Chatbot.API.Services
 
             sb.AppendLine("Giá trị priceFilterType hợp lệ nếu có: around | under | over | range | exact | null.");
             sb.AppendLine("Giá trị followUpType hợp lệ nếu có: restart | refine | expand | compare | lookup_followup | change_product | none.");
+            sb.AppendLine("Phân biệt rất quan trọng:");
+            sb.AppendLine("- 'tư vấn lại', 'gợi ý lại', 'lọc lại' trong ngữ cảnh đang tư vấn => intentType=refine, isFollowUp=true, followUpType=refine, keepConstraints=true, excludePreviousProducts=true.");
+            sb.AppendLine("- Chỉ khi người dùng nói rõ 'tư vấn lại từ đầu', 'bắt đầu lại', 'bỏ tiêu chí cũ', 'reset' => resetContext=true, followUpType=restart.");
             sb.AppendLine("Giá trị action hợp lệ: None | FreshRecommendation | RefineRecommendation | ChangeProduct | ChangeBrand | ProductLookup | Compare | OrderLookup.");
             sb.AppendLine();
             sb.AppendLine("Quy tắc action:");
@@ -188,7 +195,7 @@ namespace Chatbot.API.Services
             sb.AppendLine("Schema JSON bắt buộc:");
             sb.AppendLine(@"
 {
-  ""intentType"": ""greeting | product_lookup | product_search | recommend | refine | compare | order_lookup | out_of_scope | unknown"",
+  ""intentType"": ""greeting | product_lookup | product_search | recommend | refine | compare | order_lookup | rag_policy | out_of_scope | unknown"",
   ""isFollowUp"": true,
   ""resetContext"": false,
   ""followUpType"": ""restart | refine | expand | compare | lookup_followup | none"",
@@ -461,7 +468,44 @@ namespace Chatbot.API.Services
   ""rejectedStyles"": [],
   ""comparisonFeature"": ""cốp rộng""
 }");
-
+            sb.AppendLine();
+            sb.AppendLine("Ví dụ 7:");
+            sb.AppendLine(@"Input: ""là sinh viên có trả góp được không""");
+            sb.AppendLine(@"Output:");
+            sb.AppendLine(@"{
+  ""intentType"": ""rag_policy"",
+  ""isFollowUp"": false,
+  ""resetContext"": false,
+  ""followUpType"": ""none"",
+  ""reason"": ""hỏi chính sách và điều kiện trả góp"",
+  ""isDirectLookup"": false,
+  ""isFreshSearch"": false,
+  ""confidence"": 0.96,
+  ""shouldAskClarification"": false,
+  ""clarificationQuestion"": null,
+  ""brand"": null,
+  ""category"": null,
+  ""target"": ""sinh viên"",
+  ""priceMin"": null,
+  ""priceMax"": null,
+  ""targetPrice"": null,
+  ""priceFilterType"": null,
+  ""forWork"": false,
+  ""forSchool"": true,
+  ""forCity"": false,
+  ""forTour"": false,
+  ""wantsFuelSaving"": false,
+  ""wantsLargeStorage"": false,
+  ""wantsEasyControl"": false,
+  ""needsLowSeat"": false,
+  ""heightCm"": null,
+  ""mentionedProducts"": [],
+  ""excludedBrands"": [],
+  ""excludedCategories"": [],
+  ""requestedStyles"": [],
+  ""rejectedStyles"": [],
+  ""comparisonFeature"": null
+}");
             sb.AppendLine();
             sb.AppendLine("Ngữ cảnh trước đó:");
 
@@ -631,6 +675,22 @@ namespace Chatbot.API.Services
                 parsed.ShouldAskClarification = false;
                 parsed.ClarificationQuestion = null;
                 parsed.Confidence = Math.Max(parsed.Confidence, 0.86);
+            }
+            if (parsed.IntentType.Equals("policy", StringComparison.OrdinalIgnoreCase) ||
+    parsed.IntentType.Equals("faq", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.IntentType = "rag_policy";
+            }
+
+            if (parsed.IntentType.Equals("rag_policy", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.IsFollowUp = false;
+                parsed.FollowUpType = "none";
+                parsed.IsDirectLookup = false;
+                parsed.IsFreshSearch = false;
+                parsed.ShouldAskClarification = false;
+                parsed.ClarificationQuestion = null;
+                parsed.Confidence = Math.Max(parsed.Confidence, 0.90);
             }
         }
 

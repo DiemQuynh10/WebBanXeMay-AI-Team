@@ -128,7 +128,10 @@ namespace Chatbot.API.Services
             {
                 return "Mình đã có vài tín hiệu khá rõ rồi. Nếu muốn mình lọc sát hơn nữa thì bạn nói thêm đối tượng hoặc nhu cầu như đi làm, đi học, nam, nữ, thấp người nhé.";
             }
-
+            if (LooksLikeRestartConsultation(text))
+            {
+                return "Mình sẽ tư vấn lại từ đầu cho bạn nhé. Bạn muốn ưu tiên xe ga, xe số hay xe côn tay? Nếu chưa chắc, bạn chỉ cần nói ngân sách hoặc nhu cầu đi lại, mình sẽ gợi ý lại từ đầu.";
+            }
             return "Bạn đang muốn xe ga, xe số hay xe côn tay? Nếu chưa chắc, bạn nói khoảng ngân sách dự định cũng được, mình sẽ gợi ý dễ hơn.";
         }
 
@@ -418,7 +421,20 @@ namespace Chatbot.API.Services
 
             return Regex.Replace(text, @"\s+", " ");
         }
+        private static bool LooksLikeRestartConsultation(string text)
+        {
+            text = Normalize(text);
 
+            return text.Contains("tu van lai tu dau") ||
+                   text.Contains("goi y lai tu dau") ||
+                   text.Contains("chon lai tu dau") ||
+                   text.Contains("tu van tu dau") ||
+                   text.Contains("lam lai tu dau") ||
+                   text.Contains("bo tieu chi cu") ||
+                   text.Contains("bo het tieu chi cu") ||
+                   text.Contains("khong giu tieu chi cu") ||
+                   text.Contains("reset tu van");
+        }
         private sealed class RecommendationSignals
         {
             public bool HasBudget { get; set; }

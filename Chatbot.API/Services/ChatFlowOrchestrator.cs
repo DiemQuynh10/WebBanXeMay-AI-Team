@@ -10,6 +10,7 @@ using Chatbot.API.Services.Interfaces;
 using System.Linq;
 using Microsoft.Extensions.Logging;
 using static Chatbot.API.Models.Intent.ParsedIntent;
+using Chatbot.API.Models.Rag;
 namespace Chatbot.API.Services
 {
     public class ChatFlowOrchestrator : IChatFlowOrchestrator
@@ -33,6 +34,7 @@ namespace Chatbot.API.Services
         private readonly IConversationStateService _conversationStateService;
         private readonly ITurnContextBuilder _turnContextBuilder;
         private readonly IRecommendationFollowUpService _recommendationFollowUpService;
+        private readonly IRagService _ragService;
         public ChatFlowOrchestrator(
     ILogger<ChatFlowOrchestrator> logger,
     IClarificationStateService clarificationStateService,
@@ -52,7 +54,8 @@ namespace Chatbot.API.Services
     IOpenAIService openAIService,
     IConversationStateService conversationStateService,
     IRecommendationFollowUpService recommendationFollowUpService,
-    ITurnContextBuilder turnContextBuilder)
+    ITurnContextBuilder turnContextBuilder,
+    IRagService ragService)
         {
             _logger = logger;
             _clarificationStateService = clarificationStateService;
@@ -73,6 +76,7 @@ namespace Chatbot.API.Services
             _conversationStateService = conversationStateService;
             _recommendationFollowUpService = recommendationFollowUpService;
             _turnContextBuilder = turnContextBuilder;
+            _ragService = ragService;
         }
 
         public async Task<ChatResponse> HandleAsync(ChatRequest request)
@@ -531,6 +535,109 @@ namespace Chatbot.API.Services
 
             return null;
         }
+        private async Task<ChatResponse> HandleRagPolicyAsync(ChatOrchestrationContext context)
+        {
+            if (LooksLikePurchaseDocumentQuestion(context.NormalizedMessage))
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    UsedAI = false,
+                    ConversationId = context.ConversationId,
+                    UsedTool = "RAG",
+                    Reply =
+                        "Khi mua xe, bạn nên chuẩn bị:\n\n" +
+                        "- CCCD/CMND của người mua.\n" +
+                        "- Thông tin đăng ký xe theo yêu cầu cửa hàng.\n" +
+                        "- Nếu mua trả góp: cần thêm giấy đề nghị vay vốn hoặc hồ sơ xét duyệt theo mẫu.\n\n" +
+                        "Nếu bạn muốn kiểm tra hồ sơ cụ thể, có thể bấm **Gặp nhân viên** để được hỗ trợ kỹ hơn nhé."
+                };
+            }
+            var ragContext = await TryGetRagContextAsync(context);
+
+            if (string.IsNullOrWhiteSpace(ragContext))
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    UsedAI = false,
+                    ConversationId = context.ConversationId,
+                    Reply = "Mình chưa tìm thấy thông tin chính sách phù hợp trong dữ liệu hiện tại. Bạn có thể bấm **Gặp nhân viên** để được hỗ trợ chính xác hơn nhé."
+                };
+            }
+
+            var prompt =
+ $@"Bạn là chatbot hỗ trợ khách hàng cho website bán xe máy.
+
+Chỉ trả lời dựa trên RAG context bên dưới.
+Không bịa chính sách, không tự cam kết hoàn tiền/bảo hành nếu context không nói rõ.
+Nếu người dùng không nhắc hãng cụ thể, không được tự gán câu trả lời cho Honda, Yamaha hay bất kỳ hãng nào.
+Không tự thêm giấy phép lái xe nếu RAG context không nói rõ.
+Với câu hỏi giấy tờ mua xe, chỉ nêu CCCD/CMND, thông tin đăng ký xe, và hồ sơ trả góp nếu người dùng hỏi/muốn trả góp.
+Nếu context đã đủ trả lời câu hỏi thông tin chung, có thể gợi ý bấm “Gặp nhân viên” nếu khách cần tư vấn sâu hơn.
+Trả lời ngắn gọn, rõ ràng, thân thiện bằng tiếng Việt.
+Không nhắc đến từ 'RAG' hoặc 'context'.
+
+Câu hỏi khách hàng: {context.NormalizedMessage}
+
+RAG context:
+{ragContext}";
+
+            try
+            {
+                var aiResponse = await _openAIService.AskAsync(new AIRequestContext
+                {
+                    ConversationId = context.ConversationId,
+                    OriginalUserMessage = context.Request?.Message ?? context.NormalizedMessage,
+                    EffectivePrompt = prompt,
+                    RagContext = ragContext,
+                    Channel = context.Request?.Channel ?? "web",
+                    UserId = context.Request?.UserId
+                });
+
+                if (aiResponse != null &&
+                    aiResponse.Success &&
+                    !string.IsNullOrWhiteSpace(aiResponse.Reply))
+                {
+                    aiResponse.ConversationId ??= context.ConversationId;
+                    aiResponse.UsedAI = true;
+                    aiResponse.UsedTool = "RAG";
+                    return aiResponse;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "RAG policy answer failed. ConversationId={ConversationId}, Message={Message}",
+                    context.ConversationId,
+                    context.NormalizedMessage);
+            }
+
+            return new ChatResponse
+            {
+                Success = true,
+                UsedAI = false,
+                ConversationId = context.ConversationId,
+                Reply = BuildSimplePolicyReplyFromRag(ragContext)
+            };
+        }
+        private static string BuildSimplePolicyReplyFromRag(string ragContext)
+        {
+            if (string.IsNullOrWhiteSpace(ragContext))
+                return "Mình chưa tìm thấy thông tin phù hợp trong dữ liệu hiện tại.";
+
+            var lines = ragContext
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Take(6)
+                .ToList();
+
+            if (lines.Count == 0)
+                return "Mình chưa tìm thấy thông tin phù hợp trong dữ liệu hiện tại.";
+
+            return string.Join("\n", lines);
+        }
         private async Task<ChatResponse?> ExecuteDeterministicFlowAsync(ChatOrchestrationContext context)
         {
             _logger.LogWarning(
@@ -541,7 +648,21 @@ namespace Chatbot.API.Services
                 context.NormalizedMessage);
 
             var flowType = context.FinalRouting?.FlowType ?? ChatFlowType.Unknown;
-
+            Console.WriteLine("=== TELEGRAM/CHAT FLOW DEBUG ===");
+            Console.WriteLine($"Channel: {context.Request?.Channel}");
+            Console.WriteLine($"UserId: {context.Request?.UserId}");
+            Console.WriteLine($"ConversationId: {context.ConversationId}");
+            Console.WriteLine($"Message: {context.NormalizedMessage}");
+            Console.WriteLine($"FlowType: {flowType}");
+            Console.WriteLine($"Reason: {context.FinalRouting?.Reason}");
+            Console.WriteLine($"IntentType: {context.EffectiveIntent?.IntentType}");
+            Console.WriteLine($"IsOpenRecommendation: {context.EffectiveIntent?.IsOpenRecommendation}");
+            Console.WriteLine($"HasFreshConsultationSignal: {context.EffectiveIntent?.HasFreshConsultationSignal}");
+            Console.WriteLine($"Brand: {context.EffectiveIntent?.Brand}");
+            Console.WriteLine($"Category: {context.EffectiveIntent?.Category}");
+            Console.WriteLine($"PriceMin: {context.EffectiveIntent?.PriceMin}");
+            Console.WriteLine($"PriceMax: {context.EffectiveIntent?.PriceMax}");
+            Console.WriteLine($"TargetPrice: {context.EffectiveIntent?.TargetPrice}");
             if (string.Equals(flowType, ChatFlowType.Greeting, StringComparison.OrdinalIgnoreCase))
             {
                 return new ChatResponse
@@ -553,9 +674,8 @@ namespace Chatbot.API.Services
                 };
             }
 
-            // Các yêu cầu hỗ trợ trực tiếp mạnh phải được ưu tiên trước OrderLookup
-            // để tránh câu như "khiếu nại đơn hàng" bị hiểu nhầm là tra cứu đơn hàng.
-            if (LooksLikeHumanSupportOrAfterSalesRequest(context.NormalizedMessage))
+            if (LooksLikeHumanSupportOrAfterSalesRequest(context.NormalizedMessage) &&
+    !LooksLikeInformationalPolicyQuestion(context.NormalizedMessage))
             {
                 return new ChatResponse
                 {
@@ -605,7 +725,10 @@ namespace Chatbot.API.Services
                     context.Request,
                     context.NormalizedMessage);
             }
-
+            if (string.Equals(flowType, ChatFlowType.RagPolicy, StringComparison.OrdinalIgnoreCase))
+            {
+                return await HandleRagPolicyAsync(context);
+            }
             if (string.Equals(flowType, ChatFlowType.ProductLookup, StringComparison.OrdinalIgnoreCase))
             {
                 return await _productLookupFlowService.HandleAsync(
@@ -657,11 +780,19 @@ namespace Chatbot.API.Services
             {
                 _logger.LogInformation("Executing RECOMMENDATION flow");
 
+                var ragContext = await TryGetRagContextAsync(context);
+
+                _logger.LogInformation(
+                    "RAG context loaded before recommendation service. HasRag={HasRag}, Length={Length}",
+                    !string.IsNullOrWhiteSpace(ragContext),
+                    ragContext?.Length ?? 0);
+
                 return await _recommendationFlowService.HandleAsync(
                     context.ConversationId,
                     context.NormalizedMessage,
                     context.EffectiveIntent,
-                    context.ExistingProfile);
+                    context.ExistingProfile,
+                    ragContext);
             }
 
             return null;
@@ -1425,10 +1556,62 @@ Tin nhắn người dùng: {normalizedMessage}";
      RecommendationContextDecision contextDecision,
      bool isFreshRecommendationByCurrentMessage)
         {
-            var isFreshRecommendation =
-      contextDecision == RecommendationContextDecision.New ||
-      isFreshRecommendationByCurrentMessage;
-            var mergedProfile = await _conversationPreferenceService.MergeAsync(
+           var isRestartRecommendation =
+    string.Equals(
+        effectiveIntent.FollowUpType,
+        "restart_recommendation",
+        StringComparison.OrdinalIgnoreCase);
+
+if (isRestartRecommendation)
+{
+    await _conversationPreferenceService.ResetForFreshConsultationAsync(conversationId);
+
+    effectiveIntent.IntentType = "recommend";
+    effectiveIntent.RouteFlow = ChatFlowType.Recommendation;
+    effectiveIntent.IsFollowUp = false;
+    effectiveIntent.IsDirectCompare = false;
+    effectiveIntent.IsOpenRecommendation = true;
+    effectiveIntent.HasFreshConsultationSignal = true;
+
+    effectiveIntent.KeepConstraints = false;
+    effectiveIntent.ExcludePreviousProducts = false;
+    effectiveIntent.ExcludePreviousBrands = false;
+
+    effectiveIntent.Brand = null;
+    effectiveIntent.Category = null;
+    effectiveIntent.Target = null;
+
+    effectiveIntent.PriceMin = null;
+    effectiveIntent.PriceMax = null;
+    effectiveIntent.TargetPrice = null;
+    effectiveIntent.FilterType = PriceFilterType.None;
+
+    effectiveIntent.ExcludedBrands.Clear();
+    effectiveIntent.ExcludedProducts.Clear();
+    effectiveIntent.ExcludedCategories.Clear();
+
+    effectiveIntent.ForWork = false;
+    effectiveIntent.ForSchool = false;
+    effectiveIntent.ForCity = false;
+    effectiveIntent.ForTour = false;
+
+    effectiveIntent.WantsFuelSaving = false;
+    effectiveIntent.WantsLargeStorage = false;
+    effectiveIntent.WantsEasyControl = false;
+    effectiveIntent.NeedsLowSeat = false;
+
+    effectiveIntent.PrefersMaleStyle = false;
+    effectiveIntent.PrefersFemaleStyle = false;
+
+    effectiveIntent.RequestedStyles.Clear();
+}
+
+var isFreshRecommendation =
+    contextDecision == RecommendationContextDecision.New ||
+    isFreshRecommendationByCurrentMessage ||
+    isRestartRecommendation;
+
+var mergedProfile = await _conversationPreferenceService.MergeAsync(
     conversationId,
     effectiveIntent,
     isFreshRecommendation
@@ -1466,12 +1649,12 @@ Tin nhắn người dùng: {normalizedMessage}";
             return (mergedProfile, baseRouting, finalRouting);
         }
         private void LogContextSummary(
-    string conversationId,
-    ParsedIntent parsedIntent,
-    ParsedIntent effectiveIntent,
-    TurnContextBuildResult turnContext,
-    FlowRoutingResult finalRouting,
-    CustomerPreferenceProfile mergedProfile)
+      string conversationId,
+      ParsedIntent parsedIntent,
+      ParsedIntent effectiveIntent,
+      TurnContextBuildResult turnContext,
+      FlowRoutingResult finalRouting,
+      CustomerPreferenceProfile mergedProfile)
         {
             _logger.LogInformation(
                 "ConversationId={ConversationId} | ParsedIntent: IntentType={IntentType}, Brand={Brand}, Category={Category}, Target={Target}, PriceMin={PriceMin}, PriceMax={PriceMax}, TargetPrice={TargetPrice}, FilterType={FilterType} | EffectiveIntent: Brand={EffectiveBrand}, Category={EffectiveCategory}, Target={EffectiveTarget}, PriceMin={EffectivePriceMin}, PriceMax={EffectivePriceMax}, TargetPrice={EffectiveTargetPrice}, FilterType={EffectiveFilterType} | GoalContinuity={GoalContinuity} | IsFollowUp={IsFollowUp} | IsGoalSwitch={IsGoalSwitch} | Reason={Reason} | FinalFlow={FinalFlow}",
@@ -2334,7 +2517,32 @@ turnContext.Reason,
 
             return true;
         }
+        private static bool LooksLikeInformationalPolicyQuestion(string message)
+        {
+            var text = NormalizeText(message);
 
+            bool hasPolicyKeyword =
+                text.Contains("bao hanh") ||
+                text.Contains("tra gop") ||
+                text.Contains("bao duong") ||
+                text.Contains("giao hang") ||
+                text.Contains("dat coc") ||
+                text.Contains("doi tra") ||
+                text.Contains("giay to") ||
+                text.Contains("bien so");
+
+            bool asksInfo =
+                text.Contains("bao lau") ||
+                text.Contains("nhu nao") ||
+                text.Contains("the nao") ||
+                text.Contains("ra sao") ||
+                text.Contains("may thang") ||
+                text.Contains("can gi") ||
+                text.Contains("thu tuc") ||
+                text.Contains("chinh sach");
+
+            return hasPolicyKeyword && asksInfo;
+        }
         private static void ResetOldRecommendationConstraintsForFreshBrandOnly(ParsedIntent intent)
         {
             if (intent == null)
@@ -2651,6 +2859,61 @@ turnContext.Reason,
 
             return false;
         }
-     
+        private async Task<string?> TryGetRagContextAsync(ChatOrchestrationContext context)
+        {
+            if (context.FinalRouting?.ShouldUseRag != true)
+                return null;
+
+            var flowType = context.FinalRouting?.FlowType;
+
+            bool allowed =
+                string.Equals(flowType, ChatFlowType.Recommendation, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(flowType, ChatFlowType.RagPolicy, StringComparison.OrdinalIgnoreCase);
+
+            if (!allowed)
+                return null;
+
+            try
+            {
+                var ragResponse = await _ragService.QueryAsync(context.NormalizedMessage);
+
+                if (ragResponse == null ||
+                    !ragResponse.Success ||
+                    string.IsNullOrWhiteSpace(ragResponse.Context))
+                {
+                    return null;
+                }
+
+                return ragResponse.Context.Trim();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "RAG query failed. Continue without RAG. ConversationId={ConversationId}, Message={Message}",
+                    context.ConversationId,
+                    context.NormalizedMessage);
+
+                return null;
+            }
+        }
+        private static bool LooksLikePurchaseDocumentQuestion(string message)
+        {
+            var text = NormalizeText(message);
+
+            bool asksDocument =
+                text.Contains("giay to") ||
+                text.Contains("ho so") ||
+                text.Contains("can gi") ||
+                text.Contains("thu tuc");
+
+            bool purchaseContext =
+                text.Contains("mua xe") ||
+                text.Contains("khi mua") ||
+                text.Contains("dang ky xe") ||
+                text.Contains("lay xe");
+
+            return asksDocument && purchaseContext;
+        }
     }
 }

@@ -22,10 +22,11 @@ namespace Chatbot.API.Services
         }
 
         public async Task<LLMRecommendationResult?> RerankAsync(
-            string message,
-            ParsedIntent intent,
-            CustomerPreferenceProfile profile,
-            IReadOnlyList<ProductSummaryDto> candidates)
+    string message,
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile,
+    IReadOnlyList<ProductSummaryDto> candidates,
+    string? ragContext = null)
         {
             if (string.IsNullOrWhiteSpace(message) || candidates == null || candidates.Count == 0)
                 return null;
@@ -49,8 +50,14 @@ namespace Chatbot.API.Services
                     UserId = "recommendation-rerank",
                     OriginalUserMessage = message,
                     EffectivePrompt = prompt,
-                    RagContext = null
+                    RagContext = string.IsNullOrWhiteSpace(ragContext) ? null : ragContext
                 };
+                _logger.LogInformation(
+    "Recommendation LLM rerank request. CandidateCount={CandidateCount}, PromptLength={PromptLength}, RagLength={RagLength}, Message={Message}",
+    candidates.Count,
+    prompt.Length,
+    ragContext?.Length ?? 0,
+    message);
 
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                 var response = await _openAIService.AskAsync(aiContext, cts.Token);

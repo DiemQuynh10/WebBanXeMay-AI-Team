@@ -134,7 +134,6 @@ namespace Chatbot.API.Services
                 var missingTargets = targetNames
                     .Where(x => !foundProducts.Contains(x, StringComparer.OrdinalIgnoreCase))
                     .ToList();
-
                 if (matchedProducts.Count == 1)
                 {
                     var found = matchedProducts[0];
@@ -146,11 +145,10 @@ namespace Chatbot.API.Services
                         ConversationId = conversationId,
                         UsedAI = false,
                         Reply =
-                            $"Hiện tại mình chưa tìm thấy thông tin về **{missingName}** trong hệ thống. " +
-                            $"Tuy nhiên mình đã tìm thấy **{found.Ten}**. " +
-                            $"Nếu bạn muốn, mình có thể:\n" +
-                            $"- xem nhanh chi tiết **{found.Ten}**\n" +
-                            $"- hoặc gợi ý một mẫu tương đương để so sánh tiếp."
+                            $"Mình chưa có dữ liệu chi tiết cho **{missingName}** trong hệ thống hiện tại, nên chưa thể so sánh chính xác với **{found.Ten}**.\n\n" +
+                            $"Bạn muốn mình:\n" +
+                            $"- gợi ý một mẫu xe tương đương để so sánh với **{found.Ten}**\n" +
+                            $"- hoặc xem nhanh chi tiết **{found.Ten}** trước?"
                     };
                 }
 
@@ -209,7 +207,7 @@ namespace Chatbot.API.Services
                 foreach (var item in ranked)
                 {
                     lines.Add($"- **{item.Product.Ten}**: {item.Score:0.0}/10" +
-                              (item.Reasons.Any() ? $" — {string.Join(", ", item.Reasons)}." : "."));
+                              (item.Reasons.Any() ? $" - {string.Join(", ", item.Reasons)}." : "."));
                 }
 
                 lines.Add("");
@@ -261,7 +259,7 @@ namespace Chatbot.API.Services
                 foreach (var item in ranked)
                 {
                     lines.Add($"- **{item.Product.Ten}**: {item.Score:0.0}/10" +
-                              (item.Reasons.Any() ? $" — {string.Join(", ", item.Reasons)}." : "."));
+                              (item.Reasons.Any() ? $" -{string.Join(", ", item.Reasons)}." : "."));
                 }
 
                 lines.Add("");
@@ -983,7 +981,7 @@ text.Contains("cac xe vua tu van")||
             var name = p.Ten ?? string.Empty;
 
             if (ContainsAny(name, "Vision"))
-                return "ưu điểm là nhẹ, dễ đi, tiết kiệm xăng, hợp đi phố; nhược điểm là máy không mạnh bằng nhóm Air Blade.";
+                return "ưu điểm là nhẹ, dễ đi, tiết kiệm xăng, hợp đi phố; nhược điểm là máy không mạnh bằng nhóm xe ga thiên về vận hành khỏe.";
 
             if (ContainsAny(name, "Latte"))
                 return "ưu điểm là dáng thanh lịch, dễ điều khiển, hợp đi hằng ngày; nhược điểm là giá nhỉnh hơn một chút so với vài mẫu phổ thông.";
@@ -992,7 +990,7 @@ text.Contains("cac xe vua tu van")||
                 return "ưu điểm là cân bằng, tiện dụng, giá mềm hơn nhóm 40 triệu; nhược điểm là kiểu dáng không thanh lịch bằng Latte/Vision.";
 
             if (ContainsAny(name, "Air Blade"))
-                return "ưu điểm là máy khỏe, đi đầm, hợp người thích cảm giác chắc xe; nhược điểm là giá cao hơn và xe không gọn bằng Vision/Latte.";
+                return "ưu điểm là máy khỏe, đi đầm, hợp người thích cảm giác chắc xe; nhược điểm là giá cao hơn và thân xe không gọn bằng nhóm xe ga nhỏ.";
 
             if (ContainsAny(name, "Impulse", "Address"))
                 return "ưu điểm là giá mềm, xe ga dễ dùng; nhược điểm là thương hiệu và độ phổ biến không mạnh bằng Honda/Yamaha.";
@@ -1016,16 +1014,16 @@ text.Contains("cac xe vua tu van")||
             var name = product.Ten ?? string.Empty;
 
             if (ContainsAny(name, "Vision"))
-                return "ưu điểm là nhẹ, dễ điều khiển, hợp nữ và đi phố; nhược điểm là máy không mạnh, đi xa nhiều sẽ không đầm bằng Air Blade.";
+                return "ưu điểm là nhẹ, dễ điều khiển, hợp nữ và đi phố; nhược điểm là máy không mạnh, đi xa nhiều sẽ không đầm bằng các mẫu thiên về máy khỏe.";
 
             if (ContainsAny(name, "Freego"))
-                return "ưu điểm là giá mềm, cốp tiện và dùng hằng ngày khá thực dụng; nhược điểm là cảm giác xe không đầm và mạnh bằng Air Blade.";
+                return "ưu điểm là giá mềm, cốp tiện và dùng hằng ngày khá thực dụng; nhược điểm là cảm giác xe không thiên về độ đầm và sức mạnh.";
 
             if (ContainsAny(name, "Air Blade"))
                 return "ưu điểm là máy khỏe hơn, chạy đầm và hợp đi xa hơn; nhược điểm là giá cao hơn, xe to và nặng hơn nhóm gọn nhẹ.";
 
             if (ContainsAny(name, "Lead"))
-                return "ưu điểm là cốp rộng, tiện chở đồ và đi làm; nhược điểm là thân xe khá to, không linh hoạt bằng Vision.";
+                return "ưu điểm là cốp rộng, tiện chở đồ và đi làm; nhược điểm là thân xe khá to, không linh hoạt bằng các mẫu xe ga gọn nhẹ.";
 
             if (ContainsAny(name, "Latte", "Grande"))
                 return "ưu điểm là dáng thanh lịch, hợp nữ và đi phố; nhược điểm là giá nhỉnh hơn vài mẫu phổ thông.";
@@ -1049,7 +1047,7 @@ text.Contains("cac xe vua tu van")||
                 return "ưu điểm là rẻ, bền và tiết kiệm; nhược điểm là thiết kế và tiện ích khá cơ bản.";
 
             if (ContainsAny(name, "Sirius", "Jupiter"))
-                return "ưu điểm là xe số tiết kiệm, dễ bảo dưỡng; nhược điểm là không tiện và không nữ tính bằng xe ga.";
+                return "ưu điểm là xe số tiết kiệm, dễ bảo dưỡng; nhược điểm là tiện ích không bằng nhóm xe ga.";
 
             if (ContainsAny(name, "Winner", "Exciter", "Raider"))
                 return "ưu điểm là máy khỏe, dáng thể thao; nhược điểm là không hợp nếu ưu tiên xe nhẹ, dễ đi hoặc nữ tính.";
@@ -1298,9 +1296,9 @@ text.Contains("cac xe vua tu van")||
     {
         "Điểm phù hợp theo tiêu chí hiện tại:",
         $"- **{s1.Product.Ten}**: {s1.Score:0.0}/10" +
-            (s1.Reasons.Any() ? $" — {string.Join(", ", s1.Reasons)}." : "."),
+            (s1.Reasons.Any() ? $" - {string.Join(", ", s1.Reasons)}." : "."),
         $"- **{s2.Product.Ten}**: {s2.Score:0.0}/10" +
-            (s2.Reasons.Any() ? $" — {string.Join(", ", s2.Reasons)}." : "."),
+            (s2.Reasons.Any() ? $" - {string.Join(", ", s2.Reasons)}." : "."),
         $"→ Mình nghiêng về **{winner.Product.Ten}** hơn theo tiêu chí này."
     };
 

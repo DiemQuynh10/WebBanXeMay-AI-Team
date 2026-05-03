@@ -143,6 +143,10 @@ namespace Chatbot.API.Services
     string.Join(" | ", previousProducts.Select(x => $"{x.Ten}:{x.Gia:N0}")));
 
             EnrichIntentFromFollowUp(normalizedMessage, intent);
+
+            CarryForwardProfileConstraintsForRefinement(intent, profile);
+            ApplySmartRetryBehavior(intent, profile);
+
             if (ShouldBypassRefinementForFreshRecommendation(normalizedMessage, intent))
             {
                 return null;
@@ -1220,8 +1224,8 @@ namespace Chatbot.API.Services
 
             if (signals.PreferDifferent || signals.WantsBroaderAlternatives)
                 return PickReasonByName(name,
-                    "là phương án khác khá đáng tham khảo trong nhóm này",
-                    "giúp bạn có thêm lựa chọn ngoài các mẫu vừa xem");
+                    "là phương án mình sẽ đưa vào danh sách cân nhắc vì vẫn bám khá sát nhu cầu của bạn",
+                    "phù hợp để so sánh thêm nếu bạn chưa ưng các mẫu vừa rồi");
 
             if (signals.WantsLargeStorage)
                 return PickReasonByName(name,
@@ -1344,8 +1348,9 @@ namespace Chatbot.API.Services
             bool preferCheaper = LooksLikeCheaperRequest(text);
             bool preferMoreExpensive = LooksLikeMoreExpensiveRequest(text);
             bool preferDifferent =
-     LooksLikeDifferentAlternativeRequest(text) ||
-     string.Equals(intent.ComparisonFeature, "alternative", StringComparison.OrdinalIgnoreCase);
+      LooksLikeDifferentAlternativeRequest(text) ||
+      string.Equals(intent.FollowUpType, "rerank_previous_list", StringComparison.OrdinalIgnoreCase) ||
+      string.Equals(intent.ComparisonFeature, "alternative", StringComparison.OrdinalIgnoreCase);
 
             bool wantsBroader =
                 LooksLikeBroaderAlternativeRequest(text) ||
@@ -1400,23 +1405,70 @@ namespace Chatbot.API.Services
 
         private string BuildSmartRefinementNoMatchReply(ParsedIntent intent, CustomerPreferenceProfile profile)
         {
+            bool hasPreviousRecommendation =
+    profile.HasActiveRecommendationContext &&
+    (
+        profile.CurrentRecommendedProducts?.Any() == true ||
+        profile.LastRecommendedProducts?.Any() == true ||
+        profile.BaseRecommendedProducts?.Any() == true
+    );
             var categoryText = !string.IsNullOrWhiteSpace(intent.Category) ? intent.Category : "xe hiện tại";
-            var brandText = !string.IsNullOrWhiteSpace(intent.Brand) ? intent.Brand : "hãng hiện tại";
+            if (string.Equals(intent.FollowUpType, "rerank_previous_list", StringComparison.OrdinalIgnoreCase))
+            {
+                var category = !string.IsNullOrWhiteSpace(intent.Category)
+                    ? intent.Category
+                    : "nhóm xe hiện tại";
+
+                string priceText = "";
+
+                if (intent.TargetPrice.HasValue)
+                {
+                    priceText = $"quanh mức {intent.TargetPrice.Value:N0} VNĐ";
+                }
+                else if (intent.PriceMin.HasValue && intent.PriceMax.HasValue)
+                {
+                    priceText = $"trong khoảng {intent.PriceMin.Value:N0} – {intent.PriceMax.Value:N0} VNĐ";
+                }
+
+                var brandExcludeText = intent.ExcludedBrands.Any()
+                    ? $" và không chọn {string.Join(", ", intent.ExcludedBrands)}"
+                    : "";
+
+                return $"Mình đã thử lọc lại thêm vài mẫu khác theo tiêu chí {category}" +
+        $"{(string.IsNullOrEmpty(priceText) ? "" : $", {priceText}")}{brandExcludeText}, " +
+        $"nhưng hiện chưa có mẫu mới nào thật sự khác biệt so với những mẫu mình vừa gợi ý.\n\n" +
+        $"Nếu bạn muốn, mình có thể:\n" +
+        $"- Nới nhẹ ngân sách lên khoảng 40–45 triệu để có thêm lựa chọn cao hơn\n" +
+        $"- Hoặc hạ xuống khoảng 30 triệu để xem nhóm xe khác dễ chọn hơn\n" +
+        $"- Hoặc giữ nguyên không chọn Yamaha và mình sẽ ưu tiên mẫu thực dụng, dễ đi nhất trong nhóm còn lại";
+            }
             if (!string.IsNullOrWhiteSpace(intent.Brand) &&
                 !string.IsNullOrWhiteSpace(intent.Category) &&
                 (intent.PriceMax.HasValue || intent.PriceMin.HasValue || intent.TargetPrice.HasValue))
             {
                 if (intent.PriceMax.HasValue && !intent.PriceMin.HasValue)
                 {
-                    return $"Hiện tại {intent.Brand} gần như không có mẫu {intent.Category} trong tầm dưới {intent.PriceMax.Value:N0} VNĐ. Bạn có thể tăng ngân sách hoặc đổi sang hãng khác để mình lọc tiếp.";
+                    return $"Mình đã kiểm tra theo hướng {intent.Brand} + {intent.Category} trong tầm dưới {intent.PriceMax.Value:N0} VNĐ rồi, " +
+       $"nhưng hiện chưa có mẫu nào thật sự đáng chốt.\n\n" +
+       $"Nếu tư vấn thực tế, mình nghĩ bạn nên:\n" +
+       $"- Tăng nhẹ ngân sách nếu vẫn muốn giữ hãng {intent.Brand}\n" +
+       $"- Hoặc mở sang hãng khác để có lựa chọn hợp lý hơn\n" +
+       $"- Hoặc nói rõ ưu tiên bền, đẹp hay tiết kiệm để mình lọc lại sát hơn";
                 }
 
                 if (intent.PriceMin.HasValue && intent.PriceMax.HasValue)
                 {
-                    return $"Hiện tại {intent.Brand} gần như không có mẫu {intent.Category} trong khoảng {intent.PriceMin.Value:N0} - {intent.PriceMax.Value:N0} VNĐ. Bạn có thể nới nhẹ ngân sách hoặc đổi hãng để mình lọc tiếp.";
+                    return $"Mình đã lọc theo hướng {intent.Brand} + {intent.Category} trong khoảng {intent.PriceMin.Value:N0} – {intent.PriceMax.Value:N0} VNĐ, " +
+        $"nhưng hiện chưa có mẫu nào thật sự nổi bật để chốt ngay.\n\n" +
+        $"Nếu bạn vẫn muốn giữ hãng {intent.Brand}, mình khuyên nên nới nhẹ ngân sách. " +
+        $"Còn nếu ưu tiên dễ mua và hợp lý hơn, mình có thể mở sang hãng khác để lọc lại.";
                 }
 
-                return $"Hiện tại {intent.Brand} gần như không có mẫu {intent.Category} thật sự phù hợp với mức giá bạn đang nhắm tới. Bạn có thể tăng ngân sách hoặc đổi sang hãng khác để mình lọc tiếp.";
+                return $"Mình kiểm tra theo hướng {intent.Brand} + {intent.Category} rồi, nhưng ở mức giá này hiện chưa có mẫu nào thật sự đáng chốt.\n\n" +
+       $"Nếu tư vấn thật lòng, mình nghĩ bạn nên:\n" +
+       $"- Tăng nhẹ ngân sách nếu vẫn muốn giữ hãng {intent.Brand}\n" +
+       $"- Hoặc mở sang hãng khác để có lựa chọn hợp lý hơn\n" +
+       $"- Hoặc cho mình biết bạn ưu tiên bền, đẹp hay tiết kiệm để mình lọc lại sát hơn";
             }
 
             if (!string.IsNullOrWhiteSpace(intent.Category) &&
@@ -1424,23 +1476,50 @@ namespace Chatbot.API.Services
             {
                 if (intent.PriceMax.HasValue && !intent.PriceMin.HasValue)
                 {
-                    return $"Hiện tại nhóm {categoryText} trong tầm dưới {intent.PriceMax.Value:N0} VNĐ khá ít lựa chọn với tiêu chí này. Bạn có thể nới nhẹ ngân sách hoặc đổi hãng để mình lọc tiếp.";
+                    if (hasPreviousRecommendation)
+                    {
+                        return $"Mình có thử tìm thêm cho bạn trong tầm dưới {intent.PriceMax.Value:N0} VNĐ cho nhóm {categoryText}, " +
+                               $"nhưng hiện chưa có thêm mẫu nào thật sự nổi bật hơn.\n\n" +
+                               $"Nếu bạn muốn dễ chọn hơn, mình gợi ý:\n" +
+                               $"- Nới nhẹ ngân sách để có thêm mẫu tốt hơn\n" +
+                               $"- Hoặc nói rõ ưu tiên bền, đẹp hay tiết kiệm để mình chọn giúp mẫu hợp nhất";
+                    }
+
+                    return $"Mình đã lọc theo nhóm {categoryText} trong tầm dưới {intent.PriceMax.Value:N0} VNĐ, " +
+                           $"nhưng hiện chưa có nhiều mẫu thật sự phù hợp.\n\n" +
+                           $"Bạn có thể nới nhẹ ngân sách, đổi hãng hoặc nói rõ thêm nhu cầu để mình lọc sát hơn.";
                 }
             }
 
             if (intent.PriceMin.HasValue && intent.PriceMax.HasValue)
             {
-                return $"Hiện tại nhóm {intent.Category} trong khoảng {intent.PriceMin.Value:N0} - {intent.PriceMax.Value:N0} VNĐ khá ít lựa chọn với tiêu chí này. Bạn có thể nới nhẹ ngân sách hoặc đổi hãng để mình lọc tiếp.";
+                return $"Mình đã lọc trong khoảng {intent.PriceMin.Value:N0} – {intent.PriceMax.Value:N0} VNĐ cho nhóm {categoryText}, nhưng hiện số mẫu phù hợp không nhiều.\n\n" +
+       $"Nếu bạn muốn chọn dễ hơn, mình khuyên nên:\n" +
+       $"- Nới nhẹ khoảng giá để có thêm mẫu đáng xem\n" +
+       $"- Hoặc giữ ngân sách này nhưng cho phép mình mở rộng hãng\n" +
+       $"- Hoặc nói rõ ưu tiên bền, tiết kiệm xăng hay dễ đi để mình chốt giúp mẫu hợp nhất";
             }
-
             if (intent.TargetPrice.HasValue)
             {
-                return $"Hiện tại nhóm {intent.Category} quanh mức {intent.TargetPrice.Value:N0} VNĐ khá ít lựa chọn với tiêu chí này. Bạn có thể nới nhẹ ngân sách hoặc đổi hãng để mình lọc tiếp.";
+                if (hasPreviousRecommendation)
+                {
+                    return $"Mình có thử tìm thêm mẫu khác cho bạn rồi, nhưng với tiêu chí {categoryText}, quanh mức {intent.TargetPrice.Value:N0} VNĐ " +
+                           $"thì hiện khá ít lựa chọn ngoài những mẫu mình vừa gợi ý.\n\n" +
+                           $"Nếu bạn muốn, mình có thể:\n" +
+                           $"- Nới nhẹ ngân sách lên một chút để có thêm mẫu mới\n" +
+                           $"- Hoặc chuyển xuống khoảng 30 triệu để dễ chọn hơn";
+                }
+
+                return $"Mình đã lọc theo tiêu chí {categoryText}, quanh mức {intent.TargetPrice.Value:N0} VNĐ, " +
+                       $"nhưng hiện chưa có nhiều mẫu thật sự phù hợp.\n\n" +
+                       $"Bạn có thể nới nhẹ ngân sách, đổi hãng hoặc nói rõ thêm nhu cầu như đi học, đi làm, tiết kiệm xăng để mình lọc sát hơn.";
             }
 
             if (intent.PriceMin.HasValue && !intent.PriceMax.HasValue)
             {
-                return $"Hiện tại nhóm {intent.Category} từ {intent.PriceMin.Value:N0} VNĐ trở lên vẫn chưa có nhiều lựa chọn thật sự phù hợp với tiêu chí này. Bạn có thể đổi hãng hoặc điều chỉnh thêm điều kiện để mình lọc tiếp.";
+                return $"Mình đã lọc nhóm {categoryText} từ {intent.PriceMin.Value:N0} VNĐ trở lên, " +
+        $"nhưng hiện chưa có nhiều mẫu thật sự hợp để mình tự tin gợi ý.\n\n" +
+        $"Bạn có thể nói thêm ưu tiên như bền, đẹp, tiết kiệm xăng hoặc dễ đi để mình lọc sát hơn.";
             }
 
             return _replyStyleService.BuildRefinementNoMatchReply(intent);
@@ -1522,14 +1601,15 @@ namespace Chatbot.API.Services
     text.Contains("xuong tien");
 
         private static bool LooksLikeDifferentAlternativeRequest(string text) =>
-            text.Contains("loại khác") ||
-            text.Contains("loai khac") ||
-            text.Contains("xe khác") ||
-            text.Contains("xe khac") ||
-            text.Contains("mẫu khác") ||
-            text.Contains("mau khac") ||
-            text.Contains("con khác") ||
-            text.Contains("khac di");
+    text.Contains("loai khac") ||
+    text.Contains("xe khac") ||
+    text.Contains("mau khac") ||
+    text.Contains("con khac") ||
+    text.Contains("khac di") ||
+    text.Contains("tu van lai") ||
+    text.Contains("goi y lai") ||
+    text.Contains("loc lai") ||
+    text.Contains("chon lai");
 
         private static bool LooksLikePrettierRequest(string text) =>
             text.Contains("đẹp hơn") ||
@@ -2462,6 +2542,106 @@ namespace Chatbot.API.Services
                 UsedAI = false,
                 Reply = reply
             };
+        }
+        private static void CarryForwardProfileConstraintsForRefinement(
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile)
+        {
+            if (intent == null || profile == null)
+                return;
+
+            bool shouldKeepConstraints =
+                intent.KeepConstraints ||
+                string.Equals(intent.FollowUpType, "rerank_previous_list", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(intent.FollowUpType, "change_product", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(intent.ComparisonFeature, "alternative", StringComparison.OrdinalIgnoreCase);
+
+            if (!shouldKeepConstraints)
+                return;
+
+            if (string.IsNullOrWhiteSpace(intent.Category))
+                intent.Category = profile.PreferredCategory;
+
+            if (string.IsNullOrWhiteSpace(intent.Brand))
+                intent.Brand = profile.PreferredBrand;
+
+            if (!intent.PriceMin.HasValue)
+                intent.PriceMin = profile.PriceMin;
+
+            if (!intent.PriceMax.HasValue)
+                intent.PriceMax = profile.PriceMax;
+
+            if (!intent.TargetPrice.HasValue)
+                intent.TargetPrice = profile.TargetPrice;
+
+            if (intent.FilterType == PriceFilterType.None)
+                intent.FilterType = profile.FilterType;
+
+            if (string.IsNullOrWhiteSpace(intent.Target))
+                intent.Target = profile.Target;
+
+            if (!intent.ForWork)
+                intent.ForWork = profile.ForWork;
+
+            if (!intent.ForSchool)
+                intent.ForSchool = profile.ForSchool;
+
+            if (!intent.ForCity)
+                intent.ForCity = profile.ForCity;
+
+            if (!intent.ForTour)
+                intent.ForTour = profile.ForTour;
+
+            if (!intent.WantsFuelSaving)
+                intent.WantsFuelSaving = profile.WantsFuelSaving;
+
+            if (!intent.WantsLargeStorage)
+                intent.WantsLargeStorage = profile.WantsLargeStorage;
+
+            if (!intent.WantsEasyControl)
+                intent.WantsEasyControl = profile.WantsEasyControl;
+
+            if (!intent.NeedsLowSeat)
+                intent.NeedsLowSeat = profile.NeedsLowSeat;
+
+            if (!intent.PrefersMaleStyle)
+                intent.PrefersMaleStyle = profile.PrefersMaleStyle;
+
+            if (!intent.PrefersFemaleStyle)
+                intent.PrefersFemaleStyle = profile.PrefersFemaleStyle;
+
+            foreach (var brand in profile.ExcludedBrands)
+                intent.ExcludedBrands.Add(brand);
+
+            foreach (var category in profile.ExcludedCategories)
+                intent.ExcludedCategories.Add(category);
+        }
+        private static void ApplySmartRetryBehavior(
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile)
+        {
+            if (intent == null || profile == null)
+                return;
+
+            bool isRetry =
+                string.Equals(intent.FollowUpType, "rerank_previous_list", StringComparison.OrdinalIgnoreCase);
+
+            if (!isRetry)
+                return;
+
+            intent.KeepConstraints = true;
+            intent.ExcludePreviousProducts = true;
+            intent.ComparisonFeature = "alternative";
+
+            var previousNames = profile.CurrentRecommendedProducts != null && profile.CurrentRecommendedProducts.Count > 0
+                ? profile.CurrentRecommendedProducts
+                : profile.LastRecommendedProducts ?? new List<string>();
+
+            foreach (var productName in previousNames)
+            {
+                if (!string.IsNullOrWhiteSpace(productName))
+                    intent.ExcludedProducts.Add(productName);
+            }
         }
         private sealed class RefinementSignals
         {

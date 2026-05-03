@@ -192,7 +192,7 @@ app.Use(async (context, next) =>
     }
 });
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 app.UseAuthorization();
 
 app.MapControllers();
@@ -209,7 +209,7 @@ using (var scope = app.Services.CreateScope())
     {
         try
         {
-            await telegramService.SetWebhookAsync(telegramSettings.WebhookUrl, telegramSettings.SecretToken);
+          //  await telegramService.SetWebhookAsync(telegramSettings.WebhookUrl, telegramSettings.SecretToken);
             logger.LogInformation("Telegram webhook registered: {WebhookUrl}", telegramSettings.WebhookUrl);
         }
         catch (Exception ex)

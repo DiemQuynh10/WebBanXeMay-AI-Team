@@ -9,6 +9,7 @@ namespace Chatbot.API.Services.Interfaces
             string message,
             ParsedIntent intent,
             CustomerPreferenceProfile profile,
-            IReadOnlyList<ProductSummaryDto> candidates);
+            IReadOnlyList<ProductSummaryDto> candidates,
+            string? ragContext = null);
     }
 }

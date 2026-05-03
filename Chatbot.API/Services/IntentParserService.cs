@@ -131,26 +131,27 @@ namespace Chatbot.API.Services
 
             ParseOrderLookup(text, result);
             ParseLookupSignals(text, result);
+            if (LooksLikeRecommendationRetryRequest(text))
+            {
+                result.IntentType = "refine";
+                result.IsFollowUp = true;
+                result.FollowUpType = "rerank_previous_list";
+                result.RouteFlow = ChatFlowType.Refinement;
+                result.KeepConstraints = true;
+                result.ExcludePreviousProducts = true;
+                result.HasNarrowRefinementSignal = true;
+                result.HasDeterministicProductIntent = true;
+                return result;
+            }
+
             if (LooksLikeRestartRecommendationRequest(text))
             {
-                if (result.ExcludedBrands.Any() ||
-                    result.ExcludedProducts.Any() ||
-                    result.ExcludedCategories.Any())
-                {
-                    result.IntentType = "recommend";
-                    result.IsOpenRecommendation = true;
-                    result.IsFollowUp = false;
-                    result.FollowUpType = null;
-                    result.HasFreshConsultationSignal = true;
-                    result.RouteFlow = ChatFlowType.Recommendation;
-                    result.HasDeterministicProductIntent = false;
-                    return result;
-                }
-
                 result.IntentType = "followup";
                 result.IsFollowUp = true;
                 result.FollowUpType = "restart_recommendation";
                 result.RouteFlow = ChatFlowType.Recommendation;
+                result.KeepConstraints = false;
+                result.ExcludePreviousProducts = false;
                 result.HasDeterministicProductIntent = true;
                 return result;
             }
@@ -2108,22 +2109,41 @@ namespace Chatbot.API.Services
                 result.LookupTargetType = null;
             }
         }
+        private static bool LooksLikeRecommendationRetryRequest(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            if (LooksLikeRestartRecommendationRequest(text))
+                return false;
+
+            return ContainsAny(text,
+                "tu van lai",
+                "goi y lai",
+                "chon lai",
+                "loc lai",
+                "tim lai");
+        }
+
         private static bool LooksLikeRestartRecommendationRequest(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
                 return false;
 
             return ContainsAny(text,
-                "tu van lai",
-                "tư vấn lại",
-                "goi y lai",
-                "gợi ý lại",
-                "chon lai",
-                "chọn lại",
-                "loc lai",
-                "lọc lại",
-                "tim lai",
-                "tìm lại");
+                "tu van lai tu dau",
+                "goi y lai tu dau",
+                "chon lai tu dau",
+                "loc lai tu dau",
+                "tim lai tu dau",
+                "lam lai tu dau",
+                "bat dau lai",
+                "quay lai tu dau",
+                "bo tieu chi cu",
+                "bo dieu kien cu",
+                "bo cai cu",
+                "bo cai truoc",
+                "reset");
         }
         private static bool LooksLikeCompareWithBrandOnly(string text, ParsedIntent result)
         {

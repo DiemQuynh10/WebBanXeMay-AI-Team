@@ -64,6 +64,45 @@ namespace Chatbot.API.Services.Conversation
                 routing.Reason = "Pick best requested but no active context";
                 return routing;
             }
+            if (IsProductCategoryQuestion(text, effectiveIntent))
+            {
+                effectiveIntent.IntentType = "product_lookup";
+                effectiveIntent.IsDirectProductLookup = true;
+                effectiveIntent.IsDirectCompare = false;
+                effectiveIntent.LookupField = "category";
+
+                return RouteTo(
+                    ChatFlowType.ProductLookup,
+                    "Forced by product category question before follow-up rerank");
+            }
+            if (ShouldRouteToRagPolicy(effectiveIntent, text))
+            {
+                routing.FlowType = ChatFlowType.RagPolicy;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = true;
+                routing.Reason = "Forced by policy/FAQ intent before recommendation follow-up";
+                return routing;
+            }
+            if (string.Equals(effectiveIntent.FollowUpType, "rerank_previous_list", StringComparison.OrdinalIgnoreCase))
+            {
+                effectiveIntent.IntentType = "refine";
+                effectiveIntent.RouteFlow = ChatFlowType.Refinement;
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.IsDirectCompare = false;
+                effectiveIntent.IsOpenRecommendation = false;
+                effectiveIntent.KeepConstraints = true;
+                effectiveIntent.ExcludePreviousProducts = true;
+                effectiveIntent.HasNarrowRefinementSignal = true;
+
+                routing.FlowType = ChatFlowType.Refinement;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Retry recommendation while keeping active constraints";
+
+                return routing;
+            }
             if (string.Equals(effectiveIntent.FollowUpType, "restart_recommendation", StringComparison.OrdinalIgnoreCase))
             {
                 effectiveIntent.IntentType = "recommend";
@@ -72,23 +111,11 @@ namespace Chatbot.API.Services.Conversation
                 effectiveIntent.IsDirectCompare = false;
                 effectiveIntent.IsOpenRecommendation = true;
 
-                conversationProfile.HasActiveCompareContext = false;
-                conversationProfile.LastComparedProducts?.Clear();
-                conversationProfile.LastComparisonFeature = null;
-
-                conversationProfile.HasActiveRecommendationContext = false;
-                conversationProfile.LastRecommendedProducts?.Clear();
-                conversationProfile.CurrentRecommendedProducts?.Clear();
-                conversationProfile.BaseRecommendedProducts?.Clear();
-                conversationProfile.PreferredBrand = null;
-                conversationProfile.PreferredCategory = null;
-                conversationProfile.Target = null;
-
                 routing.FlowType = ChatFlowType.Recommendation;
                 routing.ShouldUseDeterministicFlow = true;
                 routing.ShouldUseAiFallback = false;
                 routing.ShouldUseRag = true;
-                routing.Reason = "Restart recommendation with cleared old recommendation context";
+                routing.Reason = "Restart recommendation after full profile reset";
                 return routing;
             }
             if (ShouldForceOrderLookup(effectiveIntent))
@@ -98,6 +125,15 @@ namespace Chatbot.API.Services.Conversation
                 routing.ShouldUseAiFallback = false;
                 routing.ShouldUseRag = false;
                 routing.Reason = "Forced by explicit order lookup intent";
+                return routing;
+            }
+            if (ShouldRouteToRagPolicy(effectiveIntent, text))
+            {
+                routing.FlowType = ChatFlowType.RagPolicy;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = true;
+                routing.Reason = "Forced by policy/FAQ question";
                 return routing;
             }
             if (LooksLikeAlternativeRecommendationRequest(text) && hasRecommendationContext)
@@ -221,6 +257,18 @@ namespace Chatbot.API.Services.Conversation
                 routing.Reason = "Forced by explicit compare intent";
                 return routing;
             }
+            if (IsExplicitCompareRequest(text, effectiveIntent) &&
+    effectiveIntent.MentionedProducts.Count == 1)
+            {
+                return new FlowRoutingResult
+                {
+                    FlowType = ChatFlowType.Unknown,
+                    ShouldUseDeterministicFlow = false,
+                    ShouldUseAiFallback = false,
+                    ShouldUseRag = false,
+                    Reason = "Explicit compare but only one product resolved"
+                };
+            }
             if (hasCompareContext &&
      effectiveIntent.MentionedProducts.Count == 1 &&
      string.IsNullOrWhiteSpace(effectiveIntent.FollowUpType) &&
@@ -286,8 +334,20 @@ namespace Chatbot.API.Services.Conversation
                 return routing;
             }
             if (!IsExplicitCompareRequest(text, effectiveIntent) &&
-     HasExclusionConstraint(effectiveIntent))
+    HasExclusionConstraint(effectiveIntent))
             {
+                // Nếu đang có ngữ cảnh tư vấn, câu kiểu "không thích Yamaha"
+                // phải là refinement, không được coi là recommendation mới.
+                if (hasRecommendationContext || effectiveIntent.IsFollowUp)
+                {
+                    MarkAsRefinementExclude(effectiveIntent);
+                    ClearCompareContext(conversationProfile);
+
+                    return RouteTo(
+                        ChatFlowType.Refinement,
+                        "Recommendation refinement with exclusion");
+                }
+
                 if (IsFreshRecommendationWithExclusion(effectiveIntent))
                 {
                     MarkAsFreshRecommendation(effectiveIntent);
@@ -297,16 +357,6 @@ namespace Chatbot.API.Services.Conversation
                         ChatFlowType.Recommendation,
                         "Fresh recommendation with exclusion",
                         useRag: true);
-                }
-
-                if (hasRecommendationContext)
-                {
-                    MarkAsRefinementExclude(effectiveIntent);
-                    ClearCompareContext(conversationProfile);
-
-                    return RouteTo(
-                        ChatFlowType.Refinement,
-                        "Recommendation refinement with exclusion");
                 }
             }
 
@@ -1172,6 +1222,64 @@ namespace Chatbot.API.Services.Conversation
 
             return hasCategory && !hasNamedProducts;
         }
+        private static bool LooksLikePolicyQuestion(string message, ParsedIntent? intent)
+        {
+            var text = NormalizeText(message);
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            // Không cướp flow đơn hàng
+            if (ShouldForceOrderLookup(intent))
+                return false;
+
+            bool hasPolicyKeyword =
+                text.Contains("tra gop") ||
+                text.Contains("gop") ||
+                text.Contains("bao hanh") ||
+                text.Contains("bao duong") ||
+                text.Contains("doi tra") ||
+                text.Contains("doi xe") ||
+                text.Contains("giao hang") ||
+                text.Contains("van chuyen") ||
+                text.Contains("dat coc") ||
+                text.Contains("coc") ||
+                text.Contains("giay to") ||
+                text.Contains("dang ky xe") ||
+                text.Contains("bien so") ||
+                text.Contains("mua online") ||
+                text.Contains("thanh toan") ||
+                text.Contains("chuyen khoan") ||
+                text.Contains("lai thu") ||
+                text.Contains("thu cu doi moi") ||
+                text.Contains("ho so") ||
+text.Contains("thu tuc") ||
+text.Contains("can gi") ||
+text.Contains("di mua xe") ||
+text.Contains("khi di mua xe") ||
+text.Contains("khi mua xe") ||
+                text.Contains("cuu ho") ||
+                text.Contains("khuyen mai");
+
+            bool asksInfo =
+                text.Contains("nhu nao") ||
+                text.Contains("the nao") ||
+                text.Contains("ra sao") ||
+                text.Contains("bao lau") ||
+                text.Contains("may thang") ||
+                text.Contains("bao nhieu") ||
+                text.Contains("can gi") ||
+                text.Contains("thu tuc") ||
+                text.Contains("chinh sach") ||
+                text.Contains("co khong") ||
+                text.Contains("duoc khong");
+
+            bool purchaseDocumentQuestion =
+    (text.Contains("giay to") || text.Contains("ho so") || text.Contains("thu tuc") || text.Contains("can gi")) &&
+    (text.Contains("mua xe") || text.Contains("di mua xe") || text.Contains("khi mua xe") || text.Contains("lay xe"));
+
+            return purchaseDocumentQuestion || (hasPolicyKeyword && asksInfo);
+        }
         private static bool LooksLikePickOneRequest(string message)
         {
             var text = NormalizeText(message);
@@ -1186,6 +1294,26 @@ namespace Chatbot.API.Services.Conversation
                 text.Contains("chon xe") ||
                 text.Contains("chot xe") ||
                 text.Contains("chon giup");
+        }
+        private static bool ShouldRouteToRagPolicy(ParsedIntent intent, string message)
+        {
+            if (intent == null)
+                return false;
+
+            if (ShouldForceOrderLookup(intent))
+                return false;
+
+            bool policyIntent =
+                string.Equals(intent.IntentType, "policy", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(intent.IntentType, "faq", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(intent.IntentType, "rag_policy", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(intent.RouteFlow, ChatFlowType.RagPolicy, StringComparison.OrdinalIgnoreCase);
+
+            if (policyIntent)
+                return true;
+
+            // fallback cũ, giữ để bắt các câu parser chưa hiểu
+            return LooksLikePolicyQuestion(message, intent);
         }
     }
 }
