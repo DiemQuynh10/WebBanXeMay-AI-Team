@@ -94,7 +94,8 @@ namespace Chatbot.API.Services
         {
             var result = new ParsedIntent
             {
-                RawMessage = message ?? string.Empty
+                RawMessage = message ?? string.Empty,
+                OriginalMessage = message ?? string.Empty
             };
 
             if (string.IsNullOrWhiteSpace(message))
@@ -624,6 +625,16 @@ namespace Chatbot.API.Services
                 result.IntentType = "order_lookup";
                 return;
             }
+            if (LooksLikeOrdinalCompareIntent(text, result))
+            {
+                result.IntentType = "compare";
+                result.IsDirectCompare = true;
+                result.IsFollowUp = true;
+                result.FollowUpType = "compare";
+                result.RouteFlow = ChatFlowType.Compare;
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
             if (IsExplicitCompareIntent(text, result.MentionedProducts.Count, result.ComparisonFeature))
             {
                 result.IntentType = "compare";
@@ -889,6 +900,11 @@ namespace Chatbot.API.Services
             if (string.Equals(result.FollowUpType, "compare_missing_product", StringComparison.OrdinalIgnoreCase))
             {
                 result.RouteFlow = ChatFlowType.Unknown;
+                return;
+            }
+            if (result.IsDirectCompare && LooksLikeOrdinalCompareIntent(text, result))
+            {
+                result.RouteFlow = ChatFlowType.Compare;
                 return;
             }
             if (result.IsDirectCompare && result.MentionedProducts.Count >= 2)
@@ -2167,6 +2183,55 @@ namespace Chatbot.API.Services
                 !string.IsNullOrWhiteSpace(result.Brand);
 
             return hasCompareSignal && hasOneProduct && hasBrand;
+        }
+        private static bool LooksLikeOrdinalCompareIntent(string text, ParsedIntent result)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            bool hasCompareVerb =
+                text.Contains("so sanh") ||
+                text.Contains("so voi") ||
+                text.Contains("voi") ||
+                text.Contains("xe nao") ||
+                text.Contains("mau nao") ||
+                text.Contains("con nao");
+
+            bool hasOrdinalReference = HasOrdinalProductReference(text);
+
+            bool hasNamedProduct =
+                result.MentionedProducts != null &&
+                result.MentionedProducts.Count >= 1;
+
+            return hasCompareVerb && hasOrdinalReference && hasNamedProduct;
+        }
+        private static bool HasOrdinalProductReference(string text)
+        {
+            return Regex.IsMatch(text, @"\b(xe|mau|con)\s*(thu\s*)?(1|2|3|4|5)\b", RegexOptions.IgnoreCase)
+                || ContainsAny(text,
+                    "xe dau tien",
+                    "mau dau tien",
+                    "con dau tien",
+
+                    "xe thu nhat",
+                    "mau thu nhat",
+                    "con thu nhat",
+
+                    "xe thu hai",
+                    "mau thu hai",
+                    "con thu hai",
+
+                    "xe thu ba",
+                    "mau thu ba",
+                    "con thu ba",
+
+                    "xe thu tu",
+                    "mau thu tu",
+                    "con thu tu",
+
+                    "xe thu nam",
+                    "mau thu nam",
+                    "con thu nam");
         }
     }
 }

@@ -8,7 +8,7 @@
         public string? Brand { get; set; }
         public string? Target { get; set; }
         public string? RawMessage { get; set; }
-
+        public string? OriginalMessage { get; set; }
         public PriceFilterType FilterType { get; set; } = PriceFilterType.None;
         public decimal? TargetPrice { get; set; }
 
@@ -103,6 +103,7 @@
                 Brand = Brand,
                 Target = Target,
                 RawMessage = RawMessage,
+                OriginalMessage = OriginalMessage,
 
                 FilterType = FilterType,
                 TargetPrice = TargetPrice,

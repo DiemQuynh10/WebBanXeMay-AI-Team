@@ -2,6 +2,8 @@
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.Responses;
 using Chatbot.API.Models.ToolApi;
+using Chatbot.API.Configurations;
+using Microsoft.Extensions.Options;
 using Chatbot.API.Services.Interfaces;
 using System.Text;
 
@@ -16,6 +18,7 @@ namespace Chatbot.API.Services
         private readonly IRecommendationLLMService _recommendationLLMService;
         private readonly IReplyStyleService _replyStyleService;
         private readonly IReplyRewriteService _replyRewriteService;
+        private readonly RecommendationOptions _recommendationOptions;
 
         public RefinementService(
             IWebBanXeMayToolClient toolClient,
@@ -24,6 +27,7 @@ namespace Chatbot.API.Services
             IRecommendationLLMService recommendationLLMService,
             IReplyStyleService replyStyleService,
             IReplyRewriteService replyRewriteService,
+            IOptions<RecommendationOptions> recommendationOptions,
             ILogger<RefinementService> logger)
         {
             _toolClient = toolClient;
@@ -32,6 +36,7 @@ namespace Chatbot.API.Services
             _recommendationLLMService = recommendationLLMService;
             _replyStyleService = replyStyleService;
             _replyRewriteService = replyRewriteService;
+            _recommendationOptions = recommendationOptions.Value;
             _logger = logger;
         }
 
@@ -274,18 +279,43 @@ namespace Chatbot.API.Services
             }
 
             var rankedHard = _productRecommendationService.RankProducts(
-                items,
-                intent,
-                profile,
-                normalizedMessage,
-                take: Math.Min(4, items.Count));
+      items,
+      intent,
+      profile,
+      normalizedMessage,
+      take: Math.Min(4, items.Count)) ?? new List<ProductSummaryDto>();
 
             _logger.LogInformation(
                 "Hard refinement rule ranking completed. ConversationId={ConversationId}, CandidateCount={CandidateCount}, RankedHardCount={RankedHardCount}",
                 conversationId,
                 items.Count,
                 rankedHard.Count);
+            if ((rankedHard == null || rankedHard.Count == 0) && items.Count > 0)
+            {
+                var anchorPrice =
+                    intent.TargetPrice ??
+                    profile.TargetPrice ??
+                    intent.PriceMax ??
+                    profile.PriceMax ??
+                    items.Average(x => x.Gia);
 
+                rankedHard = items
+                    .Where(x => x != null)
+                    .OrderBy(x => Math.Abs(x.Gia - anchorPrice))
+                    .ThenByDescending(x => x.SoLuong)
+                    .Take(Math.Min(3, items.Count))
+                    .ToList();
+
+                _logger.LogInformation(
+                    "Hard refinement fallback ranking applied. ConversationId={ConversationId}, FallbackCount={FallbackCount}",
+                    conversationId,
+                    rankedHard.Count);
+            }
+
+            if (rankedHard == null || rankedHard.Count == 0)
+            {
+                return await BuildNoMatchResponseAsync(conversationId, normalizedMessage, intent, profile);
+            }
             await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
                 conversationId,
                 rankedHard,
@@ -297,7 +327,9 @@ namespace Chatbot.API.Services
                 normalizedMessage,
                 item => BuildSimpleRefineReason(item, intent, signals));
 
-            var hardReply = await _replyRewriteService.RewriteAsync(normalizedMessage, hardDraftReply);
+            var hardReply = _recommendationOptions.EnableLlmReasons
+    ? await _replyRewriteService.RewriteAsync(normalizedMessage, hardDraftReply)
+    : hardDraftReply;
 
             _logger.LogInformation(
                 "Hard refinement final result. ConversationId={ConversationId}, FinalProductCount={FinalProductCount}",
@@ -1885,6 +1917,14 @@ namespace Chatbot.API.Services
     CustomerPreferenceProfile profile,
     List<ProductSummaryDto> rankedSoftByRule)
         {
+            if (!_recommendationOptions.EnableLlmReasons)
+            {
+                _logger.LogInformation(
+                    "Skip LLM rerank in soft refinement by config. ConversationId={ConversationId}",
+                    conversationId);
+
+                return rankedSoftByRule;
+            }
             if (rankedSoftByRule.Count < 3)
             {
                 _logger.LogInformation(

@@ -95,6 +95,8 @@ builder.Services.AddOptions<RagApiOptions>()
     .ValidateDataAnnotations()
     .Validate(x => !string.IsNullOrWhiteSpace(x.BaseUrl), "RagApi:BaseUrl is required.")
     .ValidateOnStart();
+builder.Services.Configure<RecommendationOptions>(
+    builder.Configuration.GetSection("Recommendation"));
 // Memory
 builder.Services.AddScoped<IConversationMemoryService, ConversationMemoryService>();
 builder.Services.AddScoped<IConversationHistoryService, ConversationHistoryService>();

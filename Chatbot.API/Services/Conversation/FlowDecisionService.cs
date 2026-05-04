@@ -2,6 +2,7 @@
 using Chatbot.API.Models.Intent;
 using Chatbot.API.Models.ToolApi;
 using Chatbot.API.Services.Interfaces;
+using System.Text.RegularExpressions;
 using static Chatbot.API.Models.Intent.ParsedIntent;
 
 namespace Chatbot.API.Services.Conversation
@@ -15,6 +16,7 @@ namespace Chatbot.API.Services.Conversation
             RecommendationContextDecision contextDecision,
             FlowRoutingResult baseRouting)
         {
+
             var routing = baseRouting ?? new FlowRoutingResult();
             var text = (normalizedMessage ?? string.Empty).Trim();
 
@@ -29,6 +31,7 @@ namespace Chatbot.API.Services.Conversation
             }
             bool hasRecommendationContext = HasRecommendationContext(conversationProfile);
             bool hasCompareContext = HasCompareContext(conversationProfile);
+            ResolveOrdinalProductsIfNeeded(effectiveIntent, conversationProfile, normalizedMessage);
             bool hasLookupContext = HasLookupContext(conversationProfile);
             Console.WriteLine(
     $"[FLOW DECISION INPUT] Text={text} | IntentType={effectiveIntent.IntentType} | RouteFlow={effectiveIntent.RouteFlow} | FollowUpType={effectiveIntent.FollowUpType} | " +
@@ -302,7 +305,22 @@ namespace Chatbot.API.Services.Conversation
                     };
                 }
             }
+            if (LooksLikeBudgetExpansion(text) && hasRecommendationContext)
+            {
+                effectiveIntent.IntentType = "refine";
+                effectiveIntent.RouteFlow = ChatFlowType.Refinement;
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.FollowUpType = "expand_recommendation";
+                effectiveIntent.IsDirectProductLookup = false;
+                effectiveIntent.LookupField = null;
 
+                routing.FlowType = ChatFlowType.Refinement;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Budget expansion refinement";
+                return routing;
+            }
             if (ShouldForceDirectProductLookup(effectiveIntent))
             {
                 routing.FlowType = ChatFlowType.ProductLookup;
@@ -1315,5 +1333,95 @@ text.Contains("khi mua xe") ||
             // fallback cũ, giữ để bắt các câu parser chưa hiểu
             return LooksLikePolicyQuestion(message, intent);
         }
+        private static bool LooksLikeBudgetExpansion(string text)
+        {
+            text = NormalizeText(text);
+
+            bool hasExpandSignal =
+                text.Contains("cao hon") ||
+                text.Contains("dat hon") ||
+                text.Contains("them chut") ||
+                text.Contains("them mot chut") ||
+                text.Contains("hon mot chut") ||
+                text.Contains("noi ngan sach") ||
+                text.Contains("noi them") ||
+                text.Contains("tang ngan sach") ||
+                text.Contains("len chut") ||
+                text.Contains("len mot chut");
+
+            bool hasBudgetWord =
+                text.Contains("gia") ||
+                text.Contains("ngan sach") ||
+                text.Contains("tien") ||
+                text.Contains("trieu");
+
+            bool softBudgetFollowUp =
+                text.Contains("cung duoc") ||
+                text.Contains("cung dc") ||
+                text.Contains("cung duoc");
+
+            return hasExpandSignal && (hasBudgetWord || softBudgetFollowUp);
+        }
+        private static void ResolveOrdinalProductsIfNeeded(
+     ParsedIntent intent,
+     CustomerPreferenceProfile profile,
+     string message)
+        {
+            if (intent == null || profile == null)
+                return;
+
+            var source =
+                profile.LastRecommendedProducts?.Count > 0 ? profile.LastRecommendedProducts :
+                profile.CurrentRecommendedProducts?.Count > 0 ? profile.CurrentRecommendedProducts :
+                profile.BaseRecommendedProducts?.Count > 0 ? profile.BaseRecommendedProducts :
+                new List<string>();
+
+            if (source.Count == 0)
+                return;
+
+            var text = NormalizeText(message);
+            var resolved = new List<string>();
+
+            void AddIfValid(int index)
+            {
+                if (index >= 0 && index < source.Count)
+                    resolved.Add(source[index]);
+            }
+
+            int ToIndex(string token)
+            {
+                token = NormalizeText(token);
+
+                return token switch
+                {
+                    "1" or "nhat" => 0,
+                    "2" or "hai" => 1,
+                    "3" or "ba" => 2,
+                    "4" or "tu" => 3,
+                    "5" or "nam" => 4,
+                    _ => -1
+                };
+            }
+
+            var matches = Regex.Matches(
+                text,
+                @"\b(?:xe|mau|con)?\s*(?:thu\s*)?(1|2|3|4|5|nhat|hai|ba|tu|nam)\b",
+                RegexOptions.IgnoreCase);
+
+            foreach (Match m in matches)
+            {
+                var index = ToIndex(m.Groups[1].Value);
+                AddIfValid(index);
+            }
+
+            if (text.Contains("xe dau tien") || text.Contains("mau dau tien") || text.Contains("con dau tien"))
+                AddIfValid(0);
+
+            foreach (var p in resolved.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!intent.MentionedProducts.Contains(p, StringComparer.OrdinalIgnoreCase))
+                    intent.MentionedProducts.Add(p);
+            }
+        }
     }
-}
+    }

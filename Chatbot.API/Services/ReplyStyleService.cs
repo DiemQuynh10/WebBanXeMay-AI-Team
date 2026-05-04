@@ -33,8 +33,17 @@ namespace Chatbot.API.Services
 
             foreach (var item in products)
             {
-                var reason = SafeReason(reasonFactory, item, "là một phương án khá cân bằng trong nhóm đang lọc");
-                sb.AppendLine($"- {item.Ten} ({item.Gia:N0} VNĐ): {reason}");
+                var reason = SafeReason(reasonFactory, item, "mẫu này khá cân bằng trong nhóm");
+
+                var line = Pick(
+     $"- {item.Ten} ({item.Gia:N0} VNĐ): {reason}",
+     $"- {item.Ten} ({item.Gia:N0} VNĐ) — {reason}",
+     $"- {item.Ten} ({item.Gia:N0} VNĐ) khá hợp nếu bạn ưu tiên {reason}",
+     $"- {item.Ten} ({item.Gia:N0} VNĐ) đáng xem vì {reason}",
+     $"- {item.Ten} ({item.Gia:N0} VNĐ) là phương án nên cân nhắc: {reason}"
+ );
+
+                sb.AppendLine(line);
             }
 
             sb.AppendLine();
@@ -169,8 +178,8 @@ namespace Chatbot.API.Services
         $"{top.Ten} ({top.Gia:N0} VNĐ) là lựa chọn khác khá hợp, vì {mainReason}."
     )
     : Pick(
-        $"Trong nhóm này, mình sẽ để {top.Ten} ({top.Gia:N0} VNĐ) lên trước -{mainReason}.",
-$"Nếu chọn nhanh, {top.Ten} ({top.Gia:N0} VNĐ) là phương án dễ chốt hơn -{mainReason}.",
+        $"Trong nhóm này, mình sẽ để {top.Ten} ({top.Gia:N0} VNĐ) lên trước - {mainReason}.",
+$"Nếu chọn nhanh, {top.Ten} ({top.Gia:N0} VNĐ) là phương án dễ chốt hơn - {mainReason}.",
 $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
     );
 
@@ -964,6 +973,8 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
                 sb.AppendLine();
             }
 
+            int index = 0;
+
             foreach (var item in ranked)
             {
                 var reasons = getReasons(item) ?? new List<string>();
@@ -971,19 +982,27 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
                 var priceText = $"{item.Gia:N0} VNĐ";
                 var itemName = item.Ten ?? "Mẫu xe";
 
-                sb.Append("- ");
-                sb.Append(itemName);
-                sb.Append(" (");
-                sb.Append(priceText);
-                sb.Append(")");
-
-                if (!string.IsNullOrWhiteSpace(reasonText))
+                var line = index switch
                 {
-                    sb.Append(": ");
-                    sb.Append(reasonText);
-                }
+                    0 => Pick(
+                        $"- {itemName} ({priceText}) là mẫu mình sẽ xem trước: {reasonText}.",
+                        $"- {itemName} ({priceText}) nổi bật nhất trong nhóm này vì {reasonText}.",
+                        $"- Với {itemName} ({priceText}), điểm đáng chú ý là {reasonText}."
+                    ),
+                    1 => Pick(
+    $"- {itemName} ({priceText}) cũng đáng cân nhắc vì {reasonText}.",
+    $"- Nếu muốn thêm phương án khác, {itemName} ({priceText}) khá ổn: {reasonText}.",
+    $"- {itemName} ({priceText}) là lựa chọn phụ khá hợp, nhất là vì {reasonText}."
+),
+                    _ => Pick(
+                        $"- {itemName} ({priceText}) phù hợp nếu bạn muốn thêm một lựa chọn {reasonText}.",
+                        $"- Còn {itemName} ({priceText}) thì hợp để tham khảo thêm vì {reasonText}.",
+                        $"- {itemName} ({priceText}) cũng có thể xem qua, đặc biệt nếu bạn ưu tiên {reasonText}."
+                    )
+                };
 
-                sb.AppendLine(".");
+                sb.AppendLine(line);
+                index++;
             }
 
             sb.AppendLine();
@@ -1028,7 +1047,7 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
                     !x.Contains("lựa chọn lý tưởng", StringComparison.OrdinalIgnoreCase) &&
 !x.Contains("lựa chọn tuyệt vời", StringComparison.OrdinalIgnoreCase) &&
 !x.Contains("mang lại", StringComparison.OrdinalIgnoreCase) &&
-!x.Contains("thiết kế", StringComparison.OrdinalIgnoreCase)&&
+!x.Contains("thiết kế", StringComparison.OrdinalIgnoreCase) &&
                     !x.Contains("ưu tiên xe số", StringComparison.OrdinalIgnoreCase) &&
 !x.Contains("ưu tiên xe ga", StringComparison.OrdinalIgnoreCase) &&
 !x.Contains("ưu tiên côn tay", StringComparison.OrdinalIgnoreCase) &&
@@ -1055,9 +1074,16 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
                 return fallbacks[new Random().Next(fallbacks.Length)];
             }
 
-            return cleaned.Count == 1
-     ? cleaned[0]
-     : $"{cleaned[0]}, đồng thời {cleaned[1]}";
+            if (cleaned.Count == 1)
+                return cleaned[0];
+
+            return Pick(
+                $"{cleaned[0]}, đồng thời {cleaned[1]}",
+                $"{cleaned[0]}, ngoài ra {cleaned[1]}",
+                $"{cleaned[0]}, thêm vào đó {cleaned[1]}",
+                $"{cleaned[0]} và {cleaned[1]}",
+                $"{cleaned[0]}, đi kèm với {cleaned[1]}"
+            );
         }
         private static string BuildRecommendationFollowUp(ParsedIntent intent, CustomerPreferenceProfile profile)
         {

@@ -24,6 +24,7 @@ namespace Chatbot.API.Services
         private readonly IReplyRewriteService _replyRewriteService;
         private readonly ReplyRewriteOptions _replyRewriteOptions;
         private readonly IRecommendationScoringService _recommendationScoringService;
+        private readonly RecommendationOptions _recommendationOptions;
         public RecommendationFlowService(
             IWebBanXeMayToolClient toolClient,
             IConversationPreferenceService conversationPreferenceService,
@@ -34,6 +35,7 @@ namespace Chatbot.API.Services
             IReplyRewriteService replyRewriteService,
             IRecommendationScoringService recommendationScoringService,
             IOptions<ReplyRewriteOptions> replyRewriteOptions,
+            IOptions<RecommendationOptions> recommendationOptions,
             ILogger<RecommendationFlowService> logger)
         {
             _toolClient = toolClient;
@@ -45,6 +47,7 @@ namespace Chatbot.API.Services
             _replyRewriteService = replyRewriteService;
             _recommendationScoringService = recommendationScoringService;
             _replyRewriteOptions = replyRewriteOptions.Value;
+            _recommendationOptions = recommendationOptions.Value;
             _logger = logger;
         }
 
@@ -194,14 +197,23 @@ namespace Chatbot.API.Services
                 conversationId,
                 rankedByRule.Count);
             var llmReasonMap = new Dictionary<int, string>();
-            await TryApplyLlmReasonsOnlyAsync(
-     conversationId,
-     normalizedMessage,
-     effectiveIntent,
-     profile,
-     rankedByRule,
-     llmReasonMap,
-     ragContext);
+            if (_recommendationOptions.EnableLlmReasons)
+            {
+                await TryApplyLlmReasonsOnlyAsync(
+                    conversationId,
+                    normalizedMessage,
+                    effectiveIntent,
+                    profile,
+                    rankedByRule,
+                    llmReasonMap,
+                    ragContext);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Skip LLM reasons by config. ConversationId={ConversationId}",
+                    conversationId);
+            }
             var ranked = EnforceFinalRecommendationGuards(
                 rankedByRule,
                 effectiveIntent,
@@ -264,7 +276,14 @@ namespace Chatbot.API.Services
                 bool isChangeProduct =
                     effectiveIntent.Action == ConversationAction.ChangeProduct ||
                     string.Equals(effectiveIntent.FollowUpType, "change_product", StringComparison.OrdinalIgnoreCase) ||
-                    effectiveIntent.ExcludePreviousProducts;
+                    effectiveIntent.ExcludePreviousProducts ||
+                    ContainsAny(normalizedMessage,
+                        "xe khac",
+                        "mau khac",
+                        "con khac",
+                        "khac di",
+                        "goi y khac",
+                        "lua chon khac");
 
                 return new ChatResponse
                 {
@@ -273,7 +292,7 @@ namespace Chatbot.API.Services
                     UsedAI = false,
                     UsedTool = ToolNames.GetProductsByFilters,
                     Reply = isChangeProduct
-                       ? "Mình đã giữ các tiêu chí cũ và thử tìm mẫu khác, nhưng hiện chưa có mẫu nào khớp hoàn toàn. Bạn có thể nới nhẹ ngân sách, đổi hãng hoặc bỏ bớt một tiêu chí để mình lọc tiếp nhé."
+                        ? "Mình đã giữ các tiêu chí cũ và thử tìm mẫu khác ngoài các xe vừa gợi ý, nhưng hiện chưa có mẫu nào khớp hoàn toàn. Bạn có thể nới nhẹ ngân sách, đổi hãng hoặc bỏ bớt một tiêu chí để mình lọc tiếp nhé."
                         : _replyStyleService.BuildRecommendationNoMatchReply(
                             effectiveIntent,
                             profile,
@@ -1694,7 +1713,31 @@ namespace Chatbot.API.Services
                 minPrice = Math.Max(0, target - delta);
                 maxPrice = target + delta;
             }
+            bool isExpand =
+    intent.HasExpandRecommendationSignal ||
+    string.Equals(intent.FollowUpType, "expand", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(intent.FollowUpType, "expand_recommendation", StringComparison.OrdinalIgnoreCase);
 
+            if (isExpand)
+            {
+                var anchor = intent.TargetPrice ??
+                             profile.TargetPrice ??
+                             maxPrice ??
+                             minPrice;
+
+                if (anchor.HasValue)
+                {
+                    var newMin = anchor.Value + 1_000_000m;
+                    var newMax = anchor.Value + 8_000_000m;
+
+                    minPrice = newMin;
+                    maxPrice = newMax;
+                    intent.PriceMin = newMin;
+                    intent.PriceMax = newMax;
+                    intent.TargetPrice = null;
+                    intent.FilterType = PriceFilterType.Range;
+                }
+            }
             return (minPrice, maxPrice);
         }
         private static (decimal? minPrice, decimal? maxPrice) RelaxPriceRangeForChangeProduct(
