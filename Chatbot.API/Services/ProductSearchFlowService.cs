@@ -449,14 +449,16 @@ namespace Chatbot.API.Services
         }
 
         private static string BuildShortReason(
-     ProductSummaryDto item,
-     ParsedIntent intent,
-     string? brand,
-     string? category,
-     IProductRecommendationService productRecommendationService)
+    ProductSummaryDto item,
+    ParsedIntent intent,
+    string? brand,
+    string? category,
+    IProductRecommendationService productRecommendationService)
         {
             var name = item.Ten ?? string.Empty;
-            var normalizedCategory = NormalizeCategory(category);
+            var normalizedName = NormalizeText(name);
+            var normalizedCategory = NormalizeCategory(!string.IsNullOrWhiteSpace(item.Loai) ? item.Loai : category);
+            var price = item.Gia;
 
             if (normalizedCategory == "con tay")
             {
@@ -482,12 +484,31 @@ namespace Chatbot.API.Services
                     "phù hợp nếu bạn muốn xe tiết kiệm, dễ dùng lâu dài");
             }
 
-            if (!string.IsNullOrWhiteSpace(brand))
-            {
-                return $"đáng cân nhắc nếu bạn đang ưu tiên hãng {brand}";
-            }
+            if (ContainsAny(normalizedName, "smash", "wave", "sirius", "jupiter", "elegant"))
+                return "giá dễ tiếp cận, phù hợp đi học hoặc di chuyển hằng ngày";
 
-            return "là mẫu khá sát với bộ lọc hiện tại";
+            if (ContainsAny(normalizedName, "address", "vision", "freego", "janus", "latte", "impulse"))
+                return "gọn nhẹ, dễ đi và phù hợp sử dụng trong thành phố";
+
+            if (ContainsAny(normalizedName, "air blade", "pcx", "sh", "lead"))
+                return "thoải mái hơn khi đi phố và phù hợp nếu bạn cần tiện ích hằng ngày";
+
+            if (ContainsAny(normalizedName, "gd110", "axelo", "future"))
+                return "thực dụng, dễ bảo dưỡng và hợp dùng lâu dài";
+
+            if (ContainsAny(normalizedName, "winner", "exciter", "raider"))
+                return "thiết kế thể thao, phù hợp nếu bạn thích cảm giác lái mạnh mẽ";
+
+            if (price > 0 && price < 25_000_000)
+                return "giá rẻ, phù hợp nếu bạn muốn tiết kiệm chi phí";
+
+            if (price > 0 && price < 40_000_000)
+                return "mức giá hợp lý, cân bằng giữa chi phí và nhu cầu sử dụng";
+
+            if (!string.IsNullOrWhiteSpace(brand))
+                return $"một lựa chọn đáng tham khảo trong nhóm {brand}";
+
+            return "một lựa chọn đáng tham khảo trong nhóm này";
         }
         private static string NormalizeCategory(string? category)
         {

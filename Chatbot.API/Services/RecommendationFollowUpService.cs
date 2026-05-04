@@ -260,9 +260,13 @@ namespace Chatbot.API.Services
                 {
                     reason = $"{best.Ten} hợp nữ hơn trong nhóm này vì dáng xe gọn, dễ điều khiển và phù hợp đi phố.";
                 }
-                else if (normalizedMessage.Contains("tiet kiem"))
+                else if (normalizedMessage.Contains("tiet kiem") || normalizedMessage.Contains("it hao xang"))
                 {
-                    reason = $"{best.Ten} tiết kiệm xăng và chi phí sử dụng tốt hơn trong nhóm này.";
+                    reason = BuildPickBestReasonByFeature(best, "fuel_saving");
+                }
+                else if (normalizedMessage.Contains("ben") || normalizedMessage.Contains("it hong") || normalizedMessage.Contains("bao duong"))
+                {
+                    reason = BuildPickBestReasonByFeature(best, "durability");
                 }
                 else if (normalizedMessage.Contains("manh") || normalizedMessage.Contains("khoe"))
                 {
@@ -570,6 +574,35 @@ namespace Chatbot.API.Services
                    name.Contains("zip") ||
                    name.Contains("sirius") ||
                    name.Contains("wave");
+        }
+        private static string BuildPickBestReasonByFeature(ProductSummaryDto product, string feature)
+        {
+            var name = (product.Ten ?? string.Empty).ToLowerInvariant();
+            var category = (product.Loai ?? string.Empty).ToLowerInvariant();
+
+            if (feature == "fuel_saving")
+            {
+                if (name.Contains("wave") || name.Contains("sirius") || name.Contains("future") || name.Contains("jupiter"))
+                    return $"{product.Ten} hợp hơn nếu ưu tiên tiết kiệm xăng vì là nhóm xe số phổ thông, máy nhỏ, chi phí vận hành thấp và dễ dùng hằng ngày";
+
+                if (name.Contains("vision") || name.Contains("address") || name.Contains("freego") || name.Contains("janus"))
+                    return $"{product.Ten} hợp hơn nếu ưu tiên tiết kiệm xăng vì xe khá gọn, dung tích vừa phải, phù hợp đi phố và chi phí sử dụng dễ chịu";
+
+                return $"{product.Ten} hợp hơn nếu ưu tiên tiết kiệm xăng vì chi phí sử dụng tương đối dễ chịu trong nhóm vừa gợi ý";
+            }
+
+            if (feature == "durability")
+            {
+                if (name.Contains("honda"))
+                    return $"{product.Ten} hợp hơn nếu ưu tiên độ bền vì Honda phổ biến, dễ bảo dưỡng và phụ tùng dễ tìm";
+
+                if (name.Contains("wave") || name.Contains("future") || name.Contains("sirius") || name.Contains("jupiter") || name.Contains("smash"))
+                    return $"{product.Ten} hợp hơn nếu ưu tiên độ bền vì thuộc nhóm xe phổ thông, kết cấu đơn giản, dễ sửa và dễ bảo dưỡng";
+
+                return $"{product.Ten} hợp hơn nếu ưu tiên độ bền vì mẫu này khá thực dụng, dễ dùng lâu dài và chi phí bảo dưỡng không quá cao";
+            }
+
+            return $"{product.Ten} đang cân bằng tốt giữa giá, độ dễ dùng và nhu cầu hằng ngày";
         }
     }
 

@@ -1088,6 +1088,13 @@ namespace Chatbot.API.Services
 
         private static void ParseBrand(string text, ParsedIntent result)
         {
+            var fuzzyBrand = ResolveKnownBrandTypo(text);
+            if (!string.IsNullOrWhiteSpace(fuzzyBrand) &&
+                !result.ExcludedBrands.Contains(fuzzyBrand))
+            {
+                result.Brand = fuzzyBrand;
+                return;
+            }
             if (!result.ExcludedBrands.Contains("Honda") && HasWholeWord(text, "honda"))
             {
                 result.Brand = "Honda";
@@ -2232,6 +2239,45 @@ namespace Chatbot.API.Services
                     "xe thu nam",
                     "mau thu nam",
                     "con thu nam");
+        }
+        private static string? ResolveKnownBrandTypo(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+
+            var tokens = text
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Select(x => x.Trim())
+                .Where(x => x.Length >= 3)
+                .ToList();
+
+            var typoMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["hoda"] = "Honda",
+                ["honad"] = "Honda",
+                ["hond"] = "Honda",
+                ["honda"] = "Honda",
+
+                ["yamha"] = "Yamaha",
+                ["yamah"] = "Yamaha",
+                ["yamaa"] = "Yamaha",
+                ["yamaha"] = "Yamaha",
+
+                ["suzki"] = "Suzuki",
+                ["suzuki"] = "Suzuki",
+
+                ["piago"] = "Piaggio",
+                ["piagio"] = "Piaggio",
+                ["piaggio"] = "Piaggio"
+            };
+
+            foreach (var token in tokens)
+            {
+                if (typoMap.TryGetValue(token, out var brand))
+                    return brand;
+            }
+
+            return null;
         }
     }
 }
