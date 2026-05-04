@@ -4,6 +4,7 @@ using Chatbot.API.Configurations;
 using Chatbot.API.Data;
 using Chatbot.API.Services;
 using Chatbot.API.Services.Conversation;
+using Chatbot.API.Services.Intent;
 using Chatbot.API.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -135,6 +136,7 @@ builder.Services.AddScoped<IReplyStyleService, ReplyStyleService>();
 builder.Services.AddScoped<IReplyRewriteService, ReplyRewriteService>();
 builder.Services.AddScoped<IRecommendationScoringService, RecommendationScoringService>();
 builder.Services.AddScoped<IServiceInfoFlowService, ServiceInfoFlowService>();
+builder.Services.AddScoped<IIntentRecoveryService, IntentRecoveryService>();
 
 builder.Services.Configure<ReplyRewriteOptions>(
     builder.Configuration.GetSection("ReplyRewrite"));

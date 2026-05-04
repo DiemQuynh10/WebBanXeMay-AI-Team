@@ -110,7 +110,19 @@ namespace Chatbot.API.Services
                 (intent.MentionedProducts == null || intent.MentionedProducts.Count < 2);
 
             bool shouldForceFullCompareReply = LooksLikeFullCompareQuestion(normalizedMessage);
-
+            if (targetNames.Count > 2 &&
+    !LooksLikeCompareAllRequest(normalizedMessage) &&
+    !HasOrdinalReferenceInMessage(normalizedMessage) &&
+    !HasExplicitProductNameInMessage(normalizedMessage))
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    Reply = "Mình đang có nhiều mẫu trong danh sách vừa gợi ý. Bạn muốn mình so sánh 2 xe đầu, so sánh cả 3 mẫu, hay chỉ định rõ 2 mẫu muốn so sánh?"
+                };
+            }
             if (targetNames.Count < 2)
             {
                 return new ChatResponse
@@ -396,7 +408,9 @@ text.Contains("may mau tren") ||
 text.Contains("cac mau vua goi y") ||
 text.Contains("cac xe vua goi y") ||
 text.Contains("cac mau vua tu van") ||
-text.Contains("cac xe vua tu van")||
+text.Contains("cac xe vua tu van")
+|| text.Contains("ca 3")
+|| text.Contains("ca 4") ||
                 text.Contains("vua roi");
 
             return hasCompareSignal && hasAllSignal;
@@ -579,10 +593,13 @@ text.Contains("cac xe vua tu van")||
 
             if (wantsCompareAll)
             {
-                if (profile?.LastRecommendedProducts != null && profile.LastRecommendedProducts.Count >= 2)
+                if (profile?.CurrentRecommendedProducts != null && profile.CurrentRecommendedProducts.Count >= 2)
+                    candidates.AddRange(profile.CurrentRecommendedProducts);
+                else if (profile?.LastRecommendedProducts != null && profile.LastRecommendedProducts.Count >= 2)
                     candidates.AddRange(profile.LastRecommendedProducts);
-
-                if (profile?.LastMentionedProducts != null && profile.LastMentionedProducts.Count >= 2)
+                else if (profile?.BaseRecommendedProducts != null && profile.BaseRecommendedProducts.Count >= 2)
+                    candidates.AddRange(profile.BaseRecommendedProducts);
+                else if (profile?.LastMentionedProducts != null && profile.LastMentionedProducts.Count >= 2)
                     candidates.AddRange(profile.LastMentionedProducts);
             }
 
@@ -615,7 +632,21 @@ text.Contains("cac xe vua tu van")||
 
             if (wantsCompareAll)
             {
-                return distinct.Take(6).ToList();
+                var requestedCount = DetectRequestedCompareCount(message);
+
+                var source =
+                    profile?.CurrentRecommendedProducts?.Count >= 2 ? profile.CurrentRecommendedProducts :
+                    profile?.LastRecommendedProducts?.Count >= 2 ? profile.LastRecommendedProducts :
+                    profile?.BaseRecommendedProducts?.Count >= 2 ? profile.BaseRecommendedProducts :
+                    profile?.LastMentionedProducts?.Count >= 2 ? profile.LastMentionedProducts :
+                    new List<string>();
+
+                return source
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(NormalizeProductCandidate)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(requestedCount ?? 6)
+                    .ToList();
             }
 
 
@@ -950,14 +981,30 @@ text.Contains("cac xe vua tu van")||
                 .ToList();
 
             var strong = products
-                .Where(x => ContainsAny(x.Ten, "Air Blade", "Winner", "Exciter", "Raider", "Vario", "PCX", "SH"))
-                .ToList();
+      .Where(x =>
+          ContainsAny(x.Ten, "Air Blade", "Winner", "Exciter", "Raider", "Vario", "PCX", "SH") &&
+          !ContainsAny(x.Ten, "Wave", "Sirius", "Jupiter", "Smash", "Axelo", "GD110", "Star SR", "Galaxy Sport")
+      )
+      .ToList();
 
-            var groupedIds = easyRide
-                .Concat(balanced)
-                .Concat(strong)
-                .Select(x => x.Id)
-                .ToHashSet();
+            var basicManual = products
+     .Where(x =>
+         ContainsAny(x.Ten, "Wave", "Sirius", "Jupiter", "Smash", "Axelo", "GD110", "Star SR", "Galaxy Sport")
+     )
+     .ToList();
+
+            var groupedIds = new HashSet<int>();
+
+            void AddGroup(IEnumerable<ProductSummaryDto> group)
+            {
+                foreach (var item in group)
+                    groupedIds.Add(item.Id);
+            }
+
+            AddGroup(easyRide);
+            AddGroup(balanced);
+            AddGroup(strong);
+            AddGroup(basicManual);
 
             var others = products
                 .Where(x => !groupedIds.Contains(x.Id))
@@ -971,6 +1018,9 @@ text.Contains("cac xe vua tu van")||
 
             if (strong.Any())
                 lines.Add($"- Nhóm **đầm hơn, máy khỏe hơn**: {string.Join(", ", strong.Select(x => x.Ten))}.");
+
+            if (basicManual.Any())
+                lines.Add($"- Nhóm **xe số phổ thông, rẻ và dễ nuôi**: {string.Join(", ", basicManual.Select(x => x.Ten))}.");
 
             if (others.Any())
                 lines.Add($"- Nhóm **trung tính / cần cân nhắc thêm**: {string.Join(", ", others.Select(x => x.Ten))}.");
@@ -1051,7 +1101,7 @@ text.Contains("cac xe vua tu van")||
             if (ContainsAny(name, "Future"))
                 return "ưu điểm là bền, thực dụng, tiết kiệm; nhược điểm là không tiện bằng xe ga.";
 
-            if (ContainsAny(name, "Wave", "Sirius", "Jupiter"))
+            if (ContainsAny(name, "Wave", "Sirius", "Jupiter", "Smash", "Axelo", "GD110", "Star SR", "Galaxy Sport"))
                 return "ưu điểm là giá mềm, dễ nuôi; nhược điểm là tiện ích và kiểu dáng không bằng xe ga.";
 
             if (ContainsAny(name, "Winner", "Exciter", "Raider"))
@@ -1093,10 +1143,10 @@ text.Contains("cac xe vua tu van")||
             if (ContainsAny(name, "Future"))
                 return "ưu điểm là bền, tiết kiệm xăng và hợp đi làm; nhược điểm là không tiện bằng xe ga vì không có cốp rộng.";
 
-            if (ContainsAny(name, "Wave"))
+            if (ContainsAny(name, "Wave", "Smash"))
                 return "ưu điểm là rẻ, bền và tiết kiệm; nhược điểm là thiết kế và tiện ích khá cơ bản.";
 
-            if (ContainsAny(name, "Sirius", "Jupiter"))
+            if (ContainsAny(name, "Sirius", "Jupiter", "Axelo", "GD110", "Star SR", "Galaxy Sport"))
                 return "ưu điểm là xe số tiết kiệm, dễ bảo dưỡng; nhược điểm là tiện ích không bằng nhóm xe ga.";
 
             if (ContainsAny(name, "Winner", "Exciter", "Raider"))
@@ -1880,10 +1930,10 @@ text.Contains("cac xe vua tu van")||
             var text = NormalizeText(message);
 
             var source =
-                profile?.LastRecommendedProducts?.Count > 0 ? profile.LastRecommendedProducts :
-                profile?.CurrentRecommendedProducts?.Count > 0 ? profile.CurrentRecommendedProducts :
-                profile?.BaseRecommendedProducts?.Count > 0 ? profile.BaseRecommendedProducts :
-                new List<string>();
+    profile?.CurrentRecommendedProducts?.Count > 0 ? profile.CurrentRecommendedProducts :
+    profile?.LastRecommendedProducts?.Count > 0 ? profile.LastRecommendedProducts :
+    profile?.BaseRecommendedProducts?.Count > 0 ? profile.BaseRecommendedProducts :
+    new List<string>();
 
             if (source.Count == 0)
                 return new List<string>();
@@ -1910,7 +1960,14 @@ text.Contains("cac xe vua tu van")||
                     _ => -1
                 };
             }
-
+            if (text.Contains("2 xe dau") ||
+    text.Contains("hai xe dau") ||
+    text.Contains("2 mau dau") ||
+    text.Contains("hai mau dau"))
+            {
+                AddIfValid(0);
+                AddIfValid(1);
+            }
             var matches = Regex.Matches(
                 text,
                 @"\b(?:xe|mau|con)?\s*(?:thu\s*)?(1|2|3|4|5|nhat|hai|ba|tu|nam)\b",
@@ -1948,6 +2005,30 @@ text.Contains("cac xe vua tu van")||
                    text.Contains("xe thu ba") ||
                    text.Contains("mau thu 3") ||
                    text.Contains("mau thu ba");
+        }
+        private static int? DetectRequestedCompareCount(string message)
+        {
+            var text = NormalizeText(message);
+
+            if (
+                text.Contains("ca 3") ||
+                text.Contains("3 mau") ||
+                text.Contains("3 xe") ||
+                text.Contains("ba mau") ||
+                text.Contains("ba xe")
+            )
+                return 3;
+
+            if (
+                text.Contains("ca 4") ||
+                text.Contains("4 mau") ||
+                text.Contains("4 xe") ||
+                text.Contains("bon mau") ||
+                text.Contains("bon xe")
+            )
+                return 4;
+
+            return null;
         }
     }
 }

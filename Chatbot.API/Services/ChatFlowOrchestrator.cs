@@ -36,6 +36,7 @@ namespace Chatbot.API.Services
         private readonly ITurnContextBuilder _turnContextBuilder;
         private readonly IRecommendationFollowUpService _recommendationFollowUpService;
         private readonly IRagService _ragService;
+        private readonly IIntentRecoveryService _intentRecoveryService;
         public ChatFlowOrchestrator(
     ILogger<ChatFlowOrchestrator> logger,
     IClarificationStateService clarificationStateService,
@@ -56,7 +57,8 @@ namespace Chatbot.API.Services
     IConversationStateService conversationStateService,
     IRecommendationFollowUpService recommendationFollowUpService,
     ITurnContextBuilder turnContextBuilder,
-    IRagService ragService)
+    IRagService ragService,
+    IIntentRecoveryService intentRecoveryService)
         {
             _logger = logger;
             _clarificationStateService = clarificationStateService;
@@ -78,6 +80,8 @@ namespace Chatbot.API.Services
             _recommendationFollowUpService = recommendationFollowUpService;
             _turnContextBuilder = turnContextBuilder;
             _ragService = ragService;
+            _intentRecoveryService = intentRecoveryService;
+
         }
 
         public async Task<ChatResponse> HandleAsync(ChatRequest request)
@@ -214,8 +218,12 @@ namespace Chatbot.API.Services
                     }
                 };
             }
-
             var parsedIntent = await ParseIntentAsync(normalizedMessage, existingProfile);
+
+            _intentRecoveryService.Recover(
+                normalizedMessage,
+                parsedIntent,
+                existingProfile);
             var isStrongStandaloneIntent = IsStrongStandaloneIntent(parsedIntent);
             bool isFreshBrandOnlyRequestByText =
     IsFreshBrandOnlyRequestByText(normalizedMessage, parsedIntent);
@@ -577,7 +585,16 @@ namespace Chatbot.API.Services
                 context.ConversationId,
                 context.FinalRouting?.FlowType ?? ChatFlowType.Unknown,
                 context.NormalizedMessage);
-
+            if (string.Equals(context.FinalRouting?.Reason, "Bare compare request with multiple recommendation candidates", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    UsedAI = false,
+                    ConversationId = context.ConversationId,
+                    Reply = "Mình đang có nhiều mẫu trong danh sách vừa gợi ý. Bạn muốn mình **so sánh 2 xe đầu**, **so sánh cả 3 mẫu**, hay chỉ định rõ 2 mẫu muốn so sánh?"
+                };
+            }
             var aiFallback = await TryAiFallbackAsync(context);
             if (aiFallback != null)
                 return aiFallback;
@@ -859,6 +876,16 @@ RAG context:
                     context.NormalizedMessage,
                     context.EffectiveIntent,
                     context.ExistingProfile);
+            }
+            if (context.FinalRouting?.Reason == "Excluded brand not present in current recommendation list")
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    UsedAI = false,
+                    ConversationId = context.ConversationId,
+                    Reply = "Trong các mẫu mình vừa gợi ý hiện chưa có hãng đó. Bạn muốn mình loại thêm hãng nào khác, hay tư vấn lại theo tiêu chí mới?"
+                };
             }
             if (string.Equals(flowType, ChatFlowType.Recommendation, StringComparison.OrdinalIgnoreCase))
             {
@@ -3433,6 +3460,80 @@ turnContext.Reason,
                        text.Contains("thu tuc") ||
                        text.Contains("giay to")
                    );
+        }
+        private static void RecoverMultiCriteriaRecommendation(string message, ParsedIntent intent)
+        {
+            if (intent == null || string.IsNullOrWhiteSpace(message))
+                return;
+
+            var text = NormalizeText(message);
+
+            bool hasVehicleSignal =
+                text.Contains("xe ga") ||
+                text.Contains("xe so") ||
+                text.Contains("xe côn") ||
+                text.Contains("xe con");
+
+            bool hasBrandSignal =
+                text.Contains("honda") ||
+                text.Contains("yamaha") ||
+                text.Contains("suzuki") ||
+                text.Contains("sym") ||
+                text.Contains("piaggio");
+
+            bool hasTargetSignal =
+                text.Contains("cho nu") ||
+                text.Contains("cho nữ") ||
+                text.Contains("cho nam") ||
+                text.Contains("sinh vien") ||
+                text.Contains("hoc sinh");
+
+            bool hasPriceSignal =
+                intent.PriceMin.HasValue ||
+                intent.PriceMax.HasValue ||
+                intent.TargetPrice.HasValue ||
+                text.Contains("trieu") ||
+                text.Contains("triệu") ||
+                text.Contains("tr ") ||
+                text.Contains("cu") ||
+                text.Contains("củ");
+
+            if (!(hasVehicleSignal && (hasBrandSignal || hasTargetSignal || hasPriceSignal)))
+                return;
+
+            intent.IntentType = "recommend";
+            intent.RouteFlow = ChatFlowType.Recommendation;
+            intent.IsOpenRecommendation = true;
+            intent.IsFollowUp = false;
+            intent.HasFreshConsultationSignal = true;
+            intent.IsNoise = false;
+            intent.IsOutOfScope = false;
+
+            if (string.IsNullOrWhiteSpace(intent.Category))
+            {
+                if (text.Contains("xe ga"))
+                    intent.Category = "xe ga";
+                else if (text.Contains("xe so"))
+                    intent.Category = "xe số";
+                else if (text.Contains("xe con") || text.Contains("xe côn"))
+                    intent.Category = "côn tay";
+            }
+
+            if (string.IsNullOrWhiteSpace(intent.Brand))
+            {
+                if (text.Contains("honda")) intent.Brand = "Honda";
+                else if (text.Contains("yamaha")) intent.Brand = "Yamaha";
+                else if (text.Contains("suzuki")) intent.Brand = "Suzuki";
+                else if (text.Contains("sym")) intent.Brand = "SYM";
+                else if (text.Contains("piaggio")) intent.Brand = "Piaggio";
+            }
+
+            if (text.Contains("cho nu") || text.Contains("cho nữ"))
+            {
+                intent.Target = "nữ";
+                intent.PrefersFemaleStyle = true;
+                intent.WantsEasyControl = true;
+            }
         }
     }
 }

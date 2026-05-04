@@ -67,6 +67,26 @@ namespace Chatbot.API.Services.Conversation
                 routing.Reason = "Pick best requested but no active context";
                 return routing;
             }
+            if (hasRecommendationContext &&
+    LooksLikeCompareFeatureWithinRecommendation(text, effectiveIntent))
+            {
+                effectiveIntent.IntentType = "recommend";
+                effectiveIntent.RouteFlow = ChatFlowType.RecommendationFollowUp;
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.FollowUpType = "pick_best";
+                effectiveIntent.KeepConstraints = true;
+                effectiveIntent.ExcludePreviousProducts = false;
+                effectiveIntent.HasNarrowRefinementSignal = true;
+                effectiveIntent.IsDirectCompare = false;
+                effectiveIntent.IsOpenRecommendation = false;
+
+                routing.FlowType = ChatFlowType.RecommendationFollowUp;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Pick best by feature within current recommendation list";
+                return routing;
+            }
             if (IsProductCategoryQuestion(text, effectiveIntent))
             {
                 effectiveIntent.IntentType = "product_lookup";
@@ -349,6 +369,52 @@ namespace Chatbot.API.Services.Conversation
                 routing.ShouldUseAiFallback = false;
                 routing.ShouldUseRag = false;
                 routing.Reason = "Forced by order lookup reference follow-up";
+                return routing;
+            }
+            if (LooksLikeBareCompareCurrentListRequest(text) &&
+    hasRecommendationContext)
+            {
+                var currentCount = conversationProfile?.CurrentRecommendedProducts?.Count
+                    ?? conversationProfile?.LastRecommendedProducts?.Count
+                    ?? 0;
+
+                if (currentCount > 2)
+                {
+                    routing.FlowType = ChatFlowType.Unknown;
+                    routing.ShouldUseDeterministicFlow = false;
+                    routing.ShouldUseAiFallback = false;
+                    routing.ShouldUseRag = false;
+                    routing.Reason = "Bare compare request with multiple recommendation candidates";
+                    return routing;
+                }
+
+                effectiveIntent.IntentType = "compare";
+                effectiveIntent.RouteFlow = ChatFlowType.Compare;
+                effectiveIntent.IsDirectCompare = true;
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.FollowUpType = "compare";
+                effectiveIntent.IsOpenRecommendation = false;
+
+                effectiveIntent.ExcludedBrands.Clear();
+                effectiveIntent.ExcludedProducts.Clear();
+                effectiveIntent.ExcludedCategories.Clear();
+
+                routing.FlowType = ChatFlowType.Compare;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Bare compare current recommendation list";
+                return routing;
+            }
+            if (hasRecommendationContext &&
+    HasExclusionConstraint(effectiveIntent) &&
+    ExcludedBrandNotInCurrentRecommendation(effectiveIntent, conversationProfile))
+            {
+                routing.FlowType = ChatFlowType.Unknown;
+                routing.ShouldUseDeterministicFlow = false;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Excluded brand not present in current recommendation list";
                 return routing;
             }
             if (!IsExplicitCompareRequest(text, effectiveIntent) &&
@@ -1402,7 +1468,14 @@ text.Contains("khi mua xe") ||
                     _ => -1
                 };
             }
-
+            if (text.Contains("2 xe dau") ||
+    text.Contains("hai xe dau") ||
+    text.Contains("2 mau dau") ||
+    text.Contains("hai mau dau"))
+            {
+                AddIfValid(0);
+                AddIfValid(1);
+            }
             var matches = Regex.Matches(
                 text,
                 @"\b(?:xe|mau|con)?\s*(?:thu\s*)?(1|2|3|4|5|nhat|hai|ba|tu|nam)\b",
@@ -1422,6 +1495,79 @@ text.Contains("khi mua xe") ||
                 if (!intent.MentionedProducts.Contains(p, StringComparer.OrdinalIgnoreCase))
                     intent.MentionedProducts.Add(p);
             }
+        }
+        private static bool LooksLikeCompareFeatureWithinRecommendation(string message, ParsedIntent intent)
+        {
+            var text = NormalizeText(message);
+
+            bool asksWhich =
+                text.Contains("xe nao") ||
+                text.Contains("mau nao") ||
+                text.Contains("con nao") ||
+                text.Contains("cai nao");
+
+            bool hasFeature =
+                text.Contains("tiet kiem xang") ||
+                text.Contains("it hao xang") ||
+                text.Contains("ben hon") ||
+                text.Contains("bền hơn") ||
+                text.Contains("de di hon") ||
+                text.Contains("dễ đi hơn") ||
+                text.Contains("re hon") ||
+                text.Contains("rẻ hơn") ||
+                text.Contains("tot hon") ||
+                text.Contains("tốt hơn") ||
+                !string.IsNullOrWhiteSpace(intent.ComparisonFeature);
+
+            if (text.Contains("tiet kiem xang") || text.Contains("it hao xang"))
+                intent.ComparisonFeature ??= "fuel_saving";
+
+            if (text.Contains("ben hon") || text.Contains("bền hơn"))
+                intent.ComparisonFeature ??= "durability";
+
+            return asksWhich && hasFeature;
+        }
+        private static bool ExcludedBrandNotInCurrentRecommendation(
+    ParsedIntent intent,
+    CustomerPreferenceProfile profile)
+        {
+            if (intent?.ExcludedBrands == null || intent.ExcludedBrands.Count == 0 || profile == null)
+                return false;
+
+            var currentProducts = new List<string>();
+
+            if (profile.CurrentRecommendedProducts != null)
+                currentProducts.AddRange(profile.CurrentRecommendedProducts);
+
+            if (currentProducts.Count == 0 && profile.LastRecommendedProducts != null)
+                currentProducts.AddRange(profile.LastRecommendedProducts);
+
+            if (currentProducts.Count == 0 && profile.BaseRecommendedProducts != null)
+                currentProducts.AddRange(profile.BaseRecommendedProducts);
+
+            if (currentProducts.Count == 0)
+                return false;
+
+            foreach (var excludedBrand in intent.ExcludedBrands)
+            {
+                if (currentProducts.Any(p =>
+                    !string.IsNullOrWhiteSpace(p) &&
+                    p.Contains(excludedBrand, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        private static bool LooksLikeBareCompareCurrentListRequest(string message)
+        {
+            var text = NormalizeText(message);
+
+            return text == "so sanh" ||
+                   text == "so sanh di" ||
+                   text == "so sanh tiep" ||
+                   text == "compare";
         }
     }
     }
