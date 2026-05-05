@@ -64,7 +64,21 @@ namespace Chatbot.API.Services
             }
             if (isFreshRecommendation)
             {
+                var oldExcludedBrands = new HashSet<string>(profile.ExcludedBrands, StringComparer.OrdinalIgnoreCase);
+                var oldExcludedCategories = new HashSet<string>(profile.ExcludedCategories, StringComparer.OrdinalIgnoreCase);
+                var oldExcludedProducts = new HashSet<string>(profile.ExcludedProducts, StringComparer.OrdinalIgnoreCase);
+
                 ResetUserPreferenceState(profile);
+
+                foreach (var brand in oldExcludedBrands)
+                    profile.ExcludedBrands.Add(brand);
+
+                foreach (var category in oldExcludedCategories)
+                    profile.ExcludedCategories.Add(category);
+
+                foreach (var product in oldExcludedProducts)
+                    profile.ExcludedProducts.Add(product);
+
                 ResetCompareContextForFreshRecommendation(profile);
                 ApplyFreshRecommendationProfile(profile, intent, genderSignals.MentionsMale, genderSignals.MentionsFemale);
             }
@@ -664,10 +678,23 @@ namespace Chatbot.API.Services
             profile.PrefersMaleStyle = false;
             profile.PrefersFemaleStyle = false;
 
+            var oldExcludedBrands = new HashSet<string>(profile.ExcludedBrands, StringComparer.OrdinalIgnoreCase);
+            var oldExcludedCategories = new HashSet<string>(profile.ExcludedCategories, StringComparer.OrdinalIgnoreCase);
+            var oldExcludedProducts = new HashSet<string>(profile.ExcludedProducts, StringComparer.OrdinalIgnoreCase);
+
             profile.ExcludedCategories.Clear();
             profile.ExcludedBrands.Clear();
             profile.RequestedStyles.Clear();
             profile.ExcludedProducts.Clear();
+
+            foreach (var item in oldExcludedBrands)
+                profile.ExcludedBrands.Add(item);
+
+            foreach (var item in oldExcludedCategories)
+                profile.ExcludedCategories.Add(item);
+
+            foreach (var item in oldExcludedProducts)
+                profile.ExcludedProducts.Add(item);
 
             // Gán lại từ intent mới
             if (intent.FilterType != PriceFilterType.None)

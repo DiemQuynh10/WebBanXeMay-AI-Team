@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using static Chatbot.API.Models.Intent.ParsedIntent;
 using Chatbot.API.Models.Rag;
 using System.Text.RegularExpressions;
+using System.Text;
 namespace Chatbot.API.Services
 {
     public class ChatFlowOrchestrator : IChatFlowOrchestrator
@@ -317,6 +318,23 @@ namespace Chatbot.API.Services
      state);
 
             var effectiveIntent = turnContext.EffectiveIntent ?? parsedIntent;
+            if (LooksLikeValueForMoneyQuestion(normalizedMessage))
+            {
+                effectiveIntent = parsedIntent.Clone();
+
+                effectiveIntent.IntentType = "recommend";
+                effectiveIntent.RouteFlow = ChatFlowType.Recommendation;
+                effectiveIntent.IsOpenRecommendation = true;
+                effectiveIntent.HasFreshConsultationSignal = true;
+                effectiveIntent.IsFollowUp = false;
+                effectiveIntent.FollowUpType = null;
+
+                effectiveIntent.WantsFuelSaving = true;
+                effectiveIntent.WantsEasyControl = true;
+
+                effectiveIntent.IsOutOfScope = false;
+                effectiveIntent.IsNoise = false;
+            }
             if (LooksLikeGlobalProductStatisticQuery(normalizedMessage) &&
     !LooksLikeCheapestQuestionForCurrentList(normalizedMessage))
             {
@@ -505,6 +523,39 @@ namespace Chatbot.API.Services
                     ResetOldRecommendationConstraintsForFreshBrandOnly(effectiveIntent);
                     effectiveIntent.Brand = parsedIntent.Brand;
                 }
+            }
+            if (LooksLikeAskAlternativeAfterCompare(normalizedMessage) &&
+    existingProfile?.HasActiveCompareContext == true)
+            {
+                effectiveIntent = parsedIntent.Clone();
+
+                effectiveIntent.IntentType = "recommend";
+                effectiveIntent.RouteFlow = ChatFlowType.Recommendation;
+                effectiveIntent.IsOutOfScope = false;
+                effectiveIntent.IsNoise = false;
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.FollowUpType = "alternative_after_compare";
+                effectiveIntent.ExcludePreviousProducts = false;
+                effectiveIntent.ComparisonFeature = "alternative";
+                effectiveIntent.HasExpandRecommendationSignal = true;
+                effectiveIntent.HasFreshConsultationSignal = false;
+
+                effectiveIntent.MentionedProducts.Clear();
+            }
+            if (LooksLikePickBestFollowUp(normalizedMessage) &&
+    HasAnyRecommendationProductContext(existingProfile))
+            {
+                effectiveIntent = parsedIntent.Clone();
+
+                effectiveIntent.IntentType = "recommend";
+                effectiveIntent.RouteFlow = ChatFlowType.RecommendationFollowUp;
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.FollowUpType = "pick_best";
+                effectiveIntent.IsOpenRecommendation = false;
+                effectiveIntent.IsDirectCompare = false;
+                effectiveIntent.IsOutOfScope = false;
+                effectiveIntent.IsNoise = false;
+                effectiveIntent.IsAck = false;
             }
             if (effectiveIntent.IsOutOfScope ||
     effectiveIntent.IsNoise ||
@@ -802,16 +853,58 @@ RAG context:
             if (string.IsNullOrWhiteSpace(ragContext))
                 return "Mình chưa tìm thấy thông tin phù hợp trong dữ liệu hiện tại.";
 
-            var lines = ragContext
+            var values = ragContext
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(ExtractReadableRagValue)
                 .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Take(6)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(4)
                 .ToList();
 
-            if (lines.Count == 0)
+            if (values.Count == 0)
                 return "Mình chưa tìm thấy thông tin phù hợp trong dữ liệu hiện tại.";
 
-            return string.Join("\n", lines);
+            var sb = new StringBuilder();
+            sb.AppendLine("Theo thông tin hiện có, bạn cần lưu ý:");
+
+            foreach (var value in values)
+            {
+                sb.AppendLine($"- {value}");
+            }
+
+            return sb.ToString().Trim();
+        }
+
+        private static string ExtractReadableRagValue(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                return string.Empty;
+
+            var text = line.Trim();
+
+            var valueIndex = text.IndexOf("value:", StringComparison.OrdinalIgnoreCase);
+            if (valueIndex >= 0)
+            {
+                text = text[(valueIndex + "value:".Length)..].Trim();
+            }
+
+            text = text
+                .Replace("domain: paperwork.", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("slot: documents.", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("domain:", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("slot:", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("brand:", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("source:", "", StringComparison.OrdinalIgnoreCase)
+                .Trim('-', ' ', '.', ':');
+
+            if (text.Contains("general", StringComparison.OrdinalIgnoreCase) ||
+                text.Equals("paperwork", StringComparison.OrdinalIgnoreCase) ||
+                text.Equals("documents", StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+            return text;
         }
         private async Task<ChatResponse?> ExecuteDeterministicFlowAsync(ChatOrchestrationContext context)
         {
@@ -860,9 +953,21 @@ RAG context:
                     Reply = BuildHumanSupportReply(context.NormalizedMessage)
                 };
             }
-
             if (string.Equals(flowType, ChatFlowType.OutOfScope, StringComparison.OrdinalIgnoreCase))
             {
+                if (LooksLikePickBestFollowUp(context.NormalizedMessage))
+                {
+                    return new ChatResponse
+                    {
+                        Success = true,
+                        UsedAI = false,
+                        ConversationId = context.ConversationId,
+                        Reply =
+                            "Bạn chưa nói rõ muốn chọn dựa trên tiêu chí nào hoặc từ danh sách nào trước đó.\n" +
+                            "Bạn có thể cho mình thêm thông tin để mình chọn giúp chính xác hơn nhé."
+                    };
+                }
+
                 return new ChatResponse
                 {
                     Success = true,
@@ -893,7 +998,18 @@ RAG context:
                     Reply = "Bạn muốn mình hỗ trợ tiếp theo hướng nào: tra giá xe, kiểm tra tồn kho, so sánh xe hay tư vấn mẫu phù hợp?"
                 };
             }
-
+            if (LooksLikeAmbiguousBetterQuestion(context.NormalizedMessage) &&
+    context.ExistingProfile?.HasActiveRecommendationContext != true &&
+    context.ExistingProfile?.HasActiveCompareContext != true)
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = context.ConversationId,
+                    UsedAI = false,
+                    Reply = "Bạn muốn so với mẫu nào, hay muốn mình gợi ý vài mẫu ổn trong tầm giá phổ thông? Nếu có ngân sách khoảng bao nhiêu thì mình tư vấn sát hơn."
+                };
+            }
             if (string.Equals(flowType, ChatFlowType.OrderLookup, StringComparison.OrdinalIgnoreCase))
             {
                 return await _orderLookupFlowService.HandleAsync(
@@ -911,6 +1027,26 @@ RAG context:
                     context.NormalizedMessage,
                     context.EffectiveIntent,
                     context.ExistingProfile);
+            }
+            if (LooksLikeNegativeBrandOnlyRecommendation(context.NormalizedMessage, context.EffectiveIntent))
+            {
+                var excludedBrand = context.EffectiveIntent.ExcludedBrands.FirstOrDefault()
+                                    ?? DetectNegativeBrandFromText(context.NormalizedMessage)
+                                    ?? "hãng đó";
+
+                _clarificationStateService.SetPending(
+                    context.ConversationId,
+                    $"RECOMMENDATION_WITH_EXCLUSION_NEEDS_CRITERIA::{excludedBrand}");
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    UsedAI = false,
+                    ConversationId = context.ConversationId,
+                    Reply =
+                        $"Mình đã hiểu là bạn không muốn chọn {excludedBrand}. " +
+                        "Bạn cho mình thêm tầm giá hoặc nhu cầu chính, mình sẽ tư vấn lại và loại hãng đó ra nhé."
+                };
             }
             if (LooksLikeUnknownBrand(context.NormalizedMessage, context.EffectiveIntent))
             {
@@ -939,7 +1075,14 @@ RAG context:
                     context.EffectiveIntent,
                     context.ExistingProfile);
             }
-
+            if (string.Equals(flowType, ChatFlowType.Compare, StringComparison.OrdinalIgnoreCase))
+            {
+                return await _compareService.CompareAsync(
+                    context.ConversationId,
+                    context.NormalizedMessage,
+                    context.EffectiveIntent,
+                    context.ExistingProfile);
+            }
             if (string.Equals(flowType, ChatFlowType.Refinement, StringComparison.OrdinalIgnoreCase))
             {
                 if (ShouldAskScopeBeforeRetryAfterExclusion(context))
@@ -968,14 +1111,23 @@ RAG context:
                     context.EffectiveIntent,
                     context.ExistingProfile);
             }
-
-            if (string.Equals(flowType, ChatFlowType.Compare, StringComparison.OrdinalIgnoreCase))
+            if (LooksLikeGenericDislike(context.NormalizedMessage) &&
+    context.ExistingProfile?.HasActiveCompareContext == true)
             {
-                return await _compareService.CompareAsync(
+                _clarificationStateService.SetPending(
                     context.ConversationId,
-                    context.NormalizedMessage,
-                    context.EffectiveIntent,
-                    context.ExistingProfile);
+                    "DISLIKE_AFTER_COMPARE");
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    UsedAI = false,
+                    ConversationId = context.ConversationId,
+                    Reply =
+                        "Ok, mình hiểu là bạn chưa ưng hai mẫu vừa so sánh.\n\n" +
+                        "Bạn muốn mình **tư vấn lại mẫu khác**, hay vẫn **giữ hai xe đó và so sánh thêm tiêu chí khác**?\n" +
+                        "Bạn có thể trả lời: **tư vấn lại** hoặc **so sánh tiếp** nhé."
+                };
             }
             if (string.Equals(flowType, ChatFlowType.RecommendationFollowUp, StringComparison.OrdinalIgnoreCase))
             {
@@ -986,16 +1138,6 @@ RAG context:
                     context.NormalizedMessage,
                     context.EffectiveIntent,
                     context.ExistingProfile);
-            }
-            if (context.FinalRouting?.Reason == "Excluded brand not present in current recommendation list")
-            {
-                return new ChatResponse
-                {
-                    Success = true,
-                    UsedAI = false,
-                    ConversationId = context.ConversationId,
-                    Reply = "Trong các mẫu mình vừa gợi ý hiện chưa có hãng đó. Bạn muốn mình loại thêm hãng nào khác, hay tư vấn lại theo tiêu chí mới?"
-                };
             }
             if (string.Equals(flowType, ChatFlowType.Recommendation, StringComparison.OrdinalIgnoreCase))
             {
@@ -1163,6 +1305,114 @@ Tin nhắn người dùng: {normalizedMessage}";
 
             if (string.IsNullOrWhiteSpace(pendingClarification))
                 return (false, null);
+
+            if (pendingClarification.StartsWith("DISLIKE_AFTER_COMPARE", StringComparison.OrdinalIgnoreCase))
+            {
+                var reply = NormalizeText(originalMessage);
+                if (reply.Contains("tu van") || reply.Contains("goi y") || reply.Contains("mau khac") || reply.Contains("xe khac"))
+                {
+                    var profile = await _conversationPreferenceService.GetAsync(conversationId);
+                    if (profile != null)
+                    {
+                        ClearCompareContextIfNeeded(profile);
+                        profile.HasActiveRecommendationContext = false;
+                        profile.ActiveFlow = ChatFlowType.Recommendation;
+                    }
+
+                    _clarificationStateService.SetPending(
+                        conversationId,
+                        "RESTART_RECOMMENDATION_NEEDS_CRITERIA");
+
+                    return (true, new ChatResponse
+                    {
+                        Success = true,
+                        UsedAI = false,
+                        ConversationId = conversationId,
+                        ElapsedMs = elapsedMs,
+                        Reply =
+                            "Được nhé, mình sẽ tư vấn lại theo hướng khác.\n\n" +
+                            "Bạn cho mình thêm một tiêu chí để lọc chính xác hơn nhé, ví dụ:\n" +
+                            "- Tầm giá khoảng bao nhiêu?\n" +
+                            "- Muốn xe ga hay xe số?\n" +
+                            "- Ưu tiên dễ đi, tiết kiệm xăng hay đi xa tốt?"
+                    });
+                }
+              
+                if (reply.Contains("so sanh") || reply.Contains("tiep") || reply.Contains("giu"))
+                {
+                    _clarificationStateService.Clear(conversationId);
+                    return (true, new ChatResponse
+                    {
+                        Success = true,
+                        UsedAI = false,
+                        ConversationId = conversationId,
+                        ElapsedMs = elapsedMs,
+                        Reply = "Ok, mình giữ hai mẫu vừa rồi. Bạn muốn so sánh thêm về giá, kiểu dáng, độ bền, đi xa hay tiết kiệm xăng?"
+                    });
+                }
+
+                return (true, new ChatResponse
+                {
+                    Success = true,
+                    UsedAI = false,
+                    ConversationId = conversationId,
+                    ElapsedMs = elapsedMs,
+                    Reply = "Bạn muốn mình **tư vấn lại mẫu khác** hay **so sánh tiếp** hai mẫu vừa rồi?"
+                });
+            }
+            if (pendingClarification.StartsWith("RESTART_RECOMMENDATION_NEEDS_CRITERIA", StringComparison.OrdinalIgnoreCase))
+            {
+                var reply = NormalizeText(originalMessage);
+
+                if (LooksLikeRecommendationCriteriaAnswer(reply))
+                {
+                    request.Message = $"tư vấn xe {originalMessage}";
+                    _clarificationStateService.Clear(conversationId);
+                    return (false, null);
+                }
+
+                if (reply.Contains("so sanh") || reply.Contains("giu") || reply.Contains("tiep"))
+                {
+                    _clarificationStateService.Clear(conversationId);
+                    return (false, null);
+                }
+
+                return (true, new ChatResponse
+                {
+                    Success = true,
+                    UsedAI = false,
+                    ConversationId = conversationId,
+                    ElapsedMs = elapsedMs,
+                    Reply =
+                        "Bạn nói thêm giúp mình một tiêu chí cụ thể nhé, ví dụ: **khoảng 30 triệu**, **xe ga**, **xe số**, **cho nữ**, hoặc **tiết kiệm xăng**."
+                });
+            }
+            if (pendingClarification.StartsWith("RECOMMENDATION_WITH_EXCLUSION_NEEDS_CRITERIA::", StringComparison.OrdinalIgnoreCase))
+            {
+                var excludedPart = pendingClarification
+                    .Replace("RECOMMENDATION_WITH_EXCLUSION_NEEDS_CRITERIA::", "", StringComparison.OrdinalIgnoreCase)
+                    .Trim();
+
+                var reply = NormalizeText(originalMessage);
+
+                if (LooksLikeRecommendationCriteriaAnswer(reply))
+                {
+                    request.Message = $"tư vấn xe không thích {excludedPart} {originalMessage}";
+                    _clarificationStateService.Clear(conversationId);
+                    return (false, null);
+                }
+
+                return (true, new ChatResponse
+                {
+                    Success = true,
+                    UsedAI = false,
+                    ConversationId = conversationId,
+                    ElapsedMs = elapsedMs,
+                    Reply =
+                        $"Mình đã ghi nhận là bạn không muốn chọn {excludedPart}. " +
+                        "Bạn nói thêm giúp mình tầm giá hoặc nhu cầu chính nhé, ví dụ: **khoảng 30 triệu**, **xe ga**, **xe số**, hoặc **đi làm hằng ngày**."
+                });
+            }
             if (pendingClarification.StartsWith("UNKNOWN_BRAND::", StringComparison.OrdinalIgnoreCase))
             {
                 _clarificationStateService.Clear(conversationId);
@@ -1425,6 +1675,18 @@ Tin nhắn người dùng: {normalizedMessage}";
             var parsedIntent = await ParseBaseIntentAsync(normalizedMessage);
 
             ApplyPriceIntent(parsedIntent, normalizedMessage);
+            if (LooksLikeValueForMoneyQuestion(normalizedMessage))
+            {
+                parsedIntent.IntentType = "recommend";
+                parsedIntent.RouteFlow = ChatFlowType.Recommendation;
+                parsedIntent.IsOpenRecommendation = true;
+                parsedIntent.HasFreshConsultationSignal = true;
+                parsedIntent.WantsFuelSaving = true;
+                parsedIntent.WantsEasyControl = true;
+                parsedIntent.IsOutOfScope = false;
+                parsedIntent.IsNoise = false;
+                return parsedIntent;
+            }
             if (LooksLikeGlobalProductStatisticQuery(normalizedMessage) &&
      !LooksLikeCheapestQuestionForCurrentList(normalizedMessage))
             {
@@ -1619,6 +1881,38 @@ Tin nhắn người dùng: {normalizedMessage}";
                    text.Contains("bo ") ||
                    text.Contains("loai ") ||
                    text.Contains("tru ");
+        }
+        private static bool LooksLikeRecommendationCriteriaAnswer(string message)
+        {
+            var text = NormalizeText(message);
+
+            return text.Contains("trieu") ||
+                   text.Contains("khoang") ||
+                   text.Contains("tam") ||
+                   text.Contains("duoi") ||
+                   text.Contains("tren") ||
+                   text.Any(char.IsDigit) ||
+
+                   text.Contains("xe ga") ||
+                   text.Contains("tay ga") ||
+                   text.Contains("xe so") ||
+                   text.Contains("con tay") ||
+
+                   text.Contains("honda") ||
+                   text.Contains("yamaha") ||
+                   text.Contains("suzuki") ||
+                   text.Contains("sym") ||
+                   text.Contains("piaggio") ||
+
+                   text.Contains("cho nu") ||
+                   text.Contains("cho nam") ||
+                   text.Contains("sinh vien") ||
+                   text.Contains("di hoc") ||
+                   text.Contains("di lam") ||
+                   text.Contains("tiet kiem xang") ||
+                   text.Contains("de di") ||
+                   text.Contains("di xa") ||
+                   text.Contains("cop rong");
         }
         private static bool LooksLikeThanksIntent(string normalizedMessage)
         {
@@ -3068,7 +3362,22 @@ turnContext.Reason,
                 text.Contains("duoi") ||
                 text.Contains("tren");
 
-            return hasPricePhrase && (intent.IsOutOfScope || intent.IsNoise || intent.IntentType == "out_of_scope");
+            bool weakOrUnknownIntent =
+     intent.IsOutOfScope ||
+     intent.IsNoise ||
+     string.IsNullOrWhiteSpace(intent.IntentType) ||
+     string.Equals(intent.IntentType, "unknown", StringComparison.OrdinalIgnoreCase) ||
+     string.Equals(intent.IntentType, "out_of_scope", StringComparison.OrdinalIgnoreCase);
+
+            bool hasOnlyPriceSignal =
+                hasPricePhrase &&
+                string.IsNullOrWhiteSpace(intent.Brand) &&
+                string.IsNullOrWhiteSpace(intent.Category) &&
+                !intent.IsDirectCompare &&
+                !intent.IsDirectProductLookup &&
+                !intent.IsOrderLookup;
+
+            return hasOnlyPriceSignal && (weakOrUnknownIntent || intent.TargetPrice.HasValue || intent.PriceMin.HasValue || intent.PriceMax.HasValue);
         }
         private static void NormalizeRequestMetadata(ChatRequest request)
         {
@@ -3189,6 +3498,23 @@ turnContext.Reason,
         private static bool LooksLikeHumanSupportOrAfterSalesRequest(string message)
         {
             var text = NormalizeText(message);
+
+            if (MessageHasExplicitNegativeCategory(text) ||
+                MessageHasExplicitNegativeBrand(text))
+            {
+                return false;
+            }
+
+            if (text.Contains("khong xe ga") ||
+                text.Contains("khong xe so") ||
+                text.Contains("khong con tay") ||
+                text.Contains("khong thich xe ga") ||
+                text.Contains("khong thich xe so") ||
+                text.Contains("khong thich con tay"))
+            {
+                return false;
+            }
+
 
             string[] strongHumanSupportKeywords =
             {
@@ -3828,6 +4154,12 @@ turnContext.Reason,
         private static bool LooksLikeUnknownBrand(string message, ParsedIntent? intent)
         {
             var text = NormalizeText(message);
+            if (intent?.ExcludedBrands?.Any() == true ||
+    intent?.ExcludedProducts?.Any() == true ||
+    intent?.ExcludedCategories?.Any() == true)
+            {
+                return false;
+            }
             if (intent?.IsFollowUp == true ||
     !string.IsNullOrWhiteSpace(intent?.FollowUpType) ||
     string.Equals(intent?.RouteFlow, ChatFlowType.RecommendationFollowUp, StringComparison.OrdinalIgnoreCase))
@@ -3869,7 +4201,25 @@ turnContext.Reason,
                              .Where(x => !ignoreWords.Contains(x))
                              .ToList();
 
-            return tokens.Count > 0;
+            return tokens.Any(LooksLikeBrandTypoToken);
+        }
+        private static bool LooksLikeBrandTypoToken(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+                return false;
+
+            token = NormalizeText(token);
+
+            var knownOrTypoBrands = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "honda", "hoda", "honad", "hond",
+        "yamaha", "yamha", "yamah", "yamaa",
+        "suzuki", "suzki", "szuki", "suzuky",
+        "sym",
+        "piaggio", "piago", "piagio"
+    };
+
+            return knownOrTypoBrands.Contains(token);
         }
         private static void RecoverMultiCriteriaRecommendation(string message, ParsedIntent intent)
         {
@@ -3931,11 +4281,11 @@ turnContext.Reason,
 
             if (string.IsNullOrWhiteSpace(intent.Brand))
             {
-                if (text.Contains("honda")) intent.Brand = "Honda";
-                else if (text.Contains("yamaha")) intent.Brand = "Yamaha";
-                else if (text.Contains("suzuki")) intent.Brand = "Suzuki";
-                else if (text.Contains("sym")) intent.Brand = "SYM";
-                else if (text.Contains("piaggio")) intent.Brand = "Piaggio";
+                if (TextMentionsAllowedBrand(text, intent, "honda", "Honda")) intent.Brand = "Honda";
+                else if (TextMentionsAllowedBrand(text, intent, "yamaha", "Yamaha")) intent.Brand = "Yamaha";
+                else if (TextMentionsAllowedBrand(text, intent, "suzuki", "Suzuki")) intent.Brand = "Suzuki";
+                else if (TextMentionsAllowedBrand(text, intent, "sym", "SYM")) intent.Brand = "SYM";
+                else if (TextMentionsAllowedBrand(text, intent, "piaggio", "Piaggio")) intent.Brand = "Piaggio";
             }
 
             if (text.Contains("cho nu") || text.Contains("cho nữ"))
@@ -3989,6 +4339,206 @@ turnContext.Reason,
                 profile?.BaseRecommendedProducts?.Count >= 2;
 
             return hasCurrentList;
+        }
+        private static bool TextMentionsAllowedBrand(
+    string text,
+    ParsedIntent intent,
+    string normalizedBrand,
+    string canonicalBrand)
+        {
+            if (!text.Contains(normalizedBrand))
+                return false;
+
+            if (intent.ExcludedBrands.Contains(canonicalBrand))
+                return false;
+
+            if (IsBrandMentionedNegatively(text, normalizedBrand))
+                return false;
+
+            return true;
+        }
+
+        private static bool IsBrandMentionedNegatively(string text, string normalizedBrand)
+        {
+            return text.Contains($"khong {normalizedBrand}") ||
+                   text.Contains($"ko {normalizedBrand}") ||
+                   text.Contains($"k {normalizedBrand}") ||
+                   text.Contains($"ne {normalizedBrand}") ||
+                   text.Contains($"bo {normalizedBrand}") ||
+                   text.Contains($"loai {normalizedBrand}") ||
+                   text.Contains($"khong thich {normalizedBrand}") ||
+                   text.Contains($"khong muon {normalizedBrand}");
+        }
+        private static bool LooksLikeGenericDislike(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return false;
+
+            var text = message.Trim().ToLowerInvariant();
+
+            return text.Contains("khong thich") ||
+                   text.Contains("không thích") ||
+                   text.Contains("chan") ||
+                   text.Contains("chán") ||
+                   text.Contains("khong ung") ||
+                   text.Contains("không ưng") ||
+                   text.Contains("khong hop") ||
+                   text.Contains("không hợp") ||
+                   text.Contains("khong on") ||
+                   text.Contains("không ổn") ||
+                   text.Contains("doi cai khac") ||
+                   text.Contains("đổi cái khác") ||
+                   text.Contains("khac di") ||
+                   text.Contains("khác đi") ||
+                   text.Contains("khong muon nua") ||
+                   text.Contains("không muốn nữa");
+        }
+        private static bool LooksLikeNegativeBrandOnlyRecommendation(string message, ParsedIntent? intent)
+        {
+            if (intent == null)
+                return false;
+
+            var text = NormalizeText(message);
+
+            bool hasRecommendSignal =
+                text.Contains("tu van") ||
+                text.Contains("goi y") ||
+                text.Contains("chon xe") ||
+                text.Contains("nen mua");
+
+            bool hasExcludedBrand =
+                intent.ExcludedBrands != null &&
+                intent.ExcludedBrands.Count > 0;
+
+            bool hasConcreteCriteria =
+                intent.PriceMin.HasValue ||
+                intent.PriceMax.HasValue ||
+                intent.TargetPrice.HasValue ||
+                !string.IsNullOrWhiteSpace(intent.Category) ||
+                !string.IsNullOrWhiteSpace(intent.Target) ||
+                intent.ForWork ||
+                intent.ForSchool ||
+                intent.ForCity ||
+                intent.ForTour ||
+                intent.WantsFuelSaving ||
+                intent.WantsLargeStorage ||
+                intent.WantsEasyControl ||
+                intent.NeedsLowSeat ||
+                intent.PrefersFemaleStyle ||
+                intent.PrefersMaleStyle;
+
+            return hasRecommendSignal && hasExcludedBrand && !hasConcreteCriteria;
+        }
+        private static bool LooksLikeAskAlternativeAfterCompare(string message)
+        {
+            var text = NormalizeText(message);
+
+            bool asksAnother =
+                text.Contains("con xe nao") ||
+                text.Contains("xe nao") ||
+                text.Contains("mau nao") ||
+                text.Contains("con nao") ||
+                text.Contains("xe khac") ||
+                text.Contains("mau khac") ||
+                text.Contains("lua chon khac") ||
+                text.Contains("con nao khac") ||
+                text.Contains("còn xe nào") ||
+                text.Contains("còn mẫu nào");
+
+            bool asksBetter =
+                text.Contains("tot hon") ||
+                text.Contains("on hon") ||
+                text.Contains("hop hon") ||
+                text.Contains("dang mua hon") ||
+                text.Contains("ngon hon") ||
+                text.Contains("ok hon") ||
+                text.Contains("hon 2 con nay") ||
+                text.Contains("hon hai con nay");
+
+            return asksAnother && asksBetter;
+        }
+        private static bool LooksLikeAmbiguousBetterQuestion(string message)
+        {
+            var text = NormalizeText(message);
+
+            bool asksBetter =
+                text.Contains("xe nao on hon") ||
+                text.Contains("mau nao on hon") ||
+                text.Contains("con nao on hon") ||
+                text.Contains("xe nao tot hon") ||
+                text.Contains("mau nao tot hon") ||
+                text.Contains("con nao tot hon");
+
+            bool hasConcreteAnchor =
+                text.Contains("voi") ||
+                text.Contains("so voi") ||
+                text.Contains("air blade") ||
+                text.Contains("freego") ||
+                text.Contains("vision") ||
+                text.Contains("lead") ||
+                text.Contains("future") ||
+                text.Contains("wave") ||
+                text.Contains("jupiter");
+
+            return asksBetter && !hasConcreteAnchor;
+        }
+        private static string? DetectNegativeBrandFromText(string message)
+        {
+            var text = NormalizeText(message);
+
+            if (text.Contains("yamaha")) return "Yamaha";
+            if (text.Contains("honda")) return "Honda";
+            if (text.Contains("suzuki") || text.Contains("szuki") || text.Contains("suzki")) return "Suzuki";
+            if (text.Contains("sym")) return "SYM";
+            if (text.Contains("piaggio")) return "Piaggio";
+
+            return null;
+        }
+        private static bool LooksLikeValueForMoneyQuestion(string message)
+{
+    var text = NormalizeText(message);
+
+    return text.Contains("ngon bo re") ||
+           text.Contains("dang tien") ||
+           text.Contains("dang mua") ||
+           text.Contains("hop ly nhat") ||
+           text.Contains("tot trong tam gia") ||
+           text.Contains("xe nao ngon") ||
+           text.Contains("xe nao on");
+}
+        private static bool LooksLikePickBestFollowUp(string message)
+        {
+            var text = NormalizeText(message);
+
+            return text.Contains("chon 1") ||
+                   text.Contains("chon mot") ||
+                   text.Contains("chon cho") ||
+                   text.Contains("chon giup") ||
+                   text.Contains("chon tot nhat") ||
+                   text.Contains("chon 1 con") ||
+                   text.Contains("chon mot con") ||
+                   text.Contains("chon 1 xe") ||
+                   text.Contains("chon mot xe") ||
+                   text.Contains("lay 1") ||
+                   text.Contains("lay mot") ||
+                   text.Contains("chot 1") ||
+                   text.Contains("chot mot") ||
+                   text.Contains("chot con") ||
+                   text.Contains("chot xe") ||
+                   text.Contains("tot nhat trong so") ||
+                   text.Contains("phu hop nhat trong so");
+        }
+
+        private static bool HasAnyRecommendationProductContext(CustomerPreferenceProfile? profile)
+        {
+            return profile != null &&
+                   (
+                       profile.HasActiveRecommendationContext ||
+                       profile.CurrentRecommendedProducts?.Count > 0 ||
+                       profile.BaseRecommendedProducts?.Count > 0 ||
+                       profile.LastRecommendedProducts?.Count > 0 ||
+                       profile.LastMentionedProducts?.Count > 0
+                   );
         }
     }
 }

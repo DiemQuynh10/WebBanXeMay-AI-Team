@@ -226,7 +226,17 @@ namespace Chatbot.API.Services
                 profile.PreferredBrand = null;
             }
 
-            if (currentTurnHasCategory && !currentTurnHasPrice)
+            bool isNegativeCategoryTurn =
+    intent.ExcludedCategories.Any() ||
+    NormalizeText(normalizedMessage).Contains("khong xe ga") ||
+    NormalizeText(normalizedMessage).Contains("khong xe so") ||
+    NormalizeText(normalizedMessage).Contains("khong con tay") ||
+    NormalizeText(normalizedMessage).Contains("bo xe ga") ||
+    NormalizeText(normalizedMessage).Contains("bo xe so") ||
+    NormalizeText(normalizedMessage).Contains("loai xe ga") ||
+    NormalizeText(normalizedMessage).Contains("loai xe so");
+
+            if (currentTurnHasCategory && !currentTurnHasPrice && !isNegativeCategoryTurn)
             {
                 intent.PriceMin = null;
                 intent.PriceMax = null;
@@ -312,7 +322,24 @@ namespace Chatbot.API.Services
      List<ProductSummaryDto> previousProducts,
      RefinementSignals signals)
         {
-            var (minPrice, maxPrice) = BuildHardRefinementPriceWindow(intent);
+            var (minPrice, maxPrice) = BuildHardRefinementPriceWindow(intent, profile);
+            bool isExclusionOnly =
+    intent.ExcludedCategories.Any() ||
+    intent.ExcludedBrands.Any() ||
+    intent.ExcludedProducts.Any();
+
+            if (isExclusionOnly && !intent.PriceMin.HasValue && !intent.PriceMax.HasValue && !intent.TargetPrice.HasValue)
+            {
+                minPrice ??= profile.PriceMin;
+                maxPrice ??= profile.PriceMax;
+
+                if (!minPrice.HasValue && !maxPrice.HasValue && profile.TargetPrice.HasValue)
+                {
+                    var delta = 7_000_000m;
+                    minPrice = profile.TargetPrice.Value - delta;
+                    maxPrice = profile.TargetPrice.Value + delta;
+                }
+            }
 
             var items = await FetchHardRefinementCandidatesAsync(intent, minPrice, maxPrice);
             items = ApplyIntentFilters(items, intent);
@@ -1783,16 +1810,23 @@ namespace Chatbot.API.Services
 
             return text;
         }
-        private static (decimal? MinPrice, decimal? MaxPrice) BuildHardRefinementPriceWindow(ParsedIntent intent)
+        private static (decimal? MinPrice, decimal? MaxPrice) BuildHardRefinementPriceWindow(
+     ParsedIntent intent,
+     CustomerPreferenceProfile profile)
         {
-            decimal? minPrice = intent.PriceMin;
-            decimal? maxPrice = intent.PriceMax;
+            decimal? minPrice = intent.PriceMin ?? profile.PriceMin;
+            decimal? maxPrice = intent.PriceMax ?? profile.PriceMax;
 
-            if (intent.FilterType == PriceFilterType.Around && intent.TargetPrice.HasValue)
+            var targetPrice = intent.TargetPrice ?? profile.TargetPrice;
+            var filterType = intent.FilterType != PriceFilterType.None
+                ? intent.FilterType
+                : profile.FilterType;
+
+            if (filterType == PriceFilterType.Around && targetPrice.HasValue)
             {
-                var delta = ProductPriceFilterHelper.GetAroundDelta(intent.TargetPrice.Value);
-                minPrice = intent.TargetPrice.Value - delta;
-                maxPrice = intent.TargetPrice.Value + delta;
+                var delta = ProductPriceFilterHelper.GetAroundDelta(targetPrice.Value);
+                minPrice = targetPrice.Value - delta;
+                maxPrice = targetPrice.Value + delta;
             }
 
             return (minPrice, maxPrice);

@@ -135,7 +135,38 @@ namespace Chatbot.API.Services
     maxPrice);
 
             var items = MergeCandidateBuckets(candidateBuckets);
+            string? comparedCategoryForAlternative = null;
+            if (IsAlternativeAfterCompare(effectiveIntent))
+            {
+                comparedCategoryForAlternative = InferComparedCategoryFromItems(items, profile);
+            }
+            if (items.Count == 0 &&
+    string.Equals(effectiveIntent.FollowUpType, "alternative_after_compare", StringComparison.OrdinalIgnoreCase))
+            {
+                var broad = await GetCandidatesAsync(
+                    requestedBrand: null,
+                    effectiveCategory: null,
+                    minPrice: null,
+                    maxPrice: null,
+                    take: 200);
 
+                items = broad
+                    .Where(x => x != null)
+                    .ToList();
+            }
+            if (string.Equals(effectiveIntent.FollowUpType, "alternative_after_compare", StringComparison.OrdinalIgnoreCase))
+            {
+                var comparedNames = new HashSet<string>(
+                    profile.LastComparedProducts ?? new List<string>(),
+                    StringComparer.OrdinalIgnoreCase);
+
+                if (comparedNames.Count > 0)
+                {
+                    items = items
+                        .Where(x => !comparedNames.Contains(x.Ten ?? string.Empty))
+                        .ToList();
+                }
+            }
             if (items.Count == 0 && HasExclusionIntent(effectiveIntent))
             {
                 items = await LoadBroadCandidatesForExclusionAsync(
@@ -163,13 +194,29 @@ namespace Chatbot.API.Services
                 };
             }
             items = ApplyPreferenceAwareFiltering(
-                items,
-                effectiveIntent,
-                profile,
-                requestedBrand,
-                effectiveCategory,
-                conversationId,
-                normalizedMessage);
+      items,
+      effectiveIntent,
+      profile,
+      requestedBrand,
+      effectiveCategory,
+      conversationId,
+      normalizedMessage);
+            if (IsAlternativeAfterCompare(effectiveIntent))
+            {
+                items = ApplyAlternativeAfterCompareRanking(items, comparedCategoryForAlternative);
+
+                if (items.Count == 0)
+                {
+                    var broad = await GetCandidatesAsync(
+                        requestedBrand: null,
+                        effectiveCategory: comparedCategoryForAlternative,
+                        minPrice: 30_000_000m,
+                        maxPrice: null,
+                        take: 200);
+
+                    items = ApplyAlternativeAfterCompareRanking(broad, comparedCategoryForAlternative);
+                }
+            }
             if (items.Count == 0 && HasExclusionIntent(effectiveIntent))
             {
                 items = await LoadBroadCandidatesForExclusionAsync(
@@ -191,7 +238,12 @@ namespace Chatbot.API.Services
             var rankedByRule = scored
                 .Select(x => x.Product)
                 .ToList();
-
+            if (IsAlternativeAfterCompare(effectiveIntent))
+            {
+                rankedByRule = ApplyAlternativeAfterCompareRanking(
+                    rankedByRule,
+                    comparedCategoryForAlternative);
+            }
             _logger.LogInformation(
                 "Recommendation rule ranking completed. ConversationId={ConversationId}, RankedByRuleCount={RankedByRuleCount}",
                 conversationId,
@@ -564,6 +616,10 @@ namespace Chatbot.API.Services
      decimal? maxPrice,
      bool hasEnoughSignals)
         {
+            if (string.Equals(intent.FollowUpType, "alternative_after_compare", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
             if (hasEnoughSignals)
                 return false;
 
@@ -1484,7 +1540,47 @@ namespace Chatbot.API.Services
                 profile.PriceMin.HasValue ||
                 profile.PriceMax.HasValue ||
                 profile.TargetPrice.HasValue;
+            if (IsAlternativeAfterCompare(intent))
+            {
+                if (ContainsAny(name, "Grande"))
+                    return "cao cấp hơn Freego, kiểu dáng thanh lịch và phù hợp nếu muốn nâng cấp trong nhóm xe ga";
 
+                if (ContainsAny(name, "Lead"))
+                    return "thực dụng hơn nhờ cốp rộng, hợp đi làm và dùng hằng ngày";
+
+                if (ContainsAny(name, "Vision"))
+                    return "dễ đi, tiết kiệm và giá mềm hơn nếu bạn muốn phương án an toàn hơn";
+
+                if (ContainsAny(name, "Zip"))
+                    return "nhỏ gọn, dễ xoay trở và phù hợp nếu bạn ưu tiên xe ga đi phố";
+
+                return "đáng cân nhắc hơn nếu bạn muốn mở rộng lựa chọn ngoài hai mẫu vừa so sánh";
+            }
+            bool wantsValueForMoney =
+    ContainsAny(text,
+        "ngon bo re",
+        "ngon re",
+        "bo re",
+        "dang tien",
+        "dang mua",
+        "hop ly");
+
+            if (wantsValueForMoney)
+            {
+                if (ContainsAny(name, "Vision"))
+                    return "giá hợp lý, dễ đi và chi phí sử dụng khá dễ chịu";
+
+                if (ContainsAny(name, "Shark Mini", "Attila"))
+                    return "giá mềm, dễ dùng trong phố và phù hợp nếu muốn tiết kiệm";
+
+                if (ContainsAny(name, "Zip"))
+                    return "nhỏ gọn, dễ xoay trở và giá vẫn nằm trong nhóm dễ cân nhắc";
+
+                if (ContainsAny(name, "Future", "Jupiter"))
+                    return "bền, tiết kiệm xăng và hợp dùng lâu dài";
+
+                return "giá dễ tiếp cận, sử dụng hằng ngày ổn và không quá kén người đi";
+            }
             if (wantsFemale)
             {
                 return PickReasonByName(name,
@@ -2601,6 +2697,96 @@ namespace Chatbot.API.Services
                 return "dáng xe gọn, dễ điều khiển và hợp nữ hơn.";
 
             return "phù hợp nhất trong nhóm theo tiêu chí bạn đang xét.";
+        }
+        private static bool IsAlternativeAfterCompare(ParsedIntent intent)
+        {
+            return string.Equals(
+                intent.FollowUpType,
+                "alternative_after_compare",
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string? InferComparedCategoryFromItems(
+            IReadOnlyList<ProductSummaryDto> items,
+            CustomerPreferenceProfile profile)
+        {
+            var comparedNames = profile.LastComparedProducts?
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(NormalizeText)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (comparedNames.Count == 0)
+                return null;
+
+            var matchedCategories = items
+                .Where(x => comparedNames.Contains(NormalizeText(x.Ten)))
+                .Select(x => NormalizeCategory(x.Loai))
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .GroupBy(x => x)
+                .OrderByDescending(g => g.Count())
+                .Select(g => g.Key)
+                .ToList();
+
+            if (matchedCategories.Count > 0)
+                return matchedCategories[0];
+
+            var joined = string.Join(" ", comparedNames);
+
+            if (ContainsAny(joined, "air blade", "freego", "vision", "lead", "latte", "grande", "zip", "janus"))
+                return "xe ga";
+
+            if (ContainsAny(joined, "future", "wave", "jupiter", "sirius"))
+                return "xe so";
+
+            if (ContainsAny(joined, "winner", "exciter", "raider", "sonic"))
+                return "con tay";
+
+            return null;
+        }
+
+        private static List<ProductSummaryDto> ApplyAlternativeAfterCompareRanking(
+            IReadOnlyList<ProductSummaryDto> products,
+            string? comparedCategory)
+        {
+            if (products == null || products.Count == 0)
+                return new List<ProductSummaryDto>();
+
+            var result = products.ToList();
+
+            if (!string.IsNullOrWhiteSpace(comparedCategory))
+            {
+                var sameCategory = result
+                    .Where(x => string.Equals(
+                        NormalizeCategory(x.Loai),
+                        comparedCategory,
+                        StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (sameCategory.Count > 0)
+                    result = sameCategory;
+            }
+
+            var filtered = result
+     .Where(x => x.Gia >= 30_000_000m)
+     .ToList();
+
+            if (filtered.Count == 0)
+                filtered = result;
+
+            return filtered
+                .OrderByDescending(x =>
+                    ContainsAny(x.Ten,
+                        "Lead",
+                        "Latte",
+                        "Grande",
+                        "PCX",
+                        "SH Mode",
+                        "Vision",
+                        "Zip",
+                        "Freego") ? 1 : 0)
+                .ThenByDescending(x => x.Gia)
+                .ToList();
         }
         private sealed class RecommendationBuckets
         {

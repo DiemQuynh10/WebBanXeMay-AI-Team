@@ -95,6 +95,20 @@ namespace Chatbot.API.Services
             bool hasExplicitProductSignal = HasExplicitProductSignal(normalizedMessage, intent);
 
             bool isPriceLookup = string.Equals(effectiveLookupField, "price", StringComparison.OrdinalIgnoreCase);
+            if (hasLookupField &&
+    isPriceLookup &&
+    !string.IsNullOrWhiteSpace(intent.Brand) &&
+    (intent.MentionedProducts == null || intent.MentionedProducts.Count == 0) &&
+    string.IsNullOrWhiteSpace(DetectProductNameFromText(normalizedMessage)))
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    Reply = $"Bạn muốn mình tra giá mẫu xe nào của hãng {intent.Brand}? Ví dụ: Yamaha Freego, Yamaha Latte, Yamaha Grande hoặc Yamaha Jupiter."
+                };
+            }
             bool isStockLookup = string.Equals(effectiveLookupField, "stock", StringComparison.OrdinalIgnoreCase);
 
             // 1. Nếu user hỏi giá mà không nói rõ mẫu xe -> hỏi lại, không đoán theo context

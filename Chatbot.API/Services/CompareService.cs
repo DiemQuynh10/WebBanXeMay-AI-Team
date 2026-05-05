@@ -1717,15 +1717,29 @@ text.Contains("cac xe vua tu van")
                 text.Contains("con nao") ||
                 text.Contains("xe khac") ||
                 text.Contains("mau khac") ||
-                text.Contains("con khac");
+                text.Contains("con khac") ||
+                text.Contains("lua chon khac") ||
+                text.Contains("phuong an khac");
 
-            bool asksCheaper =
+            bool asksBetterOrCheaper =
+                text.Contains("tot hon") ||
+                text.Contains("on hon") ||
+                text.Contains("hop hon") ||
+                text.Contains("dang mua hon") ||
                 text.Contains("re hon") ||
                 text.Contains("mem hon") ||
                 text.Contains("thap hon") ||
                 text.Contains("it tien hon");
 
-            return asksOtherOption && asksCheaper;
+            bool referencesComparedPair =
+                text.Contains("2 con nay") ||
+                text.Contains("hai con nay") ||
+                text.Contains("2 xe nay") ||
+                text.Contains("hai xe nay") ||
+                text.Contains("hai mau nay") ||
+                text.Contains("2 mau nay");
+
+            return asksOtherOption && (asksBetterOrCheaper || referencesComparedPair);
         }
         private static readonly Dictionary<string, string[]> FeatureKeywordMap = new()
         {

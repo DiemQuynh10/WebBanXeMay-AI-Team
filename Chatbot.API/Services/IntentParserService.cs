@@ -81,7 +81,16 @@ namespace Chatbot.API.Services
             ["visison"] = "Honda Vision",
 
             ["visoin"] = "Honda Vision",
-            ["airblade"] = "Honda Air Blade"
+            ["airblade"] = "Honda Air Blade",
+            ["air blad"] = "Honda Air Blade",
+            ["ablade"] = "Honda Air Blade",
+
+            ["free go"] = "Yamaha Freego",
+            ["freegoo"] = "Yamaha Freego",
+            ["frigo"] = "Yamaha Freego",
+
+            ["ya freego"] = "Yamaha Freego",
+            ["honda ab"] = "Honda Air Blade"
         };
 
         private static readonly string[] KnownProducts = ProductAliasMap.Keys
@@ -1064,17 +1073,22 @@ namespace Chatbot.API.Services
             bool likesConTay = HasPositiveCategorySignal(text, "côn tay");
 
             if (!likesXeGa && ContainsAny(text,
-                "khong thich xe ga",
-                "khong muon xe ga",
-                "ne xe ga",
-                "ghet xe ga",
-                "dung xe ga",
-                "bo xe ga",
-                "loai xe ga"))
+     "khong thich xe ga",
+     "khong muon xe ga",
+     "khong xe ga",
+     "khong xe ga nua",
+     "khong lay xe ga",
+     "khong chon xe ga",
+     "khoi xe ga",
+     "ne xe ga",
+     "ghet xe ga",
+     "dung xe ga",
+     "bo xe ga",
+     "bo qua xe ga",
+     "loai xe ga"))
             {
                 result.ExcludedCategories.Add("xe ga");
             }
-
             if (!likesXeSo && ContainsAny(text,
                 "khong thich xe so",
                 "khong muon xe so",
@@ -1107,11 +1121,20 @@ namespace Chatbot.API.Services
         private static void ParseBrand(string text, ParsedIntent result)
         {
             var fuzzyBrand = ResolveKnownBrandTypo(text);
-            if (!string.IsNullOrWhiteSpace(fuzzyBrand) &&
-                !result.ExcludedBrands.Contains(fuzzyBrand))
+            if (!string.IsNullOrWhiteSpace(fuzzyBrand))
             {
-                result.Brand = fuzzyBrand;
-                return;
+                if (IsBrandMentionedNegatively(text, fuzzyBrand))
+                {
+                    result.ExcludedBrands.Add(fuzzyBrand);
+                    result.Brand = null;
+                    return;
+                }
+
+                if (!result.ExcludedBrands.Contains(fuzzyBrand))
+                {
+                    result.Brand = fuzzyBrand;
+                    return;
+                }
             }
             if (!result.ExcludedBrands.Contains("Honda") && HasWholeWord(text, "honda"))
             {
@@ -2033,8 +2056,13 @@ namespace Chatbot.API.Services
 
             return Regex.IsMatch(text,
                 @"\b(khong thich|khong muon|khong lay|khong chon|khong can|ko thich|ko muon|k thich|k muon|ghet|ne|bo|loai|loai ra|bo qua|tru|ngoai tru|mien khong|mien la khong|khong phai|khong la)\b",
+                RegexOptions.IgnoreCase)
+                ||
+                Regex.IsMatch(text,
+                @"\b(khong|ko|k)\s+(honda|yamaha|suzuki|sym|piaggio)\b",
                 RegexOptions.IgnoreCase);
         }
+
         private static bool MentionedAfterNegativeSignal(string text, string keyword)
         {
             if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(keyword))
@@ -2043,7 +2071,7 @@ namespace Chatbot.API.Services
             var normalizedKeyword = Normalize(keyword);
 
             var negativeWords =
-     @"khong thich|khong muon|khong lay|khong chon|khong can|ko thich|ko muon|k thich|k muon|ghet|ne|bo|loai|loai ra|bo qua|tru|ngoai tru|mien khong|mien la khong|khong phai|khong la";
+     @"khong thich|khong muon|khong lay|khong chon|khong can|ko thich|ko muon|k thich|k muon|khong|ko|k|ghet|ne|bo|loai|loai ra|bo qua|tru|ngoai tru|mien khong|mien la khong|khong phai|khong la";
 
             return Regex.IsMatch(text,
                 $@"\b({negativeWords})\b\s+\b{Regex.Escape(normalizedKeyword)}\b",
@@ -2283,6 +2311,10 @@ namespace Chatbot.API.Services
 
                 ["suzki"] = "Suzuki",
                 ["suzuki"] = "Suzuki",
+                ["suzki"] = "Suzuki",
+                ["szuki"] = "Suzuki",
+                ["suzuky"] = "Suzuki",
+                ["suzuki"] = "Suzuki",
 
                 ["piago"] = "Piaggio",
                 ["piagio"] = "Piaggio",
@@ -2420,7 +2452,18 @@ namespace Chatbot.API.Services
 
             return policyStrong || (hasPolicyKeyword && (asksInfo || hasShopContext));
         }
+        private static bool IsBrandMentionedNegatively(string text, string brand)
+        {
+            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(brand))
+                return false;
 
+            var b = Normalize(brand);
+
+            return Regex.IsMatch(
+                text,
+                $@"\b(khong|ko|k|không|ne|né|bo|bỏ|loai|loại|ghet|ghét|khong thich|khong muon)\s+{Regex.Escape(b)}\b",
+                RegexOptions.IgnoreCase);
+        }
         private static void MarkAsPolicyIntent(ParsedIntent result)
         {
             result.IntentType = "rag_policy";

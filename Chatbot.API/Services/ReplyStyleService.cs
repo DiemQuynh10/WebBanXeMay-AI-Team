@@ -505,31 +505,55 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
 
         private static string BuildRecommendationHint(ParsedIntent intent)
         {
-            if (string.IsNullOrWhiteSpace(intent.Brand) && string.IsNullOrWhiteSpace(intent.Category))
+            bool hasBrand = !string.IsNullOrWhiteSpace(intent.Brand);
+            bool hasCategory = !string.IsNullOrWhiteSpace(intent.Category);
+            bool hasBudget =
+                intent.PriceMin.HasValue ||
+                intent.PriceMax.HasValue ||
+                intent.TargetPrice.HasValue;
+
+            if (hasBrand && hasCategory && hasBudget)
             {
                 return Pick(
-                    "Bạn có thể lọc tiếp theo hãng, loại xe hoặc tiêu chí như cốp rộng, dễ chống chân, tiết kiệm xăng.",
-                    "Nếu muốn, mình có thể lọc tiếp theo hãng bạn thích, kiểu xe hoặc mức giá sát hơn.",
-                    "Bạn cứ nói thêm một tiêu chí nhỏ như Honda, xe ga hay cốp rộng, mình lọc tiếp cho gọn."
+                    "Bạn muốn mình chọn giúp một mẫu dễ mua nhất trong nhóm này không?",
+                    "Nếu cần, mình có thể so sánh nhanh các mẫu này cho bạn.",
+                    "Bạn muốn ưu tiên rẻ hơn, dễ đi hơn hay bền hơn?"
                 );
             }
 
-            if (intent.ForWork || intent.ForSchool || intent.ForCity || intent.ForTour)
+            if (hasBrand && !hasCategory)
             {
                 return Pick(
-                    "Bạn có thể lọc tiếp thêm theo giá, kiểu dáng hoặc các tiêu chí như cốp rộng, tiết kiệm xăng, dễ chống chân.",
-                    "Nếu muốn, mình có thể siết tiếp theo nhu cầu đi lại hoặc mức giá sát hơn.",
-                    "Bạn nói thêm một tiêu chí nhỏ nữa là mình có thể lọc tiếp sát hơn."
+                    $"Trong {intent.Brand}, bạn muốn lọc tiếp theo xe ga, xe số hay tầm giá nào?",
+                    $"Bạn muốn mình siết tiếp trong hãng {intent.Brand} theo loại xe hoặc ngân sách không?",
+                    $"Nếu muốn gọn hơn, mình có thể lọc tiếp {intent.Brand} theo xe ga/xe số hoặc mức giá."
+                );
+            }
+
+            if (!hasBrand && hasCategory)
+            {
+                return Pick(
+                    $"Bạn muốn mình lọc tiếp nhóm {intent.Category} theo hãng nào không?",
+                    $"Nếu muốn gọn hơn, mình có thể lọc tiếp {intent.Category} theo Honda, Yamaha hoặc Suzuki.",
+                    $"Bạn muốn ưu tiên hãng nào trong nhóm {intent.Category}?"
+                );
+            }
+
+            if (hasBudget)
+            {
+                return Pick(
+                    "Bạn muốn mình lọc tiếp theo hãng, loại xe hoặc độ dễ đi không?",
+                    "Nếu muốn, mình có thể siết tiếp theo hãng hoặc kiểu xe.",
+                    "Bạn nói thêm hãng hoặc loại xe là mình lọc tiếp cho sát hơn."
                 );
             }
 
             return Pick(
-                "Bạn có thể lọc tiếp thêm theo mức giá, nhu cầu đi lại hoặc các tiêu chí như cốp rộng, dễ chống chân, tiết kiệm xăng.",
-                "Nếu muốn, mình có thể siết thêm theo giá, loại xe hoặc tiêu chí sử dụng để danh sách gọn hơn.",
-                "Bạn nói thêm một tiêu chí nhỏ nữa là mình có thể lọc tiếp sát hơn."
+                "Bạn có thể lọc tiếp theo hãng, loại xe hoặc tiêu chí như cốp rộng, dễ chống chân, tiết kiệm xăng.",
+                "Nếu muốn, mình có thể lọc tiếp theo hãng bạn thích, kiểu xe hoặc mức giá sát hơn.",
+                "Bạn cứ nói thêm một tiêu chí nhỏ như Honda, xe ga hay cốp rộng, mình lọc tiếp cho gọn."
             );
         }
-
         private static string BuildRefinementIntro(ParsedIntent intent, string message, int count)
         {
             var text = Normalize(message);
@@ -539,6 +563,14 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
                     "Mình chốt lại một mẫu đáng chọn nhất trong nhóm hiện tại cho bạn:",
                     "Nếu cần chọn nhanh một mẫu ổn nhất thì mình nghiêng về phương án này:",
                     "Trong nhóm đang xét, mình sẽ chọn ra phương án nổi bật nhất cho bạn:"
+                );
+            }
+            if (intent.ExcludedCategories.Any() && HasBudget(intent))
+            {
+                return Pick(
+                    $"Sau khi bỏ {BuildExcludedText(intent)}, mình vẫn giữ mức giá bạn đang nhắm và lọc lại các mẫu phù hợp hơn:",
+                    $"Mình bỏ {BuildExcludedText(intent)} nhưng vẫn giữ tầm giá này để chọn lại cho bạn:",
+                    $"Sau khi loại {BuildExcludedText(intent)}, mình lọc lại trong cùng mức giá để bạn dễ so sánh:"
                 );
             }
             if (IsAlternativeRefinement(intent, text))
@@ -985,19 +1017,19 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
                 var line = index switch
                 {
                     0 => Pick(
-                        $"- {itemName} ({priceText}) là mẫu mình sẽ xem trước: {reasonText}.",
-                        $"- {itemName} ({priceText}) nổi bật nhất trong nhóm này vì {reasonText}.",
-                        $"- Với {itemName} ({priceText}), điểm đáng chú ý là {reasonText}."
+                        $"- {itemName} ({priceText}): {reasonText}.",
+                        $"- {itemName} ({priceText}) đáng cân nhắc nhất ở nhóm này vì {reasonText}.",
+                        $"- {itemName} ({priceText}) là mẫu mình sẽ ưu tiên xem trước vì {reasonText}."
                     ),
                     1 => Pick(
-    $"- {itemName} ({priceText}) cũng đáng cân nhắc vì {reasonText}.",
-    $"- Nếu muốn thêm phương án khác, {itemName} ({priceText}) khá ổn: {reasonText}.",
-    $"- {itemName} ({priceText}) là lựa chọn phụ khá hợp, nhất là vì {reasonText}."
-),
+                        $"- {itemName} ({priceText}): {reasonText}.",
+                        $"- {itemName} ({priceText}) cũng khá hợp vì {reasonText}.",
+                        $"- Nếu muốn thêm lựa chọn, {itemName} ({priceText}) cũng đáng xem vì {reasonText}."
+                    ),
                     _ => Pick(
-                        $"- {itemName} ({priceText}) phù hợp nếu bạn muốn thêm một lựa chọn {reasonText}.",
-                        $"- Còn {itemName} ({priceText}) thì hợp để tham khảo thêm vì {reasonText}.",
-                        $"- {itemName} ({priceText}) cũng có thể xem qua, đặc biệt nếu bạn ưu tiên {reasonText}."
+                        $"- {itemName} ({priceText}): {reasonText}.",
+                        $"- {itemName} ({priceText}) có thể xem thêm vì {reasonText}.",
+                        $"- {itemName} ({priceText}) là lựa chọn tham khảo thêm trong nhóm này."
                     )
                 };
 
@@ -1015,15 +1047,14 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
             if (reasons == null || reasons.Count == 0)
             {
                 var fallbacks = new[]
- {
-    "dễ đi, hợp chạy trong phố hằng ngày",
-    "gọn nhẹ, không cần làm quen nhiều khi sử dụng",
-    "chi phí sử dụng dễ chịu, hợp đi lại thường xuyên",
-    "phù hợp nếu bạn cần một mẫu xe đơn giản, dễ dùng",
-    "xoay trở linh hoạt trong đô thị, không bị cồng kềnh",
-    "mức giá dễ tiếp cận, phù hợp để dùng hằng ngày"
+  {
+    "dễ đi trong phố, không cần làm quen nhiều",
+    "chi phí sử dụng hợp lý, phù hợp đi lại hằng ngày",
+    "gọn nhẹ, dễ xoay trở trong đô thị",
+    "hợp với nhu cầu đi làm hoặc đi học thường xuyên",
+    "dễ kiểm soát, không bị cồng kềnh khi di chuyển",
+    "mức giá dễ tiếp cận trong tầm này"
 };
-
                 return fallbacks[new Random().Next(fallbacks.Length)];
             }
 
@@ -1058,7 +1089,14 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Take(2)
                 .ToList();
-
+            cleaned = cleaned
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .Where(r =>
+        !(r.Contains("gọn") && cleaned.Any(x => x.Contains("dễ dùng"))) &&
+        !(r.Contains("dễ dùng") && cleaned.Any(x => x.Contains("dễ đi"))) &&
+        !(r.Contains("dễ đi") && cleaned.Any(x => x.Contains("dễ điều khiển")))
+    )
+    .ToList();
             if (cleaned.Count == 0)
             {
                 var fallbacks = new[]
@@ -1075,7 +1113,9 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
             }
 
             if (cleaned.Count == 1)
+            {
                 return cleaned[0];
+            }
 
             return Pick(
                 $"{cleaned[0]}, đồng thời {cleaned[1]}",
@@ -1087,7 +1127,32 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
         }
         private static string BuildRecommendationFollowUp(ParsedIntent intent, CustomerPreferenceProfile profile)
         {
+            if (string.Equals(intent.FollowUpType, "alternative_after_compare", StringComparison.OrdinalIgnoreCase))
+            {
+                return Pick(
+                    "Bạn muốn mình so sánh một mẫu trong danh sách này với Air Blade hoặc Freego không?",
+                    "Bạn muốn ưu tiên mẫu đi xa tốt, tiết kiệm xăng hay giá dễ mua hơn?",
+                    "Nếu bạn thích, mình có thể chọn giúp 1 mẫu đáng mua nhất trong nhóm này."
+                );
+            }
             var desiredCategory = NormalizeCategory(intent.Category ?? profile.PreferredCategory);
+            var brand = intent.Brand ?? profile.PreferredBrand;
+
+            if (!string.IsNullOrWhiteSpace(brand) &&
+                string.IsNullOrWhiteSpace(desiredCategory) &&
+                !intent.PriceMin.HasValue &&
+                !intent.PriceMax.HasValue &&
+                !intent.TargetPrice.HasValue &&
+                !profile.PriceMin.HasValue &&
+                !profile.PriceMax.HasValue &&
+                !profile.TargetPrice.HasValue)
+            {
+                return Pick(
+                    $"Bạn muốn mình lọc tiếp trong hãng {brand} theo tầm giá, xe ga/xe số hay tiêu chí tiết kiệm xăng không?",
+                    $"Trong nhóm {brand}, bạn muốn xem xe ga, xe số hay lọc theo khoảng giá nào?",
+                    $"Nếu muốn gọn hơn, mình có thể lọc tiếp {brand} theo loại xe, mức giá hoặc nhu cầu đi làm/đi học."
+                );
+            }
             if (intent.PriceMax.HasValue || intent.TargetPrice.HasValue || profile.PriceMax.HasValue || profile.TargetPrice.HasValue)
             {
                 return Pick(
@@ -1206,7 +1271,14 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
 
             var message = NormalizeText(normalizedMessage);
             var brand = intent.Brand ?? profile.PreferredBrand;
-
+            if (string.Equals(intent.FollowUpType, "alternative_after_compare", StringComparison.OrdinalIgnoreCase))
+            {
+                return Pick(
+                    "Ngoài hai mẫu vừa so sánh, mình gợi ý thêm vài lựa chọn khác đáng cân nhắc:",
+                    "Nếu muốn xem thêm phương án khác tốt hơn, bạn có thể tham khảo các mẫu này:",
+                    "Mình thử mở rộng thêm vài mẫu khác để bạn dễ so sánh hơn:"
+                );
+            }
             if (profile.ExcludedBrands != null && profile.ExcludedBrands.Any())
             {
                 var excluded = string.Join(", ", profile.ExcludedBrands);
@@ -1472,7 +1544,10 @@ $"Mình ưu tiên {top.Ten} ({top.Gia:N0} VNĐ) trước vì {mainReason}."
             var category = DisplayCategory(intent.Category ?? profile.PreferredCategory);
             if (!string.IsNullOrWhiteSpace(category))
                 parts.Add(category);
-
+            if (ContainsAny(text, "ngon", "bo re", "bổ rẻ"))
+            {
+                parts.Add("giá hợp lý so với những gì nhận được");
+            }
             if (intent.FilterType == PriceFilterType.Around && intent.TargetPrice.HasValue)
             {
                 parts.Add($"khoảng {intent.TargetPrice.Value:N0} VNĐ");

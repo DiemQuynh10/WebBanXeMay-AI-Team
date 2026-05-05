@@ -44,15 +44,17 @@ namespace Chatbot.API.Services
             }
 
             var sourceNames =
-     profile.CurrentRecommendedProducts != null && profile.CurrentRecommendedProducts.Count > 0
-         ? profile.CurrentRecommendedProducts
-         : profile.BaseRecommendedProducts != null && profile.BaseRecommendedProducts.Count > 0
-             ? profile.BaseRecommendedProducts
-             : profile.LastRecommendedProducts != null && profile.LastRecommendedProducts.Count > 0
-                 ? profile.LastRecommendedProducts
-                 : profile.LastMentionedProducts != null && profile.LastMentionedProducts.Count > 0
+     profile.BaseRecommendedProducts != null && profile.BaseRecommendedProducts.Count >= 2
+         ? profile.BaseRecommendedProducts
+         : profile.LastRecommendedProducts != null && profile.LastRecommendedProducts.Count >= 2
+             ? profile.LastRecommendedProducts
+             : profile.CurrentRecommendedProducts != null && profile.CurrentRecommendedProducts.Count >= 2
+                 ? profile.CurrentRecommendedProducts
+                 : profile.LastMentionedProducts != null && profile.LastMentionedProducts.Count >= 2
                      ? profile.LastMentionedProducts
-                     : profile.LastComparedProducts;
+                     : profile.CurrentRecommendedProducts != null && profile.CurrentRecommendedProducts.Count > 0
+                         ? profile.CurrentRecommendedProducts
+                         : profile.LastComparedProducts;
 
             if (sourceNames == null || sourceNames.Count == 0)
             {
@@ -291,35 +293,34 @@ namespace Chatbot.API.Services
             }
             if (string.Equals(intent.FollowUpType, "pick_best", StringComparison.OrdinalIgnoreCase))
             {
-                var best = reranked.First();
-
-                await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
-                    conversationId,
-                    new List<ProductSummaryDto> { best },
-                    "pick_best");
-
+                var best = PickBestByFeature(products, reranked, normalizedMessage);
                 string reason;
 
-                // 🔥 Detect tiêu chí chính từ intent + message
+                var text = NormalizeText(normalizedMessage);
+
                 bool isFemale =
                     intent.PrefersFemaleStyle ||
                     (!string.IsNullOrWhiteSpace(intent.Target) &&
-                     (intent.Target.Contains("nữ") || intent.Target.Contains("nu"))) ||
-                    normalizedMessage.Contains("nu");
+                     (NormalizeText(intent.Target).Contains("nu"))) ||
+                    text.Contains("nu");
 
                 if (isFemale)
                 {
                     reason = $"{best.Ten} hợp nữ hơn trong nhóm này vì dáng xe gọn, dễ điều khiển và phù hợp đi phố.";
                 }
-                else if (normalizedMessage.Contains("tiet kiem") || normalizedMessage.Contains("it hao xang"))
+                else if (ContainsAny(text, "tiet kiem", "tiet kiem xang", "it hao xang", "hao xang it", "an xang it"))
                 {
                     reason = BuildPickBestReasonByFeature(best, "fuel_saving");
                 }
-                else if (normalizedMessage.Contains("ben") || normalizedMessage.Contains("it hong") || normalizedMessage.Contains("bao duong"))
+                else if (ContainsAny(text, "ben", "do ben", "it hong", "bao duong", "de bao duong", "dung lau"))
                 {
                     reason = BuildPickBestReasonByFeature(best, "durability");
                 }
-                else if (normalizedMessage.Contains("manh") || normalizedMessage.Contains("khoe"))
+                else if (ContainsAny(text, "di xa", "duong dai", "di duong dai", "chay xa", "di lau"))
+                {
+                    reason = BuildPickBestReasonByFeature(best, "long_distance");
+                }
+                else if (ContainsAny(text, "manh", "khoe", "may khoe", "boc"))
                 {
                     reason = $"{best.Ten} có động cơ mạnh hơn và cảm giác lái đầm hơn.";
                 }
@@ -327,7 +328,6 @@ namespace Chatbot.API.Services
                 {
                     reason = $"{best.Ten} đang cân bằng tốt giữa giá, độ dễ dùng và nhu cầu hằng ngày.";
                 }
-
                 return new ChatResponse
                 {
                     Success = true,
@@ -577,7 +577,16 @@ namespace Chatbot.API.Services
                     .ThenBy(x => x.Gia)
                     .ToList();
             }
-
+            if (text.Contains("di xa") ||
+    text.Contains("duong dai") ||
+    text.Contains("di duong dai") ||
+    text.Contains("chay xa"))
+            {
+                return items
+                    .OrderByDescending(x => LooksLikeLongDistanceFriendly(x))
+                    .ThenByDescending(x => x.Gia)
+                    .ToList();
+            }
             return items;
         }
         private static bool LooksLikeLargeStorage(ProductSummaryDto product)
@@ -626,6 +635,20 @@ namespace Chatbot.API.Services
                    name.Contains("sirius") ||
                    name.Contains("wave");
         }
+        private static bool LooksLikeLongDistanceFriendly(ProductSummaryDto product)
+        {
+            var name = (product.Ten ?? string.Empty).ToLowerInvariant();
+
+            return name.Contains("air blade") ||
+                   name.Contains("winner") ||
+                   name.Contains("exciter") ||
+                   name.Contains("freego") ||
+                   name.Contains("future") ||
+                   name.Contains("jupiter") ||
+                   name.Contains("impulse") ||
+                   name.Contains("axelo") ||
+                   name.Contains("gd110");
+        }
         private static string BuildPickBestReasonByFeature(ProductSummaryDto product, string feature)
         {
             var name = (product.Ten ?? string.Empty).ToLowerInvariant();
@@ -652,8 +675,84 @@ namespace Chatbot.API.Services
 
                 return $"{product.Ten} hợp hơn nếu ưu tiên độ bền vì mẫu này khá thực dụng, dễ dùng lâu dài và chi phí bảo dưỡng không quá cao";
             }
+            if (feature == "long_distance")
+            {
+                if (name.Contains("air blade") || name.Contains("freego"))
+                    return $"{product.Ten} hợp đi xa hơn vì xe đầm hơn nhóm xe nhỏ, tư thế ngồi thoải mái hơn và máy đủ khỏe cho quãng đường dài";
+
+                if (name.Contains("future") || name.Contains("jupiter") || name.Contains("impulse") || name.Contains("axelo") || name.Contains("gd110"))
+                    return $"{product.Ten} hợp đi xa hơn trong nhóm này vì dáng xe ổn định hơn, máy bền và phù hợp chạy quãng đường dài hơn các mẫu quá nhỏ gọn";
+
+                return $"{product.Ten} hợp đi xa hơn trong nhóm vừa gợi ý vì tổng thể ổn định, dễ kiểm soát và phù hợp chạy lâu hơn";
+            }
 
             return $"{product.Ten} đang cân bằng tốt giữa giá, độ dễ dùng và nhu cầu hằng ngày";
+        }
+        private static ProductSummaryDto PickBestByFeature(
+    List<ProductSummaryDto> semanticallyOrderedProducts,
+    IReadOnlyList<ProductSummaryDto> rerankedProducts,
+    string normalizedMessage)
+        {
+            var text = NormalizeText(normalizedMessage);
+
+            if (ContainsAny(text, "di xa", "duong dai", "di duong dai", "chay xa", "di lau"))
+            {
+                var bestLongDistance = semanticallyOrderedProducts.FirstOrDefault(LooksLikeLongDistanceFriendly);
+                if (bestLongDistance != null)
+                    return bestLongDistance;
+            }
+
+            if (ContainsAny(text, "tiet kiem", "tiet kiem xang", "it hao xang", "hao xang it", "an xang it"))
+            {
+                var bestFuelSaving = semanticallyOrderedProducts.FirstOrDefault(LooksLikeFuelSaving);
+                if (bestFuelSaving != null)
+                    return bestFuelSaving;
+            }
+
+            if (ContainsAny(text, "ben", "do ben", "it hong", "bao duong", "de bao duong", "dung lau"))
+            {
+                var bestDurable = semanticallyOrderedProducts.FirstOrDefault(x =>
+                    ContainsAny(x.Ten, "Honda", "Vision", "Future", "Wave", "Jupiter", "Sirius", "Impulse"));
+
+                if (bestDurable != null)
+                    return bestDurable;
+            }
+
+            return rerankedProducts.First();
+        }
+        private static bool ContainsAny(string? text, params string[] keywords)
+        {
+            if (string.IsNullOrWhiteSpace(text) || keywords == null || keywords.Length == 0)
+                return false;
+
+            return keywords.Any(k =>
+                !string.IsNullOrWhiteSpace(k) &&
+                text.Contains(k, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static string NormalizeText(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            var text = value.Trim().ToLowerInvariant();
+
+            text = text
+                .Replace('à', 'a').Replace('á', 'a').Replace('ạ', 'a').Replace('ả', 'a').Replace('ã', 'a')
+                .Replace('â', 'a').Replace('ầ', 'a').Replace('ấ', 'a').Replace('ậ', 'a').Replace('ẩ', 'a').Replace('ẫ', 'a')
+                .Replace('ă', 'a').Replace('ằ', 'a').Replace('ắ', 'a').Replace('ặ', 'a').Replace('ẳ', 'a').Replace('ẵ', 'a')
+                .Replace('è', 'e').Replace('é', 'e').Replace('ẹ', 'e').Replace('ẻ', 'e').Replace('ẽ', 'e')
+                .Replace('ê', 'e').Replace('ề', 'e').Replace('ế', 'e').Replace('ệ', 'e').Replace('ể', 'e').Replace('ễ', 'e')
+                .Replace('ì', 'i').Replace('í', 'i').Replace('ị', 'i').Replace('ỉ', 'i').Replace('ĩ', 'i')
+                .Replace('ò', 'o').Replace('ó', 'o').Replace('ọ', 'o').Replace('ỏ', 'o').Replace('õ', 'o')
+                .Replace('ô', 'o').Replace('ồ', 'o').Replace('ố', 'o').Replace('ộ', 'o').Replace('ổ', 'o').Replace('ỗ', 'o')
+                .Replace('ơ', 'o').Replace('ờ', 'o').Replace('ớ', 'o').Replace('ợ', 'o').Replace('ở', 'o').Replace('ỡ', 'o')
+                .Replace('ù', 'u').Replace('ú', 'u').Replace('ụ', 'u').Replace('ủ', 'u').Replace('ũ', 'u')
+                .Replace('ư', 'u').Replace('ừ', 'u').Replace('ứ', 'u').Replace('ự', 'u').Replace('ử', 'u').Replace('ữ', 'u')
+                .Replace('ỳ', 'y').Replace('ý', 'y').Replace('ỵ', 'y').Replace('ỷ', 'y').Replace('ỹ', 'y')
+                .Replace('đ', 'd');
+
+            return text;
         }
     }
 

@@ -73,6 +73,16 @@ namespace Chatbot.API.Controllers
                 request.Message = ChatChannelMessageHelper.NormalizeQuickMenuInput(request.Message);
 
                 var result = await _chatService.ProcessMessageAsync(request);
+                if (result == null)
+                {
+                    result = new ChatResponse
+                    {
+                        Success = true,
+                        UsedAI = false,
+                        ConversationId = request.ConversationId,
+                        Reply = "Mình chưa có câu trả lời phù hợp. Bạn thử nói rõ hơn nhu cầu như ngân sách, giới tính hoặc loại xe nhé."
+                    };
+                }
 
                 result.Reply = ChatChannelMessageHelper.FormatReply(
                     result.Reply,

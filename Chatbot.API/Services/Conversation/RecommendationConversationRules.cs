@@ -86,7 +86,7 @@ namespace Chatbot.API.Services.Conversation
             if (parsedIntent == null)
                 return false;
 
-            if (parsedIntent.IsOutOfScope || parsedIntent.IsNoise || parsedIntent.IsGreeting || parsedIntent.IsAck)
+            if (parsedIntent.IsGreeting || parsedIntent.IsAck)
                 return false;
 
             if (string.IsNullOrWhiteSpace(message) || !HasActiveRecommendationContext(profile))
@@ -105,7 +105,10 @@ namespace Chatbot.API.Services.Conversation
                 text.Contains("đắt hơn") || text.Contains("dat hon") ||
                 text.Contains("tầm") || text.Contains("tam") ||
                 text.Contains("khoảng") || text.Contains("khoang");
-
+            if ((parsedIntent.IsOutOfScope || parsedIntent.IsNoise) && hasBudgetSignal)
+            {
+                return true;
+            }
             bool hasConstraintSignal =
                 !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
                 !string.IsNullOrWhiteSpace(parsedIntent.Category) ||
@@ -153,8 +156,12 @@ namespace Chatbot.API.Services.Conversation
 
             if (hasExplicitCompareWords)
                 return false;
+            bool isShortBudgetOnly =
+                text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 6 &&
+                hasBudgetSignal &&
+                !hasExplicitCompareWords;
 
-            return looksLikeShortFollowUp && (hasBudgetSignal || hasConstraintSignal);
+            return isShortBudgetOnly || (looksLikeShortFollowUp && (hasBudgetSignal || hasConstraintSignal));
         }
         public static bool LooksLikeRecommendationFollowUp(
             string message,
@@ -311,6 +318,37 @@ namespace Chatbot.API.Services.Conversation
        parsedIntent.NeedsLowSeat ||
        parsedIntent.ForWork ||
        parsedIntent.ForSchool;
+        }
+        public static bool LooksLikeAlternativeAfterCompareOrRecommendation(
+    string message,
+    CustomerPreferenceProfile? profile)
+        {
+            if (string.IsNullOrWhiteSpace(message) || profile == null)
+                return false;
+
+            var text = message.Trim().ToLowerInvariant();
+
+            bool hasAlternativeSignal =
+                text.Contains("còn xe nào") ||
+                text.Contains("con xe nao") ||
+                text.Contains("mẫu nào") ||
+                text.Contains("mau nao") ||
+                text.Contains("xe nào tốt hơn") ||
+                text.Contains("xe nao tot hon") ||
+                text.Contains("ổn hơn") ||
+                text.Contains("on hon") ||
+                text.Contains("hợp hơn") ||
+                text.Contains("hop hon") ||
+                text.Contains("đáng mua hơn") ||
+                text.Contains("dang mua hon");
+
+            bool hasContext =
+                profile.HasActiveCompareContext ||
+                profile.HasActiveRecommendationContext ||
+                profile.LastRecommendedProducts?.Count > 0 ||
+                profile.LastComparedProducts?.Count > 0;
+
+            return hasAlternativeSignal && hasContext;
         }
     }
 }

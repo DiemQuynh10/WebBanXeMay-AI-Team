@@ -33,12 +33,51 @@ namespace Chatbot.API.Services.Conversation
             bool hasCompareContext = HasCompareContext(conversationProfile);
             ResolveOrdinalProductsIfNeeded(effectiveIntent, conversationProfile, normalizedMessage);
             bool hasLookupContext = HasLookupContext(conversationProfile);
+            if (string.Equals(effectiveIntent.FollowUpType, "alternative_after_compare", StringComparison.OrdinalIgnoreCase))
+            {
+                effectiveIntent.IntentType = "recommend";
+                effectiveIntent.RouteFlow = ChatFlowType.Recommendation;
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.IsOpenRecommendation = true;
+                effectiveIntent.IsDirectCompare = false;
+                effectiveIntent.ExcludePreviousProducts = false;
+
+                routing.FlowType = ChatFlowType.Recommendation;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = true;
+                routing.Reason = "Alternative recommendation after compare";
+                return routing;
+            }
             Console.WriteLine(
     $"[FLOW DECISION INPUT] Text={text} | IntentType={effectiveIntent.IntentType} | RouteFlow={effectiveIntent.RouteFlow} | FollowUpType={effectiveIntent.FollowUpType} | " +
     $"HasCompareContext={hasCompareContext} | " +
     $"ExcludedBrands={string.Join(",", effectiveIntent.ExcludedBrands)} | " +
     $"ExcludedProducts={string.Join(",", effectiveIntent.ExcludedProducts)} | " +
     $"MentionedProducts={string.Join(",", effectiveIntent.MentionedProducts)}");
+            if (LooksLikePickOneRequest(text) &&
+    (
+        hasRecommendationContext ||
+        (conversationProfile?.CurrentRecommendedProducts?.Count > 0) ||
+        (conversationProfile?.BaseRecommendedProducts?.Count > 0) ||
+        (conversationProfile?.LastRecommendedProducts?.Count > 0) ||
+        (conversationProfile?.LastMentionedProducts?.Count > 0)
+    ))
+            {
+                effectiveIntent.IntentType = "recommend";
+                effectiveIntent.RouteFlow = ChatFlowType.RecommendationFollowUp;
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.FollowUpType = "pick_best";
+                effectiveIntent.IsOpenRecommendation = false;
+                effectiveIntent.IsDirectCompare = false;
+
+                routing.FlowType = ChatFlowType.RecommendationFollowUp;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Pick best from current recommendation list by text rule";
+                return routing;
+            }
             if (string.Equals(effectiveIntent.FollowUpType, "pick_best", StringComparison.OrdinalIgnoreCase))
             {
                 bool hasAnyProductContext =
@@ -159,6 +198,26 @@ namespace Chatbot.API.Services.Conversation
                 routing.ShouldUseAiFallback = false;
                 routing.ShouldUseRag = true;
                 routing.Reason = "Restart recommendation after full profile reset";
+                return routing;
+            }
+            if (LooksLikeValueForMoneyQuestion(text))
+            {
+                effectiveIntent.IntentType = "recommend";
+                effectiveIntent.RouteFlow = ChatFlowType.Recommendation;
+                effectiveIntent.IsOpenRecommendation = true;
+                effectiveIntent.HasFreshConsultationSignal = true;
+                effectiveIntent.IsFollowUp = false;
+                effectiveIntent.FollowUpType = null;
+                effectiveIntent.WantsFuelSaving = true;
+                effectiveIntent.WantsEasyControl = true;
+                effectiveIntent.IsOutOfScope = false;
+                effectiveIntent.IsNoise = false;
+
+                routing.FlowType = ChatFlowType.Recommendation;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = true;
+                routing.Reason = "Value-for-money recommendation";
                 return routing;
             }
             if (ShouldForceOrderLookup(effectiveIntent))
@@ -426,10 +485,32 @@ namespace Chatbot.API.Services.Conversation
                 routing.Reason = "Bare compare current recommendation list";
                 return routing;
             }
+            bool hasPriceRefinement =
+    effectiveIntent.PriceMin.HasValue ||
+    effectiveIntent.PriceMax.HasValue ||
+    effectiveIntent.TargetPrice.HasValue ||
+    effectiveIntent.FilterType != PriceFilterType.None;
+
             if (hasRecommendationContext &&
-    HasExclusionConstraint(effectiveIntent) &&
-    ExcludedBrandNotInCurrentRecommendation(effectiveIntent, conversationProfile))
+                HasExclusionConstraint(effectiveIntent) &&
+                ExcludedBrandNotInCurrentRecommendation(effectiveIntent, conversationProfile))
             {
+                if (hasPriceRefinement)
+                {
+                    effectiveIntent.IntentType = "refine";
+                    effectiveIntent.RouteFlow = ChatFlowType.Refinement;
+                    effectiveIntent.IsFollowUp = true;
+                    effectiveIntent.FollowUpType = "price_refine_after_exclusion";
+                    effectiveIntent.HasNarrowRefinementSignal = true;
+
+                    routing.FlowType = ChatFlowType.Refinement;
+                    routing.ShouldUseDeterministicFlow = true;
+                    routing.ShouldUseAiFallback = false;
+                    routing.ShouldUseRag = false;
+                    routing.Reason = "Price refinement after exclusion";
+                    return routing;
+                }
+
                 routing.FlowType = ChatFlowType.Unknown;
                 routing.ShouldUseDeterministicFlow = false;
                 routing.ShouldUseAiFallback = false;
@@ -438,10 +519,20 @@ namespace Chatbot.API.Services.Conversation
                 return routing;
             }
             if (!IsExplicitCompareRequest(text, effectiveIntent) &&
-    HasExclusionConstraint(effectiveIntent))
+     HasExclusionConstraint(effectiveIntent))
             {
-                // Nếu đang có ngữ cảnh tư vấn, câu kiểu "không thích Yamaha"
-                // phải là refinement, không được coi là recommendation mới.
+                if (IsFreshRecommendationWithExclusion(effectiveIntent) &&
+                    LooksLikeExplicitFreshRecommendationRequest(text, effectiveIntent))
+                {
+                    MarkAsFreshRecommendation(effectiveIntent);
+                    ClearCompareContext(conversationProfile);
+
+                    return RouteTo(
+                        ChatFlowType.Recommendation,
+                        "Fresh recommendation with exclusion",
+                        useRag: true);
+                }
+
                 if (hasRecommendationContext || effectiveIntent.IsFollowUp)
                 {
                     MarkAsRefinementExclude(effectiveIntent);
@@ -983,7 +1074,15 @@ namespace Chatbot.API.Services.Conversation
                 text.Contains("thap hon") ||
                 text.Contains("it tien hon");
 
-            return asksOtherOption && asksCheaper;
+            bool asksBetter =
+     text.Contains("tot hon") ||
+     text.Contains("on hon") ||
+     text.Contains("hop hon") ||
+     text.Contains("dang mua hon") ||
+     text.Contains("ngon hon") ||
+     text.Contains("ok hon");
+
+            return asksOtherOption && (asksCheaper || asksBetter);
         }
         private static bool LooksLikeExplicitCompareQuestion(string message, ParsedIntent intent)
         {
@@ -1389,15 +1488,25 @@ text.Contains("khi mua xe") ||
             var text = NormalizeText(message);
 
             return
-                text.Contains("chon 1") ||
-                text.Contains("chon mot") ||
-                text.Contains("lay 1") ||
-                text.Contains("lay mot") ||
-                text.Contains("chot 1") ||
-                text.Contains("chot mot") ||
-                text.Contains("chon xe") ||
-                text.Contains("chot xe") ||
-                text.Contains("chon giup");
+     text.Contains("chon 1") ||
+     text.Contains("chon mot") ||
+     text.Contains("chon cho") ||
+     text.Contains("chon giup") ||
+     text.Contains("chon tot nhat") ||
+     text.Contains("chon 1 con") ||
+     text.Contains("chon mot con") ||
+     text.Contains("chon 1 xe") ||
+     text.Contains("chon mot xe") ||
+     text.Contains("lay 1") ||
+     text.Contains("lay mot") ||
+     text.Contains("lay con nao") ||
+     text.Contains("chot 1") ||
+     text.Contains("chot mot") ||
+     text.Contains("chot con") ||
+     text.Contains("chot xe") ||
+     text.Contains("xe tot nhat trong so") ||
+     text.Contains("mau tot nhat trong so") ||
+     text.Contains("con tot nhat trong so");
         }
         private static bool ShouldRouteToRagPolicy(ParsedIntent intent, string message)
         {
@@ -1621,6 +1730,20 @@ text.Contains("khi mua xe") ||
                 text == "xe re hon";
 
             return hasCurrentListSignal && asksCheapest;
+        }
+        private static bool LooksLikeValueForMoneyQuestion(string message)
+        {
+            var text = NormalizeText(message);
+
+            return text.Contains("ngon bo re") ||
+                   text.Contains("ngon re") ||
+                   text.Contains("dang tien") ||
+                   text.Contains("dang mua") ||
+                   text.Contains("mau nao dang mua") ||
+                   text.Contains("hop ly nhat") ||
+                   text.Contains("tot trong tam gia") ||
+                   text.Contains("xe nao ngon") ||
+                   text.Contains("xe nao on");
         }
         private static bool LooksLikeBareCompareCurrentListRequest(string message)
         {

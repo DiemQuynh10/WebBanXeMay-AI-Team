@@ -123,11 +123,11 @@ namespace Chatbot.API.Services.Intent
 
             if (string.IsNullOrWhiteSpace(intent.Brand))
             {
-                if (text.Contains("honda")) intent.Brand = "Honda";
-                else if (text.Contains("yamaha")) intent.Brand = "Yamaha";
-                else if (text.Contains("suzuki")) intent.Brand = "Suzuki";
-                else if (text.Contains("sym")) intent.Brand = "SYM";
-                else if (text.Contains("piaggio")) intent.Brand = "Piaggio";
+                if (TextMentionsAllowedBrand(text, intent, "honda", "Honda")) intent.Brand = "Honda";
+                else if (TextMentionsAllowedBrand(text, intent, "yamaha", "Yamaha")) intent.Brand = "Yamaha";
+                else if (TextMentionsAllowedBrand(text, intent, "suzuki", "Suzuki")) intent.Brand = "Suzuki";
+                else if (TextMentionsAllowedBrand(text, intent, "sym", "SYM")) intent.Brand = "SYM";
+                else if (TextMentionsAllowedBrand(text, intent, "piaggio", "Piaggio")) intent.Brand = "Piaggio";
             }
 
             if (text.Contains("cho nu"))
@@ -245,6 +245,35 @@ namespace Chatbot.API.Services.Intent
                 .Replace('đ', 'd');
 
             return text;
+        }
+        private static bool TextMentionsAllowedBrand(
+    string text,
+    ParsedIntent intent,
+    string normalizedBrand,
+    string canonicalBrand)
+        {
+            if (!text.Contains(normalizedBrand))
+                return false;
+
+            if (intent.ExcludedBrands.Contains(canonicalBrand))
+                return false;
+
+            if (IsBrandMentionedNegatively(text, normalizedBrand))
+                return false;
+
+            return true;
+        }
+
+        private static bool IsBrandMentionedNegatively(string text, string normalizedBrand)
+        {
+            return text.Contains($"khong {normalizedBrand}") ||
+                   text.Contains($"ko {normalizedBrand}") ||
+                   text.Contains($"k {normalizedBrand}") ||
+                   text.Contains($"ne {normalizedBrand}") ||
+                   text.Contains($"bo {normalizedBrand}") ||
+                   text.Contains($"loai {normalizedBrand}") ||
+                   text.Contains($"khong thich {normalizedBrand}") ||
+                   text.Contains($"khong muon {normalizedBrand}");
         }
     }
 }

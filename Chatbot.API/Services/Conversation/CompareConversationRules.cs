@@ -178,9 +178,21 @@ namespace Chatbot.API.Services.Conversation
                 text.Contains("xe khác") ||
                 text.Contains("xe khac") ||
                 text.Contains("mẫu khác") ||
-                text.Contains("mau khac");
+                text.Contains("mau khac") ||
+                text.Contains("lựa chọn khác") ||
+                text.Contains("lua chon khac") ||
+                text.Contains("phương án khác") ||
+                text.Contains("phuong an khac");
 
-            bool asksCheaper =
+            bool asksBetterOrCheaper =
+                text.Contains("tốt hơn") ||
+                text.Contains("tot hon") ||
+                text.Contains("ổn hơn") ||
+                text.Contains("on hon") ||
+                text.Contains("hợp hơn") ||
+                text.Contains("hop hon") ||
+                text.Contains("đáng mua hơn") ||
+                text.Contains("dang mua hon") ||
                 text.Contains("rẻ hơn") ||
                 text.Contains("re hon") ||
                 text.Contains("mềm hơn") ||
@@ -190,7 +202,21 @@ namespace Chatbot.API.Services.Conversation
                 text.Contains("ít tiền hơn") ||
                 text.Contains("it tien hon");
 
-            return asksOtherOption && asksCheaper;
+            bool referencesComparedPair =
+                text.Contains("2 con này") ||
+                text.Contains("2 con nay") ||
+                text.Contains("hai con này") ||
+                text.Contains("hai con nay") ||
+                text.Contains("2 xe này") ||
+                text.Contains("2 xe nay") ||
+                text.Contains("hai xe này") ||
+                text.Contains("hai xe nay") ||
+                text.Contains("2 mẫu này") ||
+                text.Contains("2 mau nay") ||
+                text.Contains("hai mẫu này") ||
+                text.Contains("hai mau nay");
+
+            return asksOtherOption && (asksBetterOrCheaper || referencesComparedPair);
         }
     }
 }
