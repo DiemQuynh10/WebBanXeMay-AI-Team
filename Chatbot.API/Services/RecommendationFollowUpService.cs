@@ -111,6 +111,57 @@ namespace Chatbot.API.Services
                 products.Count,
                 string.Join(", ", products.Select(x => x.Ten)));
 
+
+            if (string.Equals(intent.FollowUpType, "cheapest_in_list", StringComparison.OrdinalIgnoreCase))
+            {
+                if (products == null || products.Count == 0)
+                    return null;
+
+                var cheapestItems = products
+                                .OrderBy(x => x.Gia)
+                    .ThenByDescending(x => x.SoLuong)
+                    .Take(3)
+                    .ToList();
+
+                if (cheapestItems.Count == 0)
+                    return null;
+
+                await _conversationPreferenceService.UpdateCurrentRecommendedProductsAsync(
+                    conversationId,
+                    cheapestItems,
+                    "followup");
+
+                var cheapest = cheapestItems.First();
+
+                var samePriceItems = cheapestItems
+                    .Where(x => x.Gia == cheapest.Gia)
+                    .ToList();
+
+                string cheapestReply;
+
+                if (samePriceItems.Count > 1)
+                {
+                    cheapestReply =
+                        $"Trong các mẫu vừa gợi ý, mức rẻ nhất hiện là **{cheapest.Gia:N0} VNĐ**.\n\n" +
+                        "Các mẫu cùng mức giá thấp nhất là:\n" +
+                        string.Join("\n", samePriceItems.Select(x => $"- **{x.Ten}** ({x.Gia:N0} VNĐ)"));
+                }
+                else
+                {
+                    cheapestReply =
+                        $"Trong các mẫu vừa gợi ý, mẫu rẻ nhất là **{cheapest.Ten}** với giá khoảng **{cheapest.Gia:N0} VNĐ**.";
+                }
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    Reply = cheapestReply,
+                    Products = ChatProductCardMapper.MapMany(samePriceItems, 3)
+                };
+            }
+
             if (products.Count == 0)
             {
                 if (HasExclusionIntent(intent))

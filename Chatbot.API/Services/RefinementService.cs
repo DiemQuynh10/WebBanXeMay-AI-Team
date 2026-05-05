@@ -146,10 +146,70 @@ namespace Chatbot.API.Services
     "REFINEMENT PREVIOUS PRODUCTS => Count={Count}, Products={Products}",
     previousProducts.Count,
     string.Join(" | ", previousProducts.Select(x => $"{x.Ten}:{x.Gia:N0}")));
+            if (LooksLikeAmbiguousGenericDislike(normalizedMessage))
+            {
+                var productNames = previousProducts
+                    .Select(x => x.Ten)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Take(3)
+                    .ToList();
+
+                var brands = previousProducts
+                    .Select(x => x.ThuongHieu)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var productText = productNames.Count > 0
+                    ? string.Join(", ", productNames)
+                    : "các mẫu vừa rồi";
+
+                if (brands.Count == 1)
+                {
+                    return new ChatResponse
+                    {
+                        Success = true,
+                        ConversationId = conversationId,
+                        UsedAI = false,
+                        Reply =
+                            $"Ý bạn là **không thích cả hãng {brands[0]}**, hay chỉ **không thích các mẫu mình vừa gợi ý** như {productText}?\n\n" +
+                            $"Bạn có thể trả lời: **không {brands[0]}** hoặc **tư vấn mẫu khác** nhé."
+                    };
+                }
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    Reply =
+                        $"Ý bạn là không thích mẫu nào trong các mẫu vừa rồi: {productText}?\n\n" +
+                        $"Bạn có thể nói rõ hơn như: **không Honda**, **không Vision**, hoặc **tư vấn mẫu khác** nhé."
+                };
+            }
 
             EnrichIntentFromFollowUp(normalizedMessage, intent);
 
+            var genericDislikeApplied = ApplyGenericDislikeAsBrandExclusion(
+                normalizedMessage,
+                intent,
+                profile,
+                previousProducts);
+
             CarryForwardProfileConstraintsForRefinement(intent, profile);
+
+            if (genericDislikeApplied)
+            {
+                foreach (var brand in intent.ExcludedBrands.ToList())
+                {
+                    if (string.Equals(intent.Brand, brand, StringComparison.OrdinalIgnoreCase))
+                        intent.Brand = null;
+
+                    if (string.Equals(profile.PreferredBrand, brand, StringComparison.OrdinalIgnoreCase))
+                        profile.PreferredBrand = null;
+                }
+            }
+
             ApplySmartRetryBehavior(intent, profile);
 
             if (ShouldBypassRefinementForFreshRecommendation(normalizedMessage, intent))
@@ -2681,6 +2741,80 @@ namespace Chatbot.API.Services
             {
                 if (!string.IsNullOrWhiteSpace(productName))
                     intent.ExcludedProducts.Add(productName);
+            }
+        }
+        private static bool LooksLikeAmbiguousGenericDislike(string message)
+        {
+            var text = NormalizeText(message);
+
+            return text == "khong thich" ||
+                   text == "khong ung" ||
+                   text == "khong thich lam" ||
+                   text == "khong hop" ||
+                   text == "khong muon";
+        }
+        private static bool ApplyGenericDislikeAsBrandExclusion(
+     string normalizedMessage,
+     ParsedIntent intent,
+     CustomerPreferenceProfile profile,
+     List<ProductSummaryDto> previousProducts)
+        {
+            var text = NormalizeText(normalizedMessage);
+
+            bool genericDislike =
+                text == "khong thich" ||
+                text == "khong ung" ||
+                text == "khong thich lam" ||
+                text == "khong hop" ||
+                text == "khong muon";
+
+            if (!genericDislike)
+                return false;
+
+            if (previousProducts == null || previousProducts.Count == 0)
+                return false;
+
+            var brandsInPrevious = previousProducts
+                .Select(x => x.ThuongHieu)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (brandsInPrevious.Count == 1)
+            {
+                var brand = brandsInPrevious[0];
+
+                intent.ExcludedBrands.Add(brand);
+                profile.ExcludedBrands.Add(brand);
+
+                if (string.Equals(intent.Brand, brand, StringComparison.OrdinalIgnoreCase))
+                    intent.Brand = null;
+
+                if (string.Equals(profile.PreferredBrand, brand, StringComparison.OrdinalIgnoreCase))
+                    profile.PreferredBrand = null;
+
+                intent.KeepConstraints = true;
+                intent.FollowUpType = "exclude";
+                intent.HasNarrowRefinementSignal = true;
+
+                return true;
+            }
+            else
+            {
+                foreach (var p in previousProducts)
+                {
+                    if (!string.IsNullOrWhiteSpace(p.Ten))
+                    {
+                        intent.ExcludedProducts.Add(p.Ten);
+                        profile.ExcludedProducts.Add(p.Ten);
+                    }
+                }
+
+                intent.KeepConstraints = true;
+                intent.FollowUpType = "exclude_product";
+                intent.HasNarrowRefinementSignal = true;
+
+                return true;
             }
         }
         private sealed class RefinementSignals

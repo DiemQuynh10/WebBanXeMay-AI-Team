@@ -68,6 +68,26 @@ namespace Chatbot.API.Services.Conversation
                 return routing;
             }
             if (hasRecommendationContext &&
+     !MessageAsksGlobalScope(text) &&
+     LooksLikeCheapestInRecommendationList(text))
+            {
+                effectiveIntent.IntentType = "followup";
+                effectiveIntent.RouteFlow = ChatFlowType.RecommendationFollowUp;
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.FollowUpType = "cheapest_in_list";
+                effectiveIntent.ComparisonFeature = "price";
+                effectiveIntent.KeepConstraints = true;
+                effectiveIntent.IsDirectCompare = false;
+                effectiveIntent.IsOpenRecommendation = false;
+
+                routing.FlowType = ChatFlowType.RecommendationFollowUp;
+                routing.ShouldUseDeterministicFlow = true;
+                routing.ShouldUseAiFallback = false;
+                routing.ShouldUseRag = false;
+                routing.Reason = "Cheapest product from current recommendation list";
+                return routing;
+            }
+            if (hasRecommendationContext &&
     LooksLikeCompareFeatureWithinRecommendation(text, effectiveIntent))
             {
                 effectiveIntent.IntentType = "recommend";
@@ -1559,6 +1579,48 @@ text.Contains("khi mua xe") ||
             }
 
             return true;
+        }
+        private static bool MessageAsksGlobalScope(string message)
+        {
+            var text = NormalizeText(message);
+
+            return text.Contains("cua shop") ||
+                   text.Contains("toan shop") ||
+                   text.Contains("toan bo shop") ||
+                   text.Contains("tat ca shop") ||
+                   text.Contains("cua hang") ||
+                   text.Contains("toan cua hang") ||
+                   text.Contains("tat ca xe") ||
+                   text.Contains("toan bo xe");
+        }
+        private static bool LooksLikeCheapestInRecommendationList(string text)
+        {
+            text = NormalizeText(text);
+
+            if (MessageAsksGlobalScope(text))
+                return false;
+
+            bool hasCurrentListSignal =
+                text.Contains("trong danh sach") ||
+                text.Contains("trong nhom") ||
+                text.Contains("vua goi y") ||
+                text.Contains("ben tren") ||
+                text.Contains("may mau vua goi y") ||
+                text.Contains("cac mau vua goi y") ||
+                text.Contains("trong cac mau");
+
+            bool asksCheapest =
+                text.Contains("xe nao re hon") ||
+                text.Contains("mau nao re hon") ||
+                text.Contains("con nao re hon") ||
+                text.Contains("cai nao re hon") ||
+                text.Contains("xe nao re nhat") ||
+                text.Contains("mau nao re nhat") ||
+                text.Contains("re nhat") ||
+                text == "re hon" ||
+                text == "xe re hon";
+
+            return hasCurrentListSignal && asksCheapest;
         }
         private static bool LooksLikeBareCompareCurrentListRequest(string message)
         {

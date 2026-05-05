@@ -56,13 +56,41 @@ namespace Chatbot.API.Services.Intent
                 text.Contains("cu") ||
                 text.Contains("khoang") ||
                 text.Contains("tam");
-
+            bool hasProductSignal =
+    intent.MentionedProducts != null &&
+    intent.MentionedProducts.Count > 0;
             if (!hasRecommendSignal)
                 return;
 
-            if (!(hasVehicleSignal || hasBrandSignal || hasTargetSignal || hasPriceSignal))
+            if (!(hasVehicleSignal || hasBrandSignal || hasTargetSignal || hasPriceSignal || hasProductSignal))
                 return;
+            if (hasRecommendSignal &&
+    hasProductSignal &&
+    intent.MentionedProducts.Count == 1 &&
+    !hasPriceSignal &&
+    !hasTargetSignal &&
+    !hasVehicleSignal)
+            {
+                intent.IntentType = "product_lookup";
+                intent.RouteFlow = ChatFlowType.ProductLookup;
+                intent.IsDirectProductLookup = true;
+                intent.LookupTargetType = "product";
+                intent.LookupField = "detail";
 
+                intent.IsOpenRecommendation = false;
+                intent.IsFollowUp = false;
+                intent.FollowUpType = null;
+
+                intent.IsOutOfScope = false;
+                intent.IsNoise = false;
+                intent.IsAck = false;
+
+                intent.HasFreshConsultationSignal = false;
+                intent.HasNarrowRefinementSignal = false;
+                intent.HasDeterministicProductIntent = true;
+
+                return;
+            }
             intent.IntentType = "recommend";
             intent.RouteFlow = ChatFlowType.Recommendation;
             intent.IsOpenRecommendation = true;
@@ -79,7 +107,10 @@ namespace Chatbot.API.Services.Intent
 
             intent.HasFreshConsultationSignal = true;
             intent.HasNarrowRefinementSignal = false;
-
+            if (hasProductSignal)
+            {
+                intent.HasDeterministicProductIntent = true;
+            }
             if (string.IsNullOrWhiteSpace(intent.Category))
             {
                 if (text.Contains("xe ga") || text.Contains("xe tay ga"))

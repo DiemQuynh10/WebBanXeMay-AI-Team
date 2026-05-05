@@ -60,6 +60,20 @@ namespace Chatbot.API.Services
             var question = JoinParts(normalizedMessage, semanticQuery, profile?.LastSemanticMeaning);
             var requestedDomains = InferDomains(question, intent);
             var requestedSlots = InferSlots(question);
+            if (IsPurchaseProcedureQuestion(question))
+            {
+                requestedDomains = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "paperwork"
+    };
+
+                requestedSlots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "documents",
+        "process",
+        "registration_time"
+    };
+            }
             var preferredSlots = ExpandPreferredSlots(requestedSlots);
             var requestedBrands = InferBrands(question, intent, profile);
             var queryTokens = Tokenize(question);
@@ -181,7 +195,27 @@ namespace Chatbot.API.Services
         {
             var text = Normalize($"{fact.Domain} {fact.Slot} {fact.Brand} {fact.Value}");
             var score = 0;
+            bool questionLooksLikePurchaseProcedure =
+    requestedDomains.Contains("paperwork") &&
+    requestedSlots.Contains("process");
 
+            if (questionLooksLikePurchaseProcedure &&
+                fact.Domain.Equals("testride", StringComparison.OrdinalIgnoreCase))
+            {
+                score -= 50;
+            }
+
+            if (questionLooksLikePurchaseProcedure &&
+                Normalize(fact.Value).Contains("lai thu"))
+            {
+                score -= 50;
+            }
+
+            if (questionLooksLikePurchaseProcedure &&
+                Normalize(fact.Value).Contains("ky bien ban cam ket an toan"))
+            {
+                score -= 50;
+            }
             if (requestedDomains.Count > 0 && requestedDomains.Contains(fact.Domain))
                 score += 20;
 
@@ -468,7 +502,39 @@ namespace Chatbot.API.Services
                 .Replace('Đ', 'D')
                 .ToLowerInvariant();
         }
+        private static bool IsPurchaseProcedureQuestion(string question)
+        {
+            var text = Normalize(question);
 
+            bool asksProcedure =
+                text.Contains("thu tuc") ||
+                text.Contains("quy trinh") ||
+                text.Contains("nhu nao") ||
+                text.Contains("the nao");
+
+            bool purchaseContext =
+     text.Contains("mua xe") ||
+     text.Contains("giay to") ||
+     text.Contains("giay") ||
+     text.Contains("to roi") ||
+     text.Contains("ho so") ||
+     text.Contains("dang ky xe") ||
+     text.Contains("bien so") ||
+     text.Contains("cccd") ||
+     text.Contains("cmnd");
+
+            bool explicitOtherPolicy =
+                text.Contains("lai thu") ||
+                text.Contains("test ride") ||
+                text.Contains("bao hanh") ||
+                text.Contains("doi tra") ||
+                text.Contains("hoan tien") ||
+                text.Contains("giao hang") ||
+                text.Contains("dat coc") ||
+                text.Contains("bao duong");
+
+            return asksProcedure && purchaseContext && !explicitOtherPolicy;
+        }
         private sealed record KnowledgeFact(string Domain, string Slot, string? Brand, string Value)
         {
             public int Index { get; init; }

@@ -238,13 +238,25 @@ namespace Chatbot.API.Services
             }
 
             var items = result?.Items?
-                .Where(x => x != null)
-                .ToList() ?? new List<ProductSummaryDto>();
+    .Where(x => x != null)
+    .ToList() ?? new List<ProductSummaryDto>();
+
             items = explicitListSearch
-     ? ApplyExplicitSearchExclusions(items, excludedBrands, excludedCategories)
-     : ProductExclusionHelper.ApplyExclusions(items, intent, profile);
+                ? ApplyExplicitSearchExclusions(items, excludedBrands, excludedCategories)
+                : ProductExclusionHelper.ApplyExclusions(items, intent, profile);
 
             items = ApplyStrictExclusions(items, excludedBrands, excludedCategories);
+
+            var globalStatisticResponse = await TryHandleGlobalStatisticQueryAsync(
+    conversationId,
+    normalizedMessage,
+    intent,
+    items,
+    excludedBrands,
+    excludedCategories);
+
+            if (globalStatisticResponse != null)
+                return globalStatisticResponse;
 
             if (items.Count == 0)
             {
@@ -333,6 +345,7 @@ namespace Chatbot.API.Services
                 items.Take(5).ToList(),
                 "search");
         }
+       
         private async Task<List<ProductSummaryDto>> FindNearMatchProductsAsync(
      string? brand,
      string? category,
@@ -607,6 +620,259 @@ namespace Chatbot.API.Services
                    text.Contains("suzuki") ||
                    text.Contains("sym") ||
                    text.Contains("piaggio");
+        }
+        private async Task<ChatResponse?> TryHandleGlobalStatisticQueryAsync(
+    string conversationId,
+    string normalizedMessage,
+    ParsedIntent intent,
+    List<ProductSummaryDto> items,
+    HashSet<string> excludedBrands,
+    HashSet<string> excludedCategories)
+        {
+            var text = NormalizeText(normalizedMessage);
+
+            bool isGlobalStatistic =
+                text.Contains("re nhat") ||
+                text.Contains("dat nhat") ||
+                text.Contains("gia cao nhat") ||
+                text.Contains("gia thap nhat") ||
+                text.Contains("bao nhieu xe") ||
+                text.Contains("co bao nhieu xe") ||
+                text.Contains("tong so xe") ||
+                text.Contains("ban chay nhat") ||
+                text.Contains("nhieu nguoi mua") ||
+                text.Contains("duoc mua nhieu") ||
+                text.Contains("phu hop sinh vien nhat") ||
+                text.Contains("hop sinh vien nhat") ||
+                text.Contains("phu hop voi sinh vien") ||
+text.Contains("hop voi sinh vien") ||
+text.Contains("sinh vien nen mua") ||
+text.Contains("xe sinh vien")||
+                text.Contains("cho sinh vien nhat");
+
+            if (!isGlobalStatistic)
+                return null;
+
+            var explicitBrand = DetectBrandFromText(text);
+            var explicitCategory = DetectCategoryFromText(text);
+
+            bool asksWholeShop =
+                text.Contains("cua shop") ||
+                text.Contains("shop") ||
+                text.Contains("toan shop") ||
+                text.Contains("tat ca") ||
+                text.Contains("toan bo");
+            var latestProfile = await _conversationPreferenceService.GetAsync(conversationId);
+
+            var contextBrand = latestProfile?.PreferredBrand;
+            var contextCategory = latestProfile?.PreferredCategory;
+
+            var brand = asksWholeShop ? null : (explicitBrand ?? contextBrand);
+            var category = asksWholeShop ? null : (explicitCategory ?? contextCategory);
+
+            var allResult = await _toolClient.GetProductsByFiltersAsync(
+                brand: brand,
+                minPrice: null,
+                maxPrice: null,
+                category: category,
+                take: 200);
+
+            items = allResult?.Items?
+                .Where(x => x != null)
+                .ToList() ?? new List<ProductSummaryDto>();
+
+            items = items
+                .Where(x => !excludedBrands.Contains(x.ThuongHieu?.Trim() ?? string.Empty))
+                .Where(x => !excludedCategories.Contains(x.Loai?.Trim() ?? string.Empty))
+                .ToList();
+            var products = items
+    .Where(x => x != null)
+    .GroupBy(x => x.Id)
+    .Select(g => g.First())
+    .ToList();
+
+            if (products.Count == 0)
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    UsedTool = ToolNames.GetProductsByFilters,
+                    Reply = "Mình chưa tìm thấy mẫu xe phù hợp với câu hỏi này trong dữ liệu hiện tại."
+                };
+            }
+            var scopeText = BuildScopeText(brand, category);
+
+            if (text.Contains("bao nhieu xe") ||
+                text.Contains("co bao nhieu xe") ||
+                text.Contains("tong so xe"))
+            {
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    UsedTool = ToolNames.GetProductsByFilters,
+                    Reply = $"Hiện tại {scopeText} có khoảng **{products.Count} mẫu xe** trong dữ liệu của shop.",
+                    Products = products
+                        .OrderBy(x => x.Gia)
+                        .Take(5)
+                        .Select(MapToCard)
+                        .ToList()
+                };
+            }
+
+            if (text.Contains("re nhat") || text.Contains("gia thap nhat"))
+            {
+                var cheapest = products
+                    .OrderBy(x => x.Gia)
+                    .ThenByDescending(x => x.SoLuong)
+                    .First();
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    UsedTool = ToolNames.GetProductsByFilters,
+                    Reply = $"Mẫu xe rẻ nhất {scopeText} hiện là **{cheapest.Ten}**, giá khoảng **{cheapest.Gia:N0} VNĐ**.",
+                    Products = new List<ChatProductCard> { MapToCard(cheapest) }
+                };
+            }
+
+            if (text.Contains("dat nhat") || text.Contains("gia cao nhat"))
+            {
+                var mostExpensive = products
+                    .OrderByDescending(x => x.Gia)
+                    .ThenByDescending(x => x.SoLuong)
+                    .First();
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    UsedTool = ToolNames.GetProductsByFilters,
+                    Reply = $"Mẫu xe đắt nhất {scopeText} hiện là **{mostExpensive.Ten}**, giá khoảng **{mostExpensive.Gia:N0} VNĐ**.",
+                    Products = new List<ChatProductCard> { MapToCard(mostExpensive) }
+                };
+            }
+
+            if (text.Contains("ban chay nhat") ||
+                text.Contains("nhieu nguoi mua") ||
+                text.Contains("duoc mua nhieu"))
+            {
+                var bestSellers = products
+                    .OrderByDescending(x => x.SoLuong)
+                    .ThenBy(x => x.Gia)
+                    .Take(3)
+                    .ToList();
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    UsedTool = ToolNames.GetProductsByFilters,
+                    Reply =
+                        $"Nếu tạm dựa trên số lượng/tồn kho trong dữ liệu, các mẫu nổi bật {scopeText} là:\n" +
+                        string.Join("\n", bestSellers.Select(x => $"- **{x.Ten}** ({x.Gia:N0} VNĐ)")),
+                    Products = bestSellers.Select(MapToCard).ToList()
+                };
+            }
+
+            if (text.Contains("phu hop sinh vien nhat") ||
+    text.Contains("hop sinh vien nhat") ||
+    text.Contains("cho sinh vien nhat") ||
+    text.Contains("phu hop voi sinh vien") ||
+    text.Contains("hop voi sinh vien") ||
+    text.Contains("sinh vien nen mua") ||
+    text.Contains("xe sinh vien"))
+            {
+                var studentItems = products
+                    .OrderBy(x => GetStudentFitRank(x))
+                    .ThenBy(x => x.Gia)
+                    .ThenByDescending(x => x.SoLuong)
+                    .Take(3)
+                    .ToList();
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    ConversationId = conversationId,
+                    UsedAI = false,
+                    UsedTool = ToolNames.GetProductsByFilters,
+                    Reply =
+                        $"Với sinh viên, mình ưu tiên xe giá dễ tiếp cận, dễ đi và chi phí sử dụng thấp. Các mẫu hợp nhất {scopeText} là:\n" +
+                        string.Join("\n", studentItems.Select(x => $"- **{x.Ten}** ({x.Gia:N0} VNĐ)")),
+                    Products = studentItems.Select(MapToCard).ToList()
+                };
+            }
+
+            return null;
+        }
+        private static string? DetectBrandFromText(string text)
+        {
+            if (text.Contains("honda")) return "Honda";
+            if (text.Contains("yamaha")) return "Yamaha";
+            if (text.Contains("suzuki")) return "Suzuki";
+            if (text.Contains("sym")) return "SYM";
+            if (text.Contains("piaggio")) return "Piaggio";
+
+            return null;
+        }
+
+        private static string? DetectCategoryFromText(string text)
+        {
+            if (text.Contains("xe ga") || text.Contains("tay ga"))
+                return "xe ga";
+
+            if (text.Contains("xe so"))
+                return "xe số";
+
+            if (text.Contains("con tay"))
+                return "côn tay";
+
+            return null;
+        }
+
+        private static string BuildScopeText(string? brand, string? category)
+        {
+            if (!string.IsNullOrWhiteSpace(brand) && !string.IsNullOrWhiteSpace(category))
+                return $"trong nhóm **{brand} {category}**";
+
+            if (!string.IsNullOrWhiteSpace(brand))
+                return $"của hãng **{brand}**";
+
+            if (!string.IsNullOrWhiteSpace(category))
+                return $"trong nhóm **{category}**";
+
+            return "của shop";
+        }
+
+        private static int GetStudentFitRank(ProductSummaryDto product)
+        {
+            var name = NormalizeText(product.Ten);
+            var category = NormalizeCategory(product.Loai);
+
+            if (product.Gia <= 25_000_000 &&
+                (category == "xe so" ||
+                 ContainsAny(name, "wave", "sirius", "smash", "elegant", "galaxy", "passing")))
+            {
+                return 0;
+            }
+
+            if (product.Gia <= 35_000_000 &&
+                ContainsAny(name, "vision", "address", "jupiter", "future", "attila"))
+            {
+                return 1;
+            }
+
+            if (product.Gia <= 40_000_000)
+                return 2;
+
+            return 3;
         }
         private static ChatProductCard MapToCard(ProductSummaryDto product)
         {

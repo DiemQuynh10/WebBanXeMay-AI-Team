@@ -132,6 +132,11 @@ namespace Chatbot.API.Services
 
             ParseOrderLookup(text, result);
             ParseLookupSignals(text, result);
+            if (LooksLikePolicyQuestion(text, result))
+            {
+                MarkAsPolicyIntent(result);
+                return result;
+            }
             if (LooksLikeRecommendationRetryRequest(text))
             {
                 result.IntentType = "refine";
@@ -675,6 +680,19 @@ namespace Chatbot.API.Services
 
                 result.ExcludedProducts.Clear();
 
+                return;
+            }
+            if (LooksLikeCheapestInRecommendationList(text))
+            {
+                result.IntentType = "followup";
+                result.IsFollowUp = true;
+                result.FollowUpType = "cheapest_in_list";
+                result.RouteFlow = ChatFlowType.RecommendationFollowUp;
+                result.ComparisonFeature = "price";
+                result.KeepConstraints = true;
+                result.IsDirectCompare = false;
+                result.IsOpenRecommendation = false;
+                result.HasDeterministicProductIntent = true;
                 return;
             }
             if (LooksLikePickBestRequest(text))
@@ -2278,6 +2296,155 @@ namespace Chatbot.API.Services
             }
 
             return null;
+        }
+        private static bool MessageAsksGlobalScope(string text)
+        {
+            text = Normalize(text);
+
+            return text.Contains("cua shop") ||
+                   text.Contains("toan shop") ||
+                   text.Contains("toan bo shop") ||
+                   text.Contains("tat ca shop") ||
+                   text.Contains("cua hang") ||
+                   text.Contains("toan cua hang") ||
+                   text.Contains("tat ca xe") ||
+                   text.Contains("toan bo xe");
+        }
+
+        private static bool LooksLikeCheapestInRecommendationList(string text)
+        {
+            text = Normalize(text);
+
+            if (MessageAsksGlobalScope(text))
+                return false;
+
+            bool hasCurrentListSignal =
+                text.Contains("trong danh sach") ||
+                text.Contains("trong nhom") ||
+                text.Contains("trong cac mau") ||
+                text.Contains("vua goi y") ||
+                text.Contains("ben tren") ||
+                text.Contains("may mau vua goi y") ||
+                text.Contains("cac mau vua goi y");
+
+            bool asksCheapest =
+                text.Contains("re nhat") ||
+                text.Contains("re hon") ||
+                text.Contains("gia thap nhat") ||
+                text.Contains("mau nao re") ||
+                text.Contains("xe nao re");
+
+            return hasCurrentListSignal && asksCheapest;
+        }
+        private static bool LooksLikePolicyQuestion(string text, ParsedIntent result)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            if (result.IsOrderLookup || result.IsDirectProductLookup || result.IsDirectCompare)
+                return false;
+
+            bool hasPolicyKeyword = ContainsAny(text,
+                "tra gop",
+                "mua tra gop",
+                "gop hang thang",
+                "vay mua xe",
+                "sinh vien",
+                "cmnd",
+                "cccd",
+                "can cuoc",
+                "giay to",
+                "ho so",
+                "thu tuc",
+                "quy trinh",
+                "dang ky xe",
+                "bien so",
+                "ra bien",
+                "lam bien",
+                "dat coc",
+                "thanh toan",
+                "chuyen khoan",
+                "bao hanh",
+                "bao duong",
+                "doi tra",
+                "giao hang",
+                "van chuyen",
+                "lai thu",
+                "khuyen mai",
+                "chinh sach",
+                "dieu kien");
+
+            bool asksInfo = ContainsAny(text,
+                "co khong",
+                "duoc khong",
+                "khong",
+                "nhu nao",
+                "the nao",
+                "ra sao",
+                "can gi",
+                "can nhung gi",
+                "gom nhung gi",
+                "thu tuc",
+                "quy trinh",
+                "chinh sach",
+                "dieu kien",
+                "bao lau",
+                "bao nhieu");
+
+            bool hasShopContext = ContainsAny(text,
+                "shop",
+                "cua hang",
+                "ben minh",
+                "ben shop",
+                "mua xe",
+                "khi mua",
+                "di mua",
+                "lay xe",
+                "nhan xe");
+
+            bool policyStrong =
+                ContainsAny(text,
+                    "tra gop",
+                    "mua tra gop",
+                    "giay to",
+                    "ho so",
+                    "thu tuc",
+                    "quy trinh",
+                    "dang ky xe",
+                    "ra bien",
+                    "lam bien",
+                    "bao hanh",
+                    "doi tra",
+                    "dat coc",
+                    "lai thu");
+
+            return policyStrong || (hasPolicyKeyword && (asksInfo || hasShopContext));
+        }
+
+        private static void MarkAsPolicyIntent(ParsedIntent result)
+        {
+            result.IntentType = "rag_policy";
+            result.RouteFlow = ChatFlowType.RagPolicy;
+
+            result.IsFollowUp = false;
+            result.FollowUpType = null;
+
+            result.IsOpenRecommendation = false;
+            result.IsDirectCompare = false;
+            result.IsDirectProductLookup = false;
+            result.IsProductSearch = false;
+            result.LookupField = null;
+            result.LookupTargetType = null;
+
+            result.HasFreshConsultationSignal = false;
+            result.HasNarrowRefinementSignal = false;
+            result.HasExpandRecommendationSignal = false;
+
+            result.KeepConstraints = false;
+            result.ExcludePreviousProducts = false;
+            result.ExcludePreviousBrands = false;
+
+            result.HasDeterministicProductIntent = true;
         }
     }
 }

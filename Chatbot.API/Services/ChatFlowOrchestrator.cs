@@ -219,7 +219,18 @@ namespace Chatbot.API.Services
                 };
             }
             var parsedIntent = await ParseIntentAsync(normalizedMessage, existingProfile);
-
+            if (LooksLikeGlobalProductStatisticQuery(normalizedMessage) &&
+     !LooksLikeCheapestQuestionForCurrentList(normalizedMessage))
+            {
+                parsedIntent.IntentType = "product_search";
+                parsedIntent.RouteFlow = ChatFlowType.ProductSearch;
+                parsedIntent.IsProductSearch = true;
+                parsedIntent.IsFollowUp = false;
+                parsedIntent.HasFreshConsultationSignal = false;
+                parsedIntent.HasDeterministicProductIntent = true;
+                parsedIntent.IsOutOfScope = false;
+                parsedIntent.IsNoise = false;
+            }
             _intentRecoveryService.Recover(
                 normalizedMessage,
                 parsedIntent,
@@ -287,6 +298,7 @@ namespace Chatbot.API.Services
                 ApplyPriceIntent(parsedIntent, normalizedMessage);
             }
             if (!isStrongStandaloneIntent &&
+     !LooksLikeCheapestQuestionForCurrentList(normalizedMessage) &&
      MessageAsksForCheaperOption(normalizedMessage) &&
      existingProfile.HasActiveRecommendationContext)
             {
@@ -305,6 +317,65 @@ namespace Chatbot.API.Services
      state);
 
             var effectiveIntent = turnContext.EffectiveIntent ?? parsedIntent;
+            if (LooksLikeGlobalProductStatisticQuery(normalizedMessage) &&
+    !LooksLikeCheapestQuestionForCurrentList(normalizedMessage))
+            {
+                var asksGlobal = MessageAsksGlobalScope(normalizedMessage);
+                var explicitBrand = DetectBrandFromText(normalizedMessage);
+                var explicitCategory = DetectCategoryFromText(normalizedMessage);
+
+                effectiveIntent = parsedIntent.Clone();
+
+                effectiveIntent.IntentType = "product_search";
+                effectiveIntent.RouteFlow = ChatFlowType.ProductSearch;
+                effectiveIntent.IsProductSearch = true;
+                effectiveIntent.IsFollowUp = false;
+                effectiveIntent.HasFreshConsultationSignal = false;
+                effectiveIntent.HasDeterministicProductIntent = true;
+                effectiveIntent.IsOutOfScope = false;
+                effectiveIntent.IsNoise = false;
+
+                effectiveIntent.PriceMin = null;
+                effectiveIntent.PriceMax = null;
+                effectiveIntent.TargetPrice = null;
+                effectiveIntent.FilterType = PriceFilterType.None;
+
+                if (asksGlobal)
+                {
+                    effectiveIntent.Brand = null;
+                    effectiveIntent.Category = null;
+                }
+                else
+                {
+                    effectiveIntent.Brand = explicitBrand ?? existingProfile?.PreferredBrand;
+                    effectiveIntent.Category = explicitCategory ?? existingProfile?.PreferredCategory;
+                }
+
+                parsedIntent = effectiveIntent.Clone();
+            }
+            if (LooksLikeAmbiguousGenericDislike(normalizedMessage) &&
+    existingProfile.HasActiveRecommendationContext)
+            {
+                effectiveIntent = parsedIntent.Clone();
+
+                effectiveIntent.IntentType = "refine";
+                effectiveIntent.RouteFlow = ChatFlowType.Refinement;
+                effectiveIntent.IsFollowUp = true;
+                effectiveIntent.FollowUpType = "ambiguous_dislike";
+
+                effectiveIntent.Brand = null;
+                effectiveIntent.Category = null;
+                effectiveIntent.Target = null;
+
+                effectiveIntent.PriceMin = null;
+                effectiveIntent.PriceMax = null;
+                effectiveIntent.TargetPrice = null;
+                effectiveIntent.FilterType = PriceFilterType.None;
+
+                effectiveIntent.HasFreshConsultationSignal = false;
+                effectiveIntent.HasNarrowRefinementSignal = true;
+                effectiveIntent.IsOpenRecommendation = false;
+            }
             if (IsBudgetExpansionIntent(parsedIntent))
             {
                 effectiveIntent = parsedIntent.Clone();
@@ -390,7 +461,8 @@ namespace Chatbot.API.Services
                 ClearCompareContextIfNeeded(existingProfile);
             }
             if (!IsStrongStandaloneIntent(effectiveIntent) &&
-    MessageAsksForCheaperOption(normalizedMessage))
+     !LooksLikeCheapestQuestionForCurrentList(normalizedMessage) &&
+     MessageAsksForCheaperOption(normalizedMessage))
             {
                 effectiveIntent.IntentType = "refine";
                 effectiveIntent.IsFollowUp = true;
@@ -675,7 +747,9 @@ Không bịa chính sách, không tự cam kết hoàn tiền/bảo hành nếu 
 Nếu người dùng không nhắc hãng cụ thể, không được tự gán câu trả lời cho Honda, Yamaha hay bất kỳ hãng nào.
 Không tự thêm giấy phép lái xe nếu RAG context không nói rõ.
 Với câu hỏi giấy tờ mua xe, chỉ nêu CCCD/CMND, thông tin đăng ký xe, và hồ sơ trả góp nếu người dùng hỏi/muốn trả góp.
-Nếu context đã đủ trả lời câu hỏi thông tin chung, có thể gợi ý bấm “Gặp nhân viên” nếu khách cần tư vấn sâu hơn.
+Nếu khách hỏi “thủ tục như thế nào” sau câu hỏi về giấy tờ/mua xe, hiểu là thủ tục mua xe mới; không dùng quy trình đổi trả, hoàn tiền, mang xe về showroom hoặc kỹ thuật viên kiểm tra trừ khi khách hỏi rõ về đổi trả/bảo hành.
+Chỉ gợi ý bấm “Gặp nhân viên” khi câu hỏi liên quan đến kiểm tra hồ sơ cụ thể, xử lý đơn, lỗi thanh toán, đổi trả, bảo hành, hoặc khi context không đủ để trả lời chắc chắn.
+Nếu câu hỏi chỉ là thông tin chung như trả góp, giấy tờ, thủ tục mua xe, không cần kết thúc bằng lời mời “Gặp nhân viên”.
 Trả lời ngắn gọn, rõ ràng, thân thiện bằng tiếng Việt.
 Không nhắc đến từ 'RAG' hoặc 'context'.
 
@@ -1351,6 +1425,26 @@ Tin nhắn người dùng: {normalizedMessage}";
             var parsedIntent = await ParseBaseIntentAsync(normalizedMessage);
 
             ApplyPriceIntent(parsedIntent, normalizedMessage);
+            if (LooksLikeGlobalProductStatisticQuery(normalizedMessage) &&
+     !LooksLikeCheapestQuestionForCurrentList(normalizedMessage))
+            {
+                parsedIntent.IntentType = "product_search";
+                parsedIntent.RouteFlow = ChatFlowType.ProductSearch;
+                parsedIntent.IsProductSearch = true;
+                parsedIntent.IsFollowUp = false;
+                parsedIntent.FollowUpType = null;
+                parsedIntent.IsOutOfScope = false;
+                parsedIntent.IsNoise = false;
+                parsedIntent.HasFreshConsultationSignal = false;
+                parsedIntent.HasDeterministicProductIntent = true;
+
+                parsedIntent.PriceMin = null;
+                parsedIntent.PriceMax = null;
+                parsedIntent.TargetPrice = null;
+                parsedIntent.FilterType = PriceFilterType.None;
+
+                return parsedIntent;
+            }
             if (LooksLikeInstallmentPolicyQuestion(normalizedMessage))
             {
                 parsedIntent.IntentType = "rag_policy";
@@ -1422,6 +1516,11 @@ Tin nhắn người dùng: {normalizedMessage}";
         {
             if (string.IsNullOrWhiteSpace(normalizedMessage) || parsedIntent == null)
                 return false;
+            if (string.Equals(parsedIntent.FollowUpType, "cheapest_in_list", StringComparison.OrdinalIgnoreCase) ||
+    LooksLikeCheapestQuestionForCurrentList(normalizedMessage))
+            {
+                return false;
+            }
             if (IsDeterministicIntentConfident(parsedIntent))
                 return false;
             // Các intent thật sự chắc chắn thì không cần LLM
@@ -1521,7 +1620,6 @@ Tin nhắn người dùng: {normalizedMessage}";
                    text.Contains("loai ") ||
                    text.Contains("tru ");
         }
-
         private static bool LooksLikeThanksIntent(string normalizedMessage)
         {
             if (string.IsNullOrWhiteSpace(normalizedMessage))
@@ -2740,14 +2838,17 @@ turnContext.Reason,
             if (!MessageHasExplicitNegativeBrand(normalizedMessage))
                 intent.ExcludedBrands.Clear();
 
-            if (!MessageHasExplicitNegativeCategory(normalizedMessage))
-                intent.ExcludedCategories.Clear();
-
-            if (!MessageHasExplicitCategory(normalizedMessage))
+            if (!LooksLikeGlobalProductStatisticQuery(normalizedMessage) &&
+     !MessageHasExplicitCategory(normalizedMessage))
+            {
                 intent.Category = null;
+            }
 
-            if (!MessageHasExplicitBrand(normalizedMessage))
+            if (!LooksLikeGlobalProductStatisticQuery(normalizedMessage) &&
+                !MessageHasExplicitBrand(normalizedMessage))
+            {
                 intent.Brand = null;
+            }
         }
         private static bool MessageHasExplicitNegativeBrand(string message)
         {
@@ -2895,6 +2996,20 @@ turnContext.Reason,
             intent.HasNarrowRefinementSignal = false;
             intent.HasExpandRecommendationSignal = false;
             intent.HasFreshConsultationSignal = true;
+        }
+        private static bool LooksLikeCheapestQuestionForCurrentList(string message)
+        {
+            var text = NormalizeText(message);
+
+            if (MessageAsksGlobalScope(message))
+                return false;
+
+            return text.Contains("trong nhom") ||
+                   text.Contains("vua goi y") ||
+                   text.Contains("ben tren") ||
+                   text.Contains("trong danh sach") ||
+                   text.Contains("may mau vua goi y") ||
+                   text.Contains("cac mau vua goi y");
         }
         private static bool MessageAsksForCheaperOption(string message)
         {
@@ -3199,6 +3314,56 @@ turnContext.Reason,
 
             return false;
         }
+        private static string BuildPolicyRagQuery(ChatOrchestrationContext context)
+        {
+            var message = NormalizeText(context.NormalizedMessage);
+
+            if (!string.Equals(context.FinalRouting?.FlowType, ChatFlowType.RagPolicy, StringComparison.OrdinalIgnoreCase))
+                return context.NormalizedMessage;
+
+            bool asksProcedure =
+                message.Contains("thu tuc") ||
+                message.Contains("quy trinh") ||
+                message.Contains("nhu nao") ||
+                message.Contains("the nao");
+
+            if (!asksProcedure)
+                return context.NormalizedMessage;
+
+            bool asksInstallment =
+                message.Contains("tra gop") ||
+                message.Contains("vay") ||
+                message.Contains("lai suat");
+
+            bool asksPaperwork =
+                message.Contains("mua xe") ||
+                message.Contains("giay to") ||
+                message.Contains("ho so") ||
+                message.Contains("dang ky xe") ||
+                message.Contains("bien so");
+
+            if (asksInstallment)
+                return $"quy trình thủ tục mua xe trả góp hồ sơ vay giấy đề nghị vay vốn CMND CCCD {context.NormalizedMessage}";
+
+            if (asksPaperwork)
+                return $"quy trình thủ tục mua xe mới giấy tờ CMND CCCD thông tin đăng ký xe tờ khai đăng ký {context.NormalizedMessage}";
+
+            var lastQuestionType = NormalizeText(context.State?.LastQuestionType);
+            var lastIntentType = NormalizeText(context.State?.LastIntentType);
+            var turnSummary = NormalizeText(context.State?.TurnSummary);
+
+            var oldContext = $"{lastQuestionType} {lastIntentType} {turnSummary} {NormalizeText(context.State?.LastResolvedReference)}";
+
+            if (oldContext.Contains("tra gop"))
+                return $"quy trình thủ tục mua xe trả góp hồ sơ vay giấy đề nghị vay vốn CMND CCCD {context.NormalizedMessage}";
+            if (oldContext.Contains("giay to") ||
+                oldContext.Contains("ho so") ||
+                oldContext.Contains("paperwork") ||
+                oldContext.Contains("mua xe"))
+                return $"quy trình thủ tục mua xe mới giấy tờ CMND CCCD thông tin đăng ký xe tờ khai đăng ký {context.NormalizedMessage}";
+
+            return $"quy trình thủ tục mua xe mới giấy tờ CMND CCCD thông tin đăng ký xe {context.NormalizedMessage}";
+        }
         private async Task<string?> TryGetRagContextAsync(ChatOrchestrationContext context)
         {
             if (context.FinalRouting?.ShouldUseRag != true)
@@ -3215,7 +3380,9 @@ turnContext.Reason,
 
             try
             {
-                var ragResponse = await _ragService.QueryAsync(context.NormalizedMessage);
+                var ragQuery = BuildPolicyRagQuery(context);
+
+                var ragResponse = await _ragService.QueryAsync(ragQuery);
 
                 if (ragResponse == null ||
                     !ragResponse.Success ||
@@ -3224,7 +3391,23 @@ turnContext.Reason,
                     return null;
                 }
 
-                return ragResponse.Context.Trim();
+                var rawContext = ragResponse.Context.Trim();
+
+                if (string.Equals(flowType, ChatFlowType.RagPolicy, StringComparison.OrdinalIgnoreCase))
+                {
+                    var filteredContext = RagContextPostProcessor.Filter(
+                        rawContext,
+                        context.NormalizedMessage,
+                        ragQuery,
+                        context.EffectiveIntent,
+                        context.ExistingProfile,
+                        maxChunks: 4);
+
+                    if (!string.IsNullOrWhiteSpace(filteredContext))
+                        return filteredContext;
+                }
+
+                return rawContext;
             }
             catch (Exception ex)
             {
@@ -3241,7 +3424,10 @@ turnContext.Reason,
         {
             if (intent == null)
                 return false;
-
+            if (string.Equals(intent.FollowUpType, "cheapest_in_list", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
             if (intent.IsGreeting ||
                 intent.IsOutOfScope ||
                 intent.IsNoise ||
@@ -3511,7 +3697,61 @@ turnContext.Reason,
                    text.Contains("tiet kiem xang") ||
                    text.Contains("cop");
         }
+        private static string? DetectBrandFromText(string message)
+        {
+            var text = NormalizeText(message);
 
+            if (text.Contains("honda") ||
+                text.Contains("hoda") ||
+                text.Contains("honad") ||
+                text.Contains("hond"))
+                return "Honda";
+
+            if (text.Contains("yamaha") ||
+                text.Contains("yamha") ||
+                text.Contains("yamah") ||
+                text.Contains("yamaa"))
+                return "Yamaha";
+
+            if (text.Contains("suzuki") ||
+                text.Contains("suzki") ||
+                text.Contains("szuki"))
+                return "Suzuki";
+
+            if (text.Contains("sym"))
+                return "SYM";
+
+            if (text.Contains("piaggio") ||
+                text.Contains("piago") ||
+                text.Contains("piagio"))
+                return "Piaggio";
+
+            return null;
+        }
+
+        private static string? DetectCategoryFromText(string message)
+        {
+            var text = NormalizeText(message);
+
+            if (text.Contains("xe ga") || text.Contains("tay ga")) return "xe ga";
+            if (text.Contains("xe so")) return "xe số";
+            if (text.Contains("con tay")) return "côn tay";
+
+            return null;
+        }
+        private static bool MessageAsksGlobalScope(string message)
+        {
+            var text = NormalizeText(message);
+
+            return text.Contains("cua shop") ||
+                   text.Contains("toan shop") ||
+                   text.Contains("toan bo shop") ||
+                   text.Contains("tat ca shop") ||
+                   text.Contains("cua hang") ||
+                   text.Contains("toan cua hang") ||
+                   text.Contains("tat ca xe") ||
+                   text.Contains("toan bo xe");
+        }
         private static string? DetectSimpleCompareFeature(string message)
         {
             var text = NormalizeText(message);
@@ -3554,10 +3794,46 @@ turnContext.Reason,
                        text.Contains("giay to")
                    );
         }
-        private static bool LooksLikeUnknownBrand(string message, ParsedIntent? intent)
+        private static bool LooksLikeGlobalProductStatisticQuery(string message)
         {
             var text = NormalizeText(message);
 
+            return text.Contains("re nhat") ||
+                   text.Contains("dat nhat") ||
+                   text.Contains("gia cao nhat") ||
+                   text.Contains("gia thap nhat") ||
+                   text.Contains("bao nhieu xe") ||
+                   text.Contains("co bao nhieu xe") ||
+                   text.Contains("tong so xe") ||
+                   text.Contains("ban chay nhat") ||
+                   text.Contains("nhieu nguoi mua") ||
+                   text.Contains("duoc mua nhieu") ||
+                   text.Contains("phu hop sinh vien nhat") 
+                   || text.Contains("phu hop voi sinh vien")
+|| text.Contains("hop voi sinh vien")
+|| text.Contains("sinh vien nen mua")
+|| text.Contains("xe sinh vien") ||
+                   text.Contains("cho sinh vien nhat");
+        }
+        private static bool LooksLikeAmbiguousGenericDislike(string message)
+        {
+            var text = NormalizeText(message);
+
+            return text == "khong thich" ||
+                   text == "khong ung" ||
+                   text == "khong thich lam" ||
+                   text == "khong hop" ||
+                   text == "khong muon";
+        }
+        private static bool LooksLikeUnknownBrand(string message, ParsedIntent? intent)
+        {
+            var text = NormalizeText(message);
+            if (intent?.IsFollowUp == true ||
+    !string.IsNullOrWhiteSpace(intent?.FollowUpType) ||
+    string.Equals(intent?.RouteFlow, ChatFlowType.RecommendationFollowUp, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
             bool hasRecommend =
                 text.Contains("tu van") ||
                 text.Contains("goi y") ||
