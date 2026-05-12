@@ -1065,24 +1065,10 @@ namespace Chatbot.API.Services.Conversation
                 text.Contains("xe khac") ||
                 text.Contains("mau khac") ||
                 text.Contains("con khac") ||
+                text.Contains("hang khac") || 
                 text.Contains("lua chon khac");
 
-            bool asksCheaper =
-                text.Contains("re hon") ||
-                text.Contains("mem hon") ||
-                text.Contains("gia thap hon") ||
-                text.Contains("thap hon") ||
-                text.Contains("it tien hon");
-
-            bool asksBetter =
-     text.Contains("tot hon") ||
-     text.Contains("on hon") ||
-     text.Contains("hop hon") ||
-     text.Contains("dang mua hon") ||
-     text.Contains("ngon hon") ||
-     text.Contains("ok hon");
-
-            return asksOtherOption && (asksCheaper || asksBetter);
+            return asksOtherOption;
         }
         private static bool LooksLikeExplicitCompareQuestion(string message, ParsedIntent intent)
         {
@@ -1582,11 +1568,9 @@ text.Contains("khi mua xe") ||
                 if (index >= 0 && index < source.Count)
                     resolved.Add(source[index]);
             }
-
             int ToIndex(string token)
             {
                 token = NormalizeText(token);
-
                 return token switch
                 {
                     "1" or "nhat" => 0,
@@ -1594,6 +1578,7 @@ text.Contains("khi mua xe") ||
                     "3" or "ba" => 2,
                     "4" or "tu" => 3,
                     "5" or "nam" => 4,
+                    "cuoi" => source.Count - 1, 
                     _ => -1
                 };
             }
@@ -1606,9 +1591,9 @@ text.Contains("khi mua xe") ||
                 AddIfValid(1);
             }
             var matches = Regex.Matches(
-                text,
-                @"\b(?:xe|mau|con)?\s*(?:thu\s*)?(1|2|3|4|5|nhat|hai|ba|tu|nam)\b",
-                RegexOptions.IgnoreCase);
+    text,
+    @"\b(?:xe|mau|con)?\s*(?:thu\s*)?(1|2|3|4|5|nhat|hai|ba|tu|nam|cuoi)\b", 
+    RegexOptions.IgnoreCase);
 
             foreach (Match m in matches)
             {
@@ -1618,6 +1603,8 @@ text.Contains("khi mua xe") ||
 
             if (text.Contains("xe dau tien") || text.Contains("mau dau tien") || text.Contains("con dau tien"))
                 AddIfValid(0);
+            if (text.Contains("xe cuoi") || text.Contains("mau cuoi") || text.Contains("con cuoi")) // Thêm check text thủ công
+                AddIfValid(source.Count - 1);
 
             foreach (var p in resolved.Distinct(StringComparer.OrdinalIgnoreCase))
             {

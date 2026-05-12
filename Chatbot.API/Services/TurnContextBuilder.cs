@@ -183,7 +183,7 @@ text.Contains("con mau do") ||
                 return "new_goal";
             }
 
-            if (IsStandaloneNewRequest(normalizedMessage, effectiveIntent))
+            if (IsStandaloneNewRequest(normalizedMessage, effectiveIntent, profile))
                 return "new_goal";
 
             if (LooksLikeHardResetTurn(normalizedMessage, effectiveIntent))
@@ -404,7 +404,7 @@ text.Contains("con mau do") ||
 
             return hasResetPhrase && hasNewStrongIntent;
         }
-        private static bool IsStandaloneNewRequest(string normalizedMessage, ParsedIntent intent)
+        private static bool IsStandaloneNewRequest(string normalizedMessage, ParsedIntent intent, CustomerPreferenceProfile? profile)
         {
             var text = (normalizedMessage ?? string.Empty).Trim().ToLowerInvariant();
             if (string.IsNullOrWhiteSpace(text))
@@ -436,14 +436,39 @@ text.Contains("con mau do") ||
             if (intent.PriceMin.HasValue || intent.PriceMax.HasValue || intent.TargetPrice.HasValue) strongSignals++;
 
             bool hasFreshConsultationPhrase =
-    text.Contains("tư vấn") ||
-    text.Contains("tu van") ||
-    text.Contains("gợi ý") ||
-    text.Contains("goi y") ||
-    text.Contains("nên mua") ||
-    text.Contains("nen mua");
+                text.Contains("tư vấn") ||
+                text.Contains("tu van") ||
+                text.Contains("gợi ý") ||
+                text.Contains("goi y") ||
+                text.Contains("nên mua") ||
+                text.Contains("nen mua");
 
-            return hasFreshConsultationPhrase && strongSignals >= 1;
+            if (!hasFreshConsultationPhrase || strongSignals < 1)
+                return false;
+
+            // Nếu không có context cũ → đây chắc chắn là yêu cầu mới
+            bool hasActiveContext =
+                profile?.HasActiveRecommendationContext == true &&
+                profile.LastRecommendedProducts != null &&
+                profile.LastRecommendedProducts.Count > 0;
+
+            if (!hasActiveContext)
+                return true;
+
+            bool hasTarget = !string.IsNullOrWhiteSpace(intent.Target);
+            bool hasMultipleSignals = strongSignals >= 2;
+
+            bool hasHardRestartPhrase =
+                text.Contains("tu van lai") ||
+                text.Contains("bat dau lai") ||
+                text.Contains("doi y") ||
+                text.Contains("doi sang") ||
+                text.Contains("tu dau") ||
+                text.Contains("reset") ||
+                text.Contains("bo tieu chi cu") ||
+                text.Contains("thoi khong can");
+
+            return hasHardRestartPhrase || hasTarget || hasMultipleSignals;
         }
         private static ParsedIntent ApplySafeGoalContinuityAdjustments(
      ParsedIntent effectiveIntent,

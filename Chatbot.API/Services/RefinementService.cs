@@ -251,6 +251,24 @@ namespace Chatbot.API.Services
 
             NormalizeRefinementPriceConstraints(intent);
             var signals = AnalyzeRefinementSignals(normalizedMessage, intent, profile);
+            bool isOpenExpand =
+    string.Equals(intent.FollowUpType, "expand", StringComparison.OrdinalIgnoreCase) &&
+    string.IsNullOrWhiteSpace(intent.Brand) &&
+    string.IsNullOrWhiteSpace(intent.Category) &&
+    !intent.PriceMin.HasValue &&
+    !intent.PriceMax.HasValue;
+
+            if (isOpenExpand && profile.HasActiveRecommendationContext)
+            {
+                intent.Brand = null;
+                intent.Category = profile.PreferredCategory; 
+                intent.PriceMin = profile.PriceMin;
+                intent.PriceMax = profile.PriceMax;
+                intent.Target = profile.Target;
+
+                intent.ExcludePreviousProducts = true;
+                intent.KeepConstraints = true;
+            }
             var hasHardFilterChange = signals.HasHardFilterChange;
             var hasSoftPreferenceChange = signals.HasSoftPreferenceChange;
             _logger.LogWarning(
@@ -1040,7 +1058,40 @@ namespace Chatbot.API.Services
                         string.Equals(x.Ten, ex, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
             }
+
+            // Nếu target là nữ hoặc có female signal → loại bỏ xe thể thao/côn tay
+            bool isFemaleTarget =
+                string.Equals(intent.Target, "nữ", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(intent.Target, "nu", StringComparison.OrdinalIgnoreCase) ||
+                intent.PrefersFemaleStyle ||
+                intent.NeedsLowSeat ||
+                intent.WantsEasyControl;
+
+            if (isFemaleTarget)
+            {
+                items = items
+                    .Where(x => !IsUnfriendlyForFemale(x))
+                    .ToList();
+            }
+
             return items;
+        }
+
+        private static bool IsUnfriendlyForFemale(ProductSummaryDto x)
+        {
+            if (x == null) return false;
+            var loai = (x.Loai ?? "").ToLowerInvariant();
+            var ten = (x.Ten ?? "").ToLowerInvariant();
+
+            return loai.Contains("côn tay") ||
+                   loai.Contains("con tay") ||
+                   loai.Contains("sport") ||
+                   ten.Contains("winner") ||
+                   ten.Contains("exciter") ||
+                   ten.Contains("raider") ||
+                   ten.Contains("satria") ||
+                   ten.Contains("mt15") ||
+                   ten.Contains("grx");
         }
 
         private static List<ProductSummaryDto> ApplySemanticRefinementOrdering(
@@ -2617,8 +2668,15 @@ namespace Chatbot.API.Services
     ParsedIntent intent,
     CustomerPreferenceProfile profile)
         {
-            var items = source?.Where(x => x != null).ToList() ?? new List<ProductSummaryDto>();
 
+            var items = source?.Where(x => x != null).ToList() ?? new List<ProductSummaryDto>();
+            if (profile != null)
+            {
+                foreach (var brand in profile.ExcludedBrands)
+                    intent.ExcludedBrands.Add(brand);
+                foreach (var cat in profile.ExcludedCategories)
+                    intent.ExcludedCategories.Add(cat);
+            }
             var excludedBrands = new HashSet<string>(intent.ExcludedBrands, StringComparer.OrdinalIgnoreCase);
             excludedBrands.UnionWith(profile.ExcludedBrands);
 

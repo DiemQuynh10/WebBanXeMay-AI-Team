@@ -789,6 +789,15 @@ namespace Chatbot.API.Services
                 result.HasDeterministicProductIntent = true;
                 return;
             }
+            if (ContainsAny(text, "hang khac", "hãng khác", "hang nao khac", "doi hang"))
+            {
+                result.IntentType = "refine";
+                result.IsFollowUp = true;
+                result.FollowUpType = "other_brand"; 
+                result.HasNarrowRefinementSignal = true;
+                result.HasDeterministicProductIntent = true;
+                return;
+            }
             if (result.IsDirectProductLookup)
             {
                 result.IntentType = "product_lookup";
@@ -2260,31 +2269,15 @@ namespace Chatbot.API.Services
         }
         private static bool HasOrdinalProductReference(string text)
         {
-            return Regex.IsMatch(text, @"\b(xe|mau|con)\s*(thu\s*)?(1|2|3|4|5)\b", RegexOptions.IgnoreCase)
+            return Regex.IsMatch(text, @"\b(xe|mau|con)\s*(thu\s*)?(1|2|3|4|5|nhat|hai|ba|tu|nam|cuoi)\b", RegexOptions.IgnoreCase)
                 || ContainsAny(text,
-                    "xe dau tien",
-                    "mau dau tien",
-                    "con dau tien",
-
-                    "xe thu nhat",
-                    "mau thu nhat",
-                    "con thu nhat",
-
-                    "xe thu hai",
-                    "mau thu hai",
-                    "con thu hai",
-
-                    "xe thu ba",
-                    "mau thu ba",
-                    "con thu ba",
-
-                    "xe thu tu",
-                    "mau thu tu",
-                    "con thu tu",
-
-                    "xe thu nam",
-                    "mau thu nam",
-                    "con thu nam");
+                    "xe dau tien", "mau dau tien", "con dau tien",
+                    "xe thu nhat", "mau thu nhat", "con thu nhat",
+                    "xe thu hai", "mau thu hai", "con thu hai",
+                    "xe thu ba", "mau thu ba", "con thu ba",
+                    "xe thu tu", "mau thu tu", "con thu tu",
+                    "xe thu nam", "mau thu nam", "con thu nam",
+                    "xe cuoi", "mau cuoi", "con cuoi", "xe cuoi cung"); // Thêm dòng này
         }
         private static string? ResolveKnownBrandTypo(string text)
         {

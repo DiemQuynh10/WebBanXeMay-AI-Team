@@ -91,7 +91,17 @@ namespace Chatbot.API.Services.Conversation
 
             if (string.IsNullOrWhiteSpace(message) || !HasActiveRecommendationContext(profile))
                 return false;
+            if (parsedIntent.HasFreshConsultationSignal && !parsedIntent.IsFollowUp)
+                return false;
+            var textNorm = message.Trim().ToLowerInvariant();
+            bool isContinuationPhrase =
+                textNorm.Contains("tu van them") ||
+                textNorm.Contains("goi y them") ||
+                textNorm.Contains("them mau") ||
+                textNorm.Contains("them xe");
 
+            if (isContinuationPhrase)
+                return false;
             var text = message.Trim().ToLowerInvariant();
 
             bool hasBudgetSignal =
@@ -148,8 +158,17 @@ namespace Chatbot.API.Services.Conversation
                 text.StartsWith("mình cần ") ||
                 text.StartsWith("minh can ");
 
-            if (looksLikeFreshStandaloneRecommendation && !string.IsNullOrWhiteSpace(parsedIntent.Target))
-                return false;
+            if (looksLikeFreshStandaloneRecommendation)
+            {
+                bool hasClearNewGoal =
+                    !string.IsNullOrWhiteSpace(parsedIntent.Target) ||
+                    !string.IsNullOrWhiteSpace(parsedIntent.Brand) ||
+                    !string.IsNullOrWhiteSpace(parsedIntent.Category);
+
+                if (hasClearNewGoal)
+                    return false;
+
+            }
 
             if (hasFeatureRefinementSignal && !hasExplicitCompareWords)
                 return true;

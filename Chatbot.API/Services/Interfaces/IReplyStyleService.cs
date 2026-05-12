@@ -51,5 +51,6 @@ namespace Chatbot.API.Services.Interfaces
     List<string> bucketNarratives,
     string normalizedMessage,
     Func<ProductSummaryDto, List<string>> getReasons);
+
     }
 }

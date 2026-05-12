@@ -249,8 +249,8 @@ namespace Chatbot.API.Services
                 NormalizeExplicitProductSearchIntent(normalizedMessage, parsedIntent, existingProfile);
             }
             var isFreshRecommendationByCurrentMessage =
-     !isStrongStandaloneIntent &&
-     IsFreshRecommendationRequest(normalizedMessage, parsedIntent);
+       !isStrongStandaloneIntent &&
+       IsFreshRecommendationRequest(normalizedMessage, parsedIntent, existingProfile);
             if (isFreshRecommendationByCurrentMessage &&
     !MessageHasExplicitPrice(normalizedMessage))
             {
@@ -436,7 +436,7 @@ namespace Chatbot.API.Services
             {
                 ApplyConversationActionRules(effectiveIntent, existingProfile);
             }
-            PreserveDeterministicExclusions(parsedIntent, effectiveIntent);
+            PreserveDeterministicExclusions(parsedIntent, effectiveIntent, existingProfile);
             _logger.LogWarning(
     "AFTER PRESERVE EXCLUSION => ParsedExcludedBrands={ParsedBrands}, ParsedExcludedProducts={ParsedProducts}, EffectiveIntentType={EffectiveIntentType}, EffectiveRouteFlow={EffectiveRouteFlow}, EffectiveFollowUpType={EffectiveFollowUpType}, EffectiveExcludedBrands={EffectiveBrands}, EffectiveExcludedProducts={EffectiveProducts}",
     string.Join(",", parsedIntent.ExcludedBrands),
@@ -2911,10 +2911,20 @@ turnContext.Reason,
 
         private static void PreserveDeterministicExclusions(
      ParsedIntent parsedIntent,
-     ParsedIntent effectiveIntent)
+     ParsedIntent effectiveIntent,
+     CustomerPreferenceProfile? profile)
         {
             if (parsedIntent == null || effectiveIntent == null)
                 return;
+
+            if (profile != null)
+            {
+                foreach (var brand in profile.ExcludedBrands)
+                    effectiveIntent.ExcludedBrands.Add(brand);
+
+                foreach (var cat in profile.ExcludedCategories)
+                    effectiveIntent.ExcludedCategories.Add(cat);
+            }
 
             bool hasParsedExclusion =
                 parsedIntent.ExcludedProducts.Any() ||
@@ -2923,7 +2933,6 @@ turnContext.Reason,
 
             if (!hasParsedExclusion)
                 return;
-
             foreach (var item in parsedIntent.ExcludedProducts)
                 effectiveIntent.ExcludedProducts.Add(item);
 
@@ -3011,13 +3020,26 @@ turnContext.Reason,
 
             return text;
         }
-      
-        private static bool IsFreshRecommendationRequest(string message, ParsedIntent intent)
+
+        private static bool IsFreshRecommendationRequest(string message, ParsedIntent intent, CustomerPreferenceProfile? profile)
         {
             if (intent == null)
                 return false;
 
             var text = NormalizeText(message);
+
+            // "tư vấn thêm", "gợi ý thêm" luôn là follow-up — không bao giờ là fresh
+            bool isContinuationPhrase =
+                text.Contains("tu van them") ||
+                text.Contains("goi y them") ||
+                text.Contains("tim them") ||
+                text.Contains("them mau") ||
+                text.Contains("them xe") ||
+                text.Contains("tiep tuc") ||
+                text.Contains("van tiep");
+
+            if (isContinuationPhrase)
+                return false;
 
             bool hasFreshPhrase =
                 text.Contains("tu van") ||
@@ -3026,49 +3048,82 @@ turnContext.Reason,
                 text.Contains("chon xe") ||
                 text.Contains("tim xe");
 
-            bool hasNewNeed =
-    !string.IsNullOrWhiteSpace(intent.Target) ||
-    intent.TargetPrice.HasValue ||
-    intent.PriceMin.HasValue ||
-    intent.PriceMax.HasValue ||
-    !string.IsNullOrWhiteSpace(intent.Category) ||
-    !string.IsNullOrWhiteSpace(intent.Brand) ||
-    intent.PrefersMaleStyle ||
-    intent.PrefersFemaleStyle ||
-    intent.ForWork ||
-    intent.ForSchool ||
-    intent.ForCity ||
-    intent.ForTour ||
-    intent.WantsFuelSaving ||
-    intent.WantsLargeStorage ||
-    intent.WantsEasyControl ||
-    intent.NeedsLowSeat ||
-    !string.IsNullOrWhiteSpace(intent.ComparisonFeature) ||
-    (intent.RequestedStyles != null && intent.RequestedStyles.Count > 0);
-            bool textHasNewNeed =
-    text.Contains("xe so") ||
-    text.Contains("xe ga") ||
-    text.Contains("con tay") ||
-    text.Contains("ben") ||
-    text.Contains("bền") ||
-    text.Contains("tiet kiem xang") ||
-    text.Contains("cop rong") ||
-    text.Contains("di lam") ||
-    text.Contains("di hoc") ||
-    text.Contains("de chong chan") ||
-    text.Contains("de di");
+            if (!hasFreshPhrase)
+                return false;
 
-            return hasFreshPhrase && (hasNewNeed || textHasNewNeed);
+            bool hasNewNeed =
+                !string.IsNullOrWhiteSpace(intent.Target) ||
+                intent.TargetPrice.HasValue ||
+                intent.PriceMin.HasValue ||
+                intent.PriceMax.HasValue ||
+                !string.IsNullOrWhiteSpace(intent.Category) ||
+                !string.IsNullOrWhiteSpace(intent.Brand) ||
+                intent.PrefersMaleStyle ||
+                intent.PrefersFemaleStyle ||
+                intent.ForWork ||
+                intent.ForSchool ||
+                intent.ForCity ||
+                intent.ForTour ||
+                intent.WantsFuelSaving ||
+                intent.WantsLargeStorage ||
+                intent.WantsEasyControl ||
+                intent.NeedsLowSeat ||
+                !string.IsNullOrWhiteSpace(intent.ComparisonFeature) ||
+                (intent.RequestedStyles != null && intent.RequestedStyles.Count > 0);
+
+            bool textHasNewNeed =
+                text.Contains("xe so") ||
+                text.Contains("xe ga") ||
+                text.Contains("con tay") ||
+                text.Contains("tiet kiem xang") ||
+                text.Contains("cop rong") ||
+                text.Contains("di lam") ||
+                text.Contains("di hoc") ||
+                text.Contains("de chong chan") ||
+                text.Contains("de di");
+
+            if (!(hasNewNeed || textHasNewNeed))
+                return false;
+            bool hasActiveRecommendationContext =
+                profile?.HasActiveRecommendationContext == true &&
+                profile.LastRecommendedProducts != null &&
+                profile.LastRecommendedProducts.Count > 0;
+
+            if (hasActiveRecommendationContext)
+            {
+                bool hasStrongNewGoalSignal =
+                    !string.IsNullOrWhiteSpace(intent.Target) ||
+                    (
+                        !string.IsNullOrWhiteSpace(intent.Brand) &&
+                        !string.IsNullOrWhiteSpace(intent.Category) &&
+                        (intent.PriceMin.HasValue || intent.PriceMax.HasValue || intent.TargetPrice.HasValue)
+                    ) ||
+                    (intent.ForWork && !profile.ForWork) ||
+                    (intent.ForSchool && !profile.ForSchool) ||
+                    (intent.ForCity && !profile.ForCity) ||
+                    (intent.ForTour && !profile.ForTour);
+
+                return hasStrongNewGoalSignal;
+            }
+
+            return true;
         }
         private static bool MessageHasExplicitPrice(string message)
         {
             var text = NormalizeText(message);
 
-            return text.Contains("trieu") ||
-                   text.Contains("k") ||
-                   text.Contains("vnd") ||
-                   text.Contains("vnđ") ||
-                   text.Any(char.IsDigit);
+            bool hasNumberWithUnit =
+                System.Text.RegularExpressions.Regex.IsMatch(
+                    text,
+                    @"\d+\s*(trieu|tr|cu|chai|ngan|k\b)",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            bool hasPriceKeyword =
+                text.Contains("trieu") ||
+                text.Contains("vnd") ||
+                text.Contains("vnđ");
+
+            return hasNumberWithUnit || hasPriceKeyword;
         }
         private static bool IsExplicitProductSearchRequest(string message, ParsedIntent? intent)
         {
@@ -3838,26 +3893,14 @@ turnContext.Reason,
         private static bool HasOrdinalReferenceText(string message)
         {
             var text = NormalizeText(message);
-
-            return Regex.IsMatch(text, @"\b(xe|mau|con)\s*(thu\s*)?(1|2|3|4|5)\b", RegexOptions.IgnoreCase)
-                || text.Contains("xe dau tien")
-                || text.Contains("mau dau tien")
-                || text.Contains("con dau tien")
-                || text.Contains("xe thu nhat")
-                || text.Contains("mau thu nhat")
-                || text.Contains("con thu nhat")
-                || text.Contains("xe thu hai")
-                || text.Contains("mau thu hai")
-                || text.Contains("con thu hai")
-                || text.Contains("xe thu ba")
-                || text.Contains("mau thu ba")
-                || text.Contains("con thu ba")
-                || text.Contains("xe thu tu")
-                || text.Contains("mau thu tu")
-                || text.Contains("con thu tu")
-                || text.Contains("xe thu nam")
-                || text.Contains("mau thu nam")
-                || text.Contains("con thu nam");
+            return Regex.IsMatch(text, @"\b(xe|mau|con)\s*(thu\s*)?(1|2|3|4|5|nhat|hai|ba|tu|nam|cuoi)\b", RegexOptions.IgnoreCase)
+                || text.Contains("xe dau tien") || text.Contains("mau dau tien") || text.Contains("con dau tien")
+                || text.Contains("xe thu nhat") || text.Contains("mau thu nhat") || text.Contains("con thu nhat")
+                || text.Contains("xe thu hai") || text.Contains("mau thu hai") || text.Contains("con thu hai")
+                || text.Contains("xe thu ba") || text.Contains("mau thu ba") || text.Contains("con thu ba")
+                || text.Contains("xe thu tu") || text.Contains("mau thu tu") || text.Contains("con thu tu")
+                || text.Contains("xe thu nam") || text.Contains("mau thu nam") || text.Contains("con thu nam")
+                || text.Contains("xe cuoi") || text.Contains("mau cuoi") || text.Contains("con cuoi") || text.Contains("xe cuoi cung"); // Thêm check này
         }
         private static bool ShouldUseRagForRecommendation(string message)
         {
@@ -4440,22 +4483,13 @@ turnContext.Reason,
                 text.Contains("con nao") ||
                 text.Contains("xe khac") ||
                 text.Contains("mau khac") ||
+                text.Contains("hang khac") || 
                 text.Contains("lua chon khac") ||
                 text.Contains("con nao khac") ||
                 text.Contains("còn xe nào") ||
                 text.Contains("còn mẫu nào");
 
-            bool asksBetter =
-                text.Contains("tot hon") ||
-                text.Contains("on hon") ||
-                text.Contains("hop hon") ||
-                text.Contains("dang mua hon") ||
-                text.Contains("ngon hon") ||
-                text.Contains("ok hon") ||
-                text.Contains("hon 2 con nay") ||
-                text.Contains("hon hai con nay");
-
-            return asksAnother && asksBetter;
+            return asksAnother;
         }
         private static bool LooksLikeAmbiguousBetterQuestion(string message)
         {
