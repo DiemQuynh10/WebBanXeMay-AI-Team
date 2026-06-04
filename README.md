@@ -1,6 +1,6 @@
 # 🏍️ Website Bán Xe Máy Tích Hợp AI Chatbot
 
-Đây là đồ án tốt nghiệp của nhóm mình, xây dựng một website bán xe máy bằng ASP.NET Core MVC kết hợp AI Chatbot nhằm hỗ trợ khách hàng tìm kiếm thông tin và lựa chọn sản phẩm phù hợp.
+Dự án xây dựng website bán xe máy bằng ASP.NET Core MVC kết hợp AI Chatbot nhằm hỗ trợ khách hàng tìm kiếm thông tin và lựa chọn sản phẩm phù hợp.
 
 Điểm nổi bật của dự án là chatbot không chỉ trả lời hội thoại thông thường mà còn có khả năng làm việc với dữ liệu thực tế của hệ thống như sản phẩm, tồn kho và đơn hàng.
 
@@ -142,7 +142,7 @@ WebBanXeMay
 
 # Thành viên thực hiện
 
-## Diễm Quỳnh
+## Vai trò của tôi
 
 Vai trò:
 
