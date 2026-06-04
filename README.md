@@ -1,124 +1,76 @@
-# AI-Powered Motorcycle E-Commerce Platform
+# 🏍️ Hệ Thống Thương Mại Điện Tử Xe Máy Tích Hợp AI Chatbot
 
-An ASP.NET Core MVC motorcycle e-commerce platform integrated with an AI chatbot, Retrieval-Augmented Generation (RAG), conversation memory, and Telegram Bot support.
+Hệ thống thương mại điện tử bán xe máy được phát triển bằng ASP.NET Core MVC, tích hợp AI Chatbot hỗ trợ tư vấn khách hàng thông minh thông qua OpenAI, Retrieval-Augmented Generation (RAG) và Conversation Memory.
 
----
-
-## Project Overview
-
-This project combines a complete motorcycle sales website with an AI-powered customer support system.
-
-The chatbot is designed to handle both structured business operations and AI-assisted conversations, including:
-
-- Product recommendation
-- Product comparison
-- Inventory lookup
-- Order lookup
-- Context-aware conversations
-- Multi-turn interactions
-- Telegram Bot support
+Dự án được thực hiện với mục tiêu xây dựng một nền tảng bán xe trực tuyến kết hợp trợ lý AI có khả năng hiểu ngữ cảnh, tư vấn sản phẩm, so sánh xe, kiểm tra tồn kho và tra cứu đơn hàng.
 
 ---
 
-## Highlights
+# 📌 Tổng Quan Dự Án
 
-### AI Chatbot
+Hệ thống bao gồm hai thành phần chính:
 
-- Intent Routing Architecture
-- Conversation Memory
-- Multi-turn Context Handling
-- Product Recommendation
-- Product Comparison
-- Inventory Checking
-- Order Tracking
+## Website Thương Mại Điện Tử
 
-### Retrieval-Augmented Generation (RAG)
+Cho phép người dùng:
 
-- ChromaDB Vector Database
-- Semantic Retrieval
-- Knowledge Grounding
-- Context Injection
+* Xem danh sách sản phẩm
+* Tìm kiếm và lọc xe máy
+* Xem thông tin chi tiết sản phẩm
+* Thêm vào giỏ hàng
+* Đặt hàng trực tuyến
+* Theo dõi trạng thái đơn hàng
 
-### Real-Time Business Integration
+## AI Chatbot
 
-- Product Database Lookup
-- Inventory Query
-- Order Status Tracking
-- Customer Information Retrieval
+Chatbot hỗ trợ:
 
-### Multi-Channel Support
-
-- Web Chat Widget
-- Telegram Bot
+* Tư vấn xe theo nhu cầu người dùng
+* So sánh sản phẩm
+* Kiểm tra tồn kho
+* Tra cứu đơn hàng
+* Hội thoại nhiều lượt (Multi-turn Conversation)
+* Ghi nhớ ngữ cảnh hội thoại (Conversation Memory)
+* Hỗ trợ Website và Telegram
 
 ---
 
-# Screenshots
+# 🚀 Điểm Nổi Bật
 
-## Home Page
+## AI Chatbot
 
-![Home Page](docs/home-page.png)
+* Intent Routing Architecture
+* Conversation Memory
+* Multi-turn Context Handling
+* Product Recommendation
+* Product Comparison
+* Inventory Lookup
+* Order Lookup
 
----
+## Retrieval-Augmented Generation (RAG)
 
-## Product Catalog
+* ChromaDB Vector Database
+* Semantic Search
+* Context Grounding
+* Context Injection
 
-![Product Page](docs/product-page.png)
+## Business Integration
 
----
+* Truy vấn dữ liệu sản phẩm theo thời gian thực
+* Kiểm tra tồn kho từ cơ sở dữ liệu
+* Tra cứu đơn hàng thực tế
+* Tích hợp dữ liệu nghiệp vụ vào chatbot
 
-## AI Chatbot - Product Recommendation
+## Multi-Channel Support
 
-![Recommendation](docs/chatbot-recommendation.png)
-
-Example:
-
-> Recommend a motorcycle for women around 30 million VND.
-
----
-
-## AI Chatbot - Product Comparison
-
-![Comparison](docs/chatbot-comparison.png)
-
-Example:
-
-> Compare Honda Vision and Yamaha Latte.
-
----
-
-## AI Chatbot - Order Lookup
-
-![Order Lookup](docs/chatbot-order-lookup.png)
-
-Example:
-
-> Lookup order #1041.
+* Website Chat Widget
+* Telegram Bot
 
 ---
 
-## Order Tracking
+# 🏗️ Kiến Trúc Hệ Thống
 
-![Order Tracking](docs/order-tracking.png)
-
----
-
-## Order Management
-
-![Order Management](docs/order-management.png)
-
----
-
-## Admin Dashboard
-
-![Dashboard](docs/admin-dashboard.png)
-
----
-
-# System Architecture
-
-![Architecture](docs/architecture.png)
-### Request Flow
+## Luồng Xử Lý Chatbot
 
 ```text
 User
@@ -130,172 +82,273 @@ Chat Orchestrator
 Intent Detection
  ↓
 Decision Engine
- ├─ Tool API
+ ├─ Business Rules
  ├─ Conversation Memory
+ ├─ Tool Services
  └─ LLM Service
-        ↓
-       RAG
-        ↓
-     OpenAI
- ↓
+         ↓
+        RAG
+         ↓
+      OpenAI
+         ↓
 Response Generation
- ↓
+         ↓
 User
 ```
 
----
+## Triết Lý Thiết Kế
 
-# Chatbot Capabilities
+Hệ thống sử dụng kiến trúc Hybrid AI:
 
-## Product Recommendation
+### Rule-Based Layer
 
-Examples:
+Xử lý:
 
-- Recommend a motorcycle under 30 million VND
-- Recommend a motorcycle for women
-- Recommend a fuel-efficient motorcycle
+* Kiểm tra tồn kho
+* Tra cứu đơn hàng
+* Truy vấn dữ liệu sản phẩm
+* Các nghiệp vụ xác định
 
----
+### AI Layer
 
-## Product Comparison
+Xử lý:
 
-Examples:
+* Hiểu ý định người dùng
+* Hội thoại tự nhiên
+* Tư vấn sản phẩm
+* So sánh sản phẩm
 
-- Compare Honda Vision and Yamaha Latte
-- Compare the first and second motorcycles
-- Compare Vision with Air Blade
+### RAG Layer
 
----
+Xử lý:
 
-## Inventory Lookup
+* Semantic Search
+* Context Grounding
+* Knowledge Retrieval
 
-Examples:
+Mục tiêu:
 
-- Is Honda Vision available?
-- Check stock for Yamaha Grande
-
----
-
-## Order Lookup
-
-Examples:
-
-- Lookup order #1041
-- Check my order status
+* Giảm Hallucination
+* Tăng độ chính xác
+* Đảm bảo dữ liệu nghiệp vụ đáng tin cậy
 
 ---
 
-## Context-Aware Conversation
+# 🧠 Các Bài Toán Kỹ Thuật Đã Giải Quyết
 
-Examples:
+## 1. Ghi Nhớ Ngữ Cảnh Hội Thoại
+
+Ví dụ:
 
 ```text
-Recommend motorcycles around 30 million
+Tư vấn xe khoảng 30 triệu
 
 → Honda Vision
 → Yamaha Latte
 
-Compare the first and second one
-
-→ Chatbot understands the previous context
+So sánh xe đầu tiên với xe thứ hai
 ```
+
+Chatbot vẫn hiểu được người dùng đang đề cập tới Honda Vision và Yamaha Latte mà không cần nhập lại tên sản phẩm.
+
+Giải pháp:
+
+* Conversation Memory
+* Context Tracking
+* Context Injection
 
 ---
 
-# Technology Stack
+## 2. Giảm Hallucination
+
+Vấn đề:
+
+Mô hình AI có thể tạo ra thông tin không tồn tại trong hệ thống.
+
+Giải pháp:
+
+* Tách Business Rules khỏi AI
+* Dữ liệu sản phẩm lấy trực tiếp từ Database
+* Tích hợp RAG để grounding dữ liệu
+
+---
+
+## 3. Tư Vấn Sản Phẩm Theo Nhu Cầu
+
+Ví dụ:
+
+```text
+Tư vấn xe cho nữ khoảng 30 triệu
+```
+
+Chatbot phân tích:
+
+* Đối tượng sử dụng
+* Khoảng giá
+* Nhu cầu
+
+Sau đó đề xuất các sản phẩm phù hợp từ cơ sở dữ liệu.
+
+---
+
+## 4. So Sánh Sản Phẩm Theo Ngữ Cảnh
+
+Ví dụ:
+
+```text
+So sánh Vision và Latte
+
+Hoặc
+
+So sánh xe đầu tiên với xe thứ hai
+```
+
+Chatbot có khả năng xác định chính xác các sản phẩm cần so sánh dựa trên ngữ cảnh trước đó.
+
+---
+
+# 🗄️ Cơ Sở Dữ Liệu
+
+Các thực thể chính:
+
+* Product
+* Category
+* Brand
+* Customer
+* Order
+* OrderDetail
+* Review
+* Voucher
+* Conversation
+* ConversationMessage
+
+Dữ liệu được sử dụng đồng thời cho:
+
+* Website bán hàng
+* Chatbot AI
+* Tra cứu đơn hàng
+* Kiểm tra tồn kho
+
+---
+
+# 💻 Công Nghệ Sử Dụng
 
 ## Backend
 
-- ASP.NET Core MVC
-- C#
-- Entity Framework Core
-- SQL Server
+* ASP.NET Core MVC
+* C#
+* Entity Framework Core
+* SQL Server
 
 ## AI Components
 
-- OpenAI API
-- Retrieval-Augmented Generation (RAG)
-- ChromaDB
-- Conversation Memory
-- Intent Routing
-- Chat Orchestrator
+* OpenAI API
+* ChromaDB
+* Retrieval-Augmented Generation (RAG)
+* Conversation Memory
+* Intent Routing
+* Chat Orchestrator
 
 ## Frontend
 
-- Razor Views
-- Bootstrap
-- JavaScript
-- AJAX
+* Razor View
+* Bootstrap
+* JavaScript
+* AJAX
 
 ## Integration
 
-- Telegram Bot API
+* Telegram Bot API
 
 ---
 
-# Key Features
+# 👨‍💻 Vai Trò Và Đóng Góp
 
-## Customer Features
+Dự án được thực hiện bởi nhóm 2 thành viên.
 
-- Browse motorcycle catalog
-- Product search and filtering
-- Product details
-- Shopping cart
-- Order placement
-- Order tracking
-- AI chatbot support
+## Vai Trò Của Tôi
 
-## Admin Features
+### AI Chatbot Developer & Web Developer
 
-- Dashboard & analytics
-- Product management
-- Order management
-- Voucher management
-- Review moderation
-- Customer consultation management
+Các phần trực tiếp phụ trách:
 
----
+* Thiết kế kiến trúc chatbot
+* Xây dựng Intent Routing Engine
+* Xây dựng Conversation Memory
+* Phát triển Product Recommendation
+* Phát triển Product Comparison
+* Phát triển Inventory Lookup
+* Phát triển Order Lookup
+* Tích hợp OpenAI API
+* Tích hợp ChromaDB và RAG
+* Xây dựng Chat Orchestrator
+* Thiết kế luồng hội thoại đa lượt
+* Tích hợp chatbot vào website ASP.NET Core MVC
+* Phát triển giao diện web và các chức năng thương mại điện tử
 
-# AI Architecture Design
+## Vai Trò Thành Viên Còn Lại
 
-The chatbot follows a hybrid architecture:
+### Telegram Bot Developer
 
-### Rule-Based Layer
+Các phần phụ trách:
 
-Handles:
-
-- Product lookup
-- Inventory lookup
-- Order lookup
-- Structured business operations
-
-### AI Layer
-
-Handles:
-
-- User intent understanding
-- Natural language interaction
-- Recommendation generation
-- Contextual conversations
-
-### RAG Layer
-
-Provides:
-
-- Knowledge retrieval
-- Semantic search
-- Context grounding
-
-This design reduces hallucination while maintaining flexibility for natural conversations.
+* Tích hợp Telegram Bot API
+* Xây dựng luồng giao tiếp Telegram
+* Kết nối Telegram với hệ thống chatbot
+* Kiểm thử và triển khai Telegram Bot
 
 ---
 
-# Repository Structure
+# 📸 Hình Ảnh Hệ Thống
+
+## Trang Chủ
+
+![Home Page](docs/home-page.png)
+
+---
+
+## Danh Sách Sản Phẩm
+
+![Product Catalog](docs/product-page.png)
+
+---
+
+## Chatbot Tư Vấn Sản Phẩm
+
+![Recommendation](docs/chatbot-recommendation.png)
+
+---
+
+## Chatbot So Sánh Sản Phẩm
+
+![Comparison](docs/chatbot-comparison.png)
+
+---
+
+## Chatbot Tra Cứu Đơn Hàng
+
+![Order Lookup](docs/chatbot-order-lookup.png)
+
+---
+
+## Quản Lý Đơn Hàng
+
+![Order Management](docs/order-management.png)
+
+---
+
+## Dashboard Quản Trị
+
+![Dashboard](docs/admin-dashboard.png)
+
+---
+
+# 📂 Cấu Trúc Dự Án
 
 ```text
 WebBanXeMay
 │
-├── WebBanXeMay/              Main MVC Application
+├── WebBanXeMay/              MVC Application
 ├── Chatbot.API/              AI Chatbot Service
 ├── Chatbot.API.Tests/        Unit Tests
 ├── docs/                     README Images
@@ -306,10 +359,33 @@ WebBanXeMay
 
 ---
 
-# Author
+# 🎯 Kết Quả Đạt Được
 
-Graduation Project
+* Hoàn thành hệ thống thương mại điện tử xe máy
+* Xây dựng AI Chatbot tích hợp OpenAI
+* Triển khai Conversation Memory
+* Triển khai RAG với ChromaDB
+* Hỗ trợ hội thoại nhiều lượt
+* Hỗ trợ tư vấn sản phẩm theo nhu cầu
+* Hỗ trợ so sánh sản phẩm theo ngữ cảnh
+* Hỗ trợ tra cứu đơn hàng và tồn kho
+* Tích hợp Telegram Bot
 
-AI-Powered Motorcycle E-Commerce Platform
+---
 
-ASP.NET Core MVC + OpenAI + RAG + ChromaDB + Telegram Bot
+# 👥 Nhóm Phát Triển
+
+Dự án được thực hiện bởi nhóm 2 sinh viên Công nghệ Thông tin.
+
+### Diễm Quỳnh
+
+Vai trò:
+
+* AI Chatbot Developer
+* Web Developer
+
+### Thành viên còn lại
+
+Vai trò:
+
+* Telegram Bot Developer
