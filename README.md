@@ -1,36 +1,30 @@
 # 🏍️ Website Bán Xe Máy Tích Hợp AI Chatbot
 
-Đây là đồ án tốt nghiệp của nhóm mình, xây dựng một website bán xe máy bằng ASP.NET Core MVC và tích hợp AI Chatbot để hỗ trợ khách hàng trong quá trình tìm hiểu sản phẩm.
+Đây là đồ án tốt nghiệp của nhóm mình, xây dựng một website bán xe máy bằng ASP.NET Core MVC kết hợp AI Chatbot nhằm hỗ trợ khách hàng tìm kiếm thông tin và lựa chọn sản phẩm phù hợp.
 
-Khác với chatbot hỏi đáp thông thường, chatbot trong dự án có khả năng:
-
-* Tư vấn sản phẩm theo nhu cầu người dùng
-* So sánh các mẫu xe
-* Kiểm tra tồn kho
-* Tra cứu đơn hàng
-* Ghi nhớ nội dung cuộc trò chuyện trước đó
+Điểm nổi bật của dự án là chatbot không chỉ trả lời hội thoại thông thường mà còn có khả năng làm việc với dữ liệu thực tế của hệ thống như sản phẩm, tồn kho và đơn hàng.
 
 Dự án được thực hiện bởi nhóm 2 thành viên. Mình phụ trách phần chatbot và website, thành viên còn lại phụ trách Telegram Bot.
 
 ---
 
-## Công nghệ sử dụng
+# Công nghệ sử dụng
 
-### Backend
+## Backend
 
 * ASP.NET Core MVC
 * Entity Framework Core
 * SQL Server
 * C#
 
-### AI Chatbot
+## AI Chatbot
 
 * OpenAI API
 * ChromaDB
 * Retrieval-Augmented Generation (RAG)
 * Conversation Memory
 
-### Frontend
+## Frontend
 
 * Razor View
 * Bootstrap
@@ -39,12 +33,12 @@ Dự án được thực hiện bởi nhóm 2 thành viên. Mình phụ trách p
 
 ---
 
-## Những gì mình thực hiện
+# Phần mình thực hiện
 
 Trong dự án này mình phụ trách:
 
 * Thiết kế luồng xử lý chatbot
-* Xây dựng cơ chế nhận diện ý định người dùng (Intent Routing)
+* Xây dựng cơ chế Intent Routing
 * Xây dựng Conversation Memory
 * Tích hợp OpenAI API
 * Xây dựng chức năng tư vấn sản phẩm
@@ -56,9 +50,9 @@ Trong dự án này mình phụ trách:
 
 ---
 
-## Một số bài toán đã giải quyết
+# Một số bài toán đã giải quyết
 
-### Ghi nhớ ngữ cảnh hội thoại
+## Ghi nhớ ngữ cảnh hội thoại
 
 Ví dụ:
 
@@ -73,51 +67,66 @@ Sau đó người dùng chỉ cần nhập:
 
 > So sánh xe đầu tiên với xe thứ hai
 
-Chatbot vẫn hiểu được sản phẩm nào đang được nhắc tới.
+Chatbot vẫn hiểu được sản phẩm nào đang được nhắc tới mà không cần người dùng nhập lại tên xe.
 
 ---
 
-### Giảm thông tin trả lời sai
+## Kết hợp AI và dữ liệu thực tế
 
-Những thông tin như:
+Các thông tin như:
 
-* Tồn kho
 * Giá sản phẩm
+* Tồn kho
 * Trạng thái đơn hàng
 
-được lấy trực tiếp từ cơ sở dữ liệu thay vì để AI tự tạo ra câu trả lời.
+được lấy trực tiếp từ cơ sở dữ liệu thay vì để AI tự tạo câu trả lời.
+
+Cách tiếp cận này giúp giảm đáng kể tình trạng trả lời sai thông tin (hallucination) và tăng độ chính xác khi hỗ trợ khách hàng.
 
 ---
 
-## Hình ảnh hệ thống
+## Kiến trúc Chatbot
 
-### Trang chủ
+Chatbot được xây dựng theo mô hình Hybrid AI:
+
+* Rule-based xử lý nghiệp vụ
+* OpenAI hỗ trợ hiểu ngôn ngữ tự nhiên
+* RAG hỗ trợ truy xuất thông tin liên quan
+* Conversation Memory hỗ trợ hội thoại nhiều lượt
+
+Mục tiêu là đảm bảo tính linh hoạt của AI nhưng vẫn giữ được độ chính xác khi xử lý dữ liệu thực tế.
+
+---
+
+# Hình ảnh hệ thống
+
+## Trang chủ
 
 ![Home Page](docs/home-page.png)
 
-### Danh sách sản phẩm
+## Danh sách sản phẩm
 
 ![Product Catalog](docs/product-page.png)
 
-### Chatbot tư vấn sản phẩm
+## Chatbot tư vấn sản phẩm
 
 ![Recommendation](docs/chatbot-recommendation.png)
 
-### Chatbot so sánh sản phẩm
+## Chatbot so sánh sản phẩm
 
 ![Comparison](docs/chatbot-comparison.png)
 
-### Quản lý đơn hàng
+## Quản lý đơn hàng
 
 ![Order Management](docs/order-management.png)
 
-### Dashboard quản trị
+## Dashboard quản trị
 
 ![Dashboard](docs/admin-dashboard.png)
 
 ---
 
-## Cấu trúc dự án
+# Cấu trúc dự án
 
 ```text
 WebBanXeMay
@@ -131,17 +140,31 @@ WebBanXeMay
 
 ---
 
-## Thành viên thực hiện
+# Thành viên thực hiện
 
-### Diễm Quỳnh
+## Diễm Quỳnh
 
-Phụ trách:
+Vai trò:
 
-* AI Chatbot
-* Website Development
+* Thiết kế kiến trúc chatbot
+* Xây dựng Intent Routing
+* Xây dựng Conversation Memory
+* Tích hợp OpenAI API
+* Phát triển các chức năng website
 
-### Thành viên còn lại
+## Thành viên còn lại
 
-Phụ trách:
+Vai trò:
 
-* Telegram Bot
+* Phát triển Telegram Bot
+* Tích hợp chatbot trên Telegram
+
+```
+---
+
+**Mục tiêu học tập**
+
+- Tìm hiểu cách kết hợp AI vào ứng dụng web thực tế
+- Xây dựng chatbot hỗ trợ khách hàng dựa trên dữ liệu doanh nghiệp
+- Nâng cao kỹ năng ASP.NET Core MVC, Entity Framework Core và tích hợp API
+```
