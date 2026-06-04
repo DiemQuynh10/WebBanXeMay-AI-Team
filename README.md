@@ -57,7 +57,13 @@ The chatbot is designed to handle both structured business operations and AI-ass
 
 ## Home Page
 
-![Home Page](docs/homepage.png)
+![Home Page](docs/home-page.png)
+
+---
+
+## Product Catalog
+
+![Product Page](docs/product-page.png)
 
 ---
 
@@ -83,11 +89,23 @@ Example:
 
 ## AI Chatbot - Order Lookup
 
-![Order Lookup](docs/order-lookup.png)
+![Order Lookup](docs/chatbot-order-lookup.png)
 
 Example:
 
 > Lookup order #1041.
+
+---
+
+## Order Tracking
+
+![Order Tracking](docs/order-tracking.png)
+
+---
+
+## Order Management
+
+![Order Management](docs/order-management.png)
 
 ---
 
@@ -100,7 +118,6 @@ Example:
 # System Architecture
 
 ![Architecture](docs/architecture.png)
-
 ### Request Flow
 
 ```text
