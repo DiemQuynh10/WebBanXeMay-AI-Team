@@ -1,162 +1,298 @@
 # AI-Powered Motorcycle E-Commerce Platform
 
-An ASP.NET Core MVC motorcycle e-commerce platform integrated with an AI chatbot, Retrieval-Augmented Generation (RAG), and Telegram Bot.
-
-## Key Contributions
-
-* Designed and implemented a chatbot orchestration architecture.
-* Built intent routing and conversation memory modules.
-* Integrated OpenAI and RAG for contextual responses.
-* Implemented real-time order lookup and inventory retrieval.
-* Developed Telegram Bot integration.
-* Built a complete motorcycle e-commerce and administration system.
+An ASP.NET Core MVC motorcycle e-commerce platform integrated with an AI chatbot, Retrieval-Augmented Generation (RAG), conversation memory, and Telegram Bot support.
 
 ---
 
-## Features
+## Project Overview
 
-### Customer Features
+This project combines a complete motorcycle sales website with an AI-powered customer support system.
 
-* Browse motorcycle catalog
-* Search and filter products
-* View product details
-* Track orders
-* Use AI chatbot for support
+The chatbot is designed to handle both structured business operations and AI-assisted conversations, including:
 
-### AI Chatbot
-
-The chatbot supports:
-
-* Product recommendation
-* Product comparison
-* Inventory lookup
-* Order lookup
-* Context-aware conversations
-* Multi-turn interactions
-
-Example queries:
-
-* "Tư vấn xe cho nữ khoảng 30 triệu"
-* "So sánh Vision với Latte"
-* "Vision còn hàng không?"
-* "Tra cứu đơn hàng 1041"
-
-### Admin Features
-
-* Dashboard & analytics
-* Product management
-* Order management
-* Voucher management
-* Review moderation
-* Customer consultation management
-
----
-
-## Tech Stack
-
-### Backend
-
-* ASP.NET Core MVC
-* C#
-* Entity Framework Core
-* SQL Server
-
-### AI Components
-
-* OpenAI API
-* Retrieval-Augmented Generation (RAG)
-* ChromaDB
-* Conversation Memory
-* Intent Routing
-* Chat Orchestrator
-
-### Frontend
-
-* Razor Views
-* Bootstrap
-* JavaScript
-* AJAX
-
-### Integration
-
-* Telegram Bot API
-
----
-
-## System Architecture
-
-![Architecture](docs/architecture.png)
-
----
-
-## Screenshots
-
-### Home Page
-
-![Home Page](docs/home-page.png)
-
-### Product Catalog
-
-![Product Catalog](docs/product-page.png)
-
-### Order Tracking
-
-![Order Tracking](docs/order-tracking.png)
-
-### Admin Dashboard
-
-![Admin Dashboard](docs/admin-dashboard.png)
-
-### Order Management
-
-![Order Management](docs/order-management.png)
-
----
-
-## AI Chatbot
-
-### Product Recommendation
-
-![Recommendation](docs/chatbot-recommendation.png)
-
-### Product Comparison
-
-![Comparison](docs/chatbot-comparison.png)
-
-### Order Lookup
-
-![Order Lookup](docs/chatbot-order-lookup.png)
-
----
-
-## Project Structure
-
-```text
-WebBanXeMay
-│
-├── WebBanXeMay/          # ASP.NET Core MVC Application
-├── Chatbot.API/          # Chatbot Service
-├── Chatbot.API.Tests/    # Unit Tests
-├── Chatbot-dev/          # Development Utilities
-├── docs/                 # Screenshots & Architecture
-│
-└── README.md
-```
+- Product recommendation
+- Product comparison
+- Inventory lookup
+- Order lookup
+- Context-aware conversations
+- Multi-turn interactions
+- Telegram Bot support
 
 ---
 
 ## Highlights
 
-* Hybrid chatbot architecture combining business rules and LLM capabilities.
-* RAG-based knowledge retrieval using ChromaDB.
-* Real-time business data retrieval from SQL Server.
-* Multi-channel deployment (Website + Telegram).
-* Context-aware conversation handling with memory support.
+### AI Chatbot
+
+- Intent Routing Architecture
+- Conversation Memory
+- Multi-turn Context Handling
+- Product Recommendation
+- Product Comparison
+- Inventory Checking
+- Order Tracking
+
+### Retrieval-Augmented Generation (RAG)
+
+- ChromaDB Vector Database
+- Semantic Retrieval
+- Knowledge Grounding
+- Context Injection
+
+### Real-Time Business Integration
+
+- Product Database Lookup
+- Inventory Query
+- Order Status Tracking
+- Customer Information Retrieval
+
+### Multi-Channel Support
+
+- Web Chat Widget
+- Telegram Bot
 
 ---
 
-## Author
+# Screenshots
 
-Graduation Thesis Project
+## Home Page
 
-AI-Powered Motorcycle E-Commerce Platform with Intelligent Conversational Assistant
+![Home Page](docs/homepage.png)
+
+---
+
+## AI Chatbot - Product Recommendation
+
+![Recommendation](docs/chatbot-recommendation.png)
+
+Example:
+
+> Recommend a motorcycle for women around 30 million VND.
+
+---
+
+## AI Chatbot - Product Comparison
+
+![Comparison](docs/chatbot-comparison.png)
+
+Example:
+
+> Compare Honda Vision and Yamaha Latte.
+
+---
+
+## AI Chatbot - Order Lookup
+
+![Order Lookup](docs/order-lookup.png)
+
+Example:
+
+> Lookup order #1041.
+
+---
+
+## Admin Dashboard
+
+![Dashboard](docs/admin-dashboard.png)
+
+---
+
+# System Architecture
+
+![Architecture](docs/architecture.png)
+
+### Request Flow
+
+```text
+User
+ ↓
+Chat Controller
+ ↓
+Chat Orchestrator
+ ↓
+Intent Detection
+ ↓
+Decision Engine
+ ├─ Tool API
+ ├─ Conversation Memory
+ └─ LLM Service
+        ↓
+       RAG
+        ↓
+     OpenAI
+ ↓
+Response Generation
+ ↓
+User
+```
+
+---
+
+# Chatbot Capabilities
+
+## Product Recommendation
+
+Examples:
+
+- Recommend a motorcycle under 30 million VND
+- Recommend a motorcycle for women
+- Recommend a fuel-efficient motorcycle
+
+---
+
+## Product Comparison
+
+Examples:
+
+- Compare Honda Vision and Yamaha Latte
+- Compare the first and second motorcycles
+- Compare Vision with Air Blade
+
+---
+
+## Inventory Lookup
+
+Examples:
+
+- Is Honda Vision available?
+- Check stock for Yamaha Grande
+
+---
+
+## Order Lookup
+
+Examples:
+
+- Lookup order #1041
+- Check my order status
+
+---
+
+## Context-Aware Conversation
+
+Examples:
+
+```text
+Recommend motorcycles around 30 million
+
+→ Honda Vision
+→ Yamaha Latte
+
+Compare the first and second one
+
+→ Chatbot understands the previous context
+```
+
+---
+
+# Technology Stack
+
+## Backend
+
+- ASP.NET Core MVC
+- C#
+- Entity Framework Core
+- SQL Server
+
+## AI Components
+
+- OpenAI API
+- Retrieval-Augmented Generation (RAG)
+- ChromaDB
+- Conversation Memory
+- Intent Routing
+- Chat Orchestrator
+
+## Frontend
+
+- Razor Views
+- Bootstrap
+- JavaScript
+- AJAX
+
+## Integration
+
+- Telegram Bot API
+
+---
+
+# Key Features
+
+## Customer Features
+
+- Browse motorcycle catalog
+- Product search and filtering
+- Product details
+- Shopping cart
+- Order placement
+- Order tracking
+- AI chatbot support
+
+## Admin Features
+
+- Dashboard & analytics
+- Product management
+- Order management
+- Voucher management
+- Review moderation
+- Customer consultation management
+
+---
+
+# AI Architecture Design
+
+The chatbot follows a hybrid architecture:
+
+### Rule-Based Layer
+
+Handles:
+
+- Product lookup
+- Inventory lookup
+- Order lookup
+- Structured business operations
+
+### AI Layer
+
+Handles:
+
+- User intent understanding
+- Natural language interaction
+- Recommendation generation
+- Contextual conversations
+
+### RAG Layer
+
+Provides:
+
+- Knowledge retrieval
+- Semantic search
+- Context grounding
+
+This design reduces hallucination while maintaining flexibility for natural conversations.
+
+---
+
+# Repository Structure
+
+```text
+WebBanXeMay
+│
+├── WebBanXeMay/              Main MVC Application
+├── Chatbot.API/              AI Chatbot Service
+├── Chatbot.API.Tests/        Unit Tests
+├── docs/                     README Images
+│
+├── README.md
+└── WebBanXeMay.sln
+```
+
+---
+
+# Author
+
+Graduation Project
+
+AI-Powered Motorcycle E-Commerce Platform
+
+ASP.NET Core MVC + OpenAI + RAG + ChromaDB + Telegram Bot
